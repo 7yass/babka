@@ -76,6 +76,7 @@ class Ship(commands.Cog):
     @commands.hybrid_command(name='ship', description='Ile % miłości?')
     async def ship(self, ctx, first: discord.Member, second: discord.Member = None):
         gid = ctx.guild.id
+        await ctx.defer()
         second = second or ctx.author
         if first.id == second.id:
             return await ctx.reply(t(gid, 'ship.self'), ephemeral=True)

@@ -409,6 +409,7 @@ class Gamble(commands.Cog):
     @commands.hybrid_command(name='rich', description='Najbogatsi', aliases=['baltop'])
     async def rich(self, ctx):
         gid = ctx.guild.id
+        await ctx.defer()
         with db.conn_ctx() as conn:
             rows = conn.execute('SELECT user_id, cash FROM eco WHERE guild_id=? ORDER BY cash DESC LIMIT 10',
                                 (str(gid),)).fetchall()

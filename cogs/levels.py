@@ -120,6 +120,19 @@ async def apply_rewards(member: discord.Member, level: int):
     settings = db.get_settings(member.guild.id)
     earned = [r for r in rows if r['level'] <= level]
     added = []
+    # never strip these no matter what the reward table says
+    protected = set()
+    try:
+        with db.conn_ctx() as conn:
+            vrow = conn.execute('SELECT role_id FROM verify_cfg WHERE guild_id=?',
+                                (str(member.guild.id),)).fetchone()
+            if vrow and vrow['role_id']:
+                protected.add(str(vrow['role_id']))
+            for srow in conn.execute('SELECT role_id FROM staff_roles WHERE guild_id=?',
+                                     (str(member.guild.id),)).fetchall():
+                protected.add(str(srow['role_id']))
+    except Exception:
+        pass
     try:
         if settings.get('stack_rewards'):
             for r in earned:
@@ -132,6 +145,10 @@ async def apply_rewards(member: discord.Member, level: int):
             for r in rows:
                 if str(r['role_id']) == str(top['role_id']):
                     continue
+                if str(r['role_id']) in protected:
+                    continue
+                if (r['level'] or 0) <= 0:
+                    continue  # baseline grants are kept forever, never stripped
                 role = member.guild.get_role(int(r['role_id']))
                 if role and role in member.roles:
                     await member.remove_roles(role, reason='level reward')
@@ -398,6 +415,7 @@ class Levels(commands.Cog):
     @commands.hybrid_command(name='rank', description='Karta gracza')
     async def rank(self, ctx, member: discord.Member = None):
         import aiohttp
+        await ctx.defer()
         member = member or ctx.author
         data = get_user(ctx.guild.id, member.id)
 
@@ -417,7 +435,7 @@ class Levels(commands.Cog):
         try:
             u = await self.bot.fetch_user(member.id)
             if u.banner:
-                banner = await grab(str(u.banner.with_size(600).url))
+                banner = await grab(str(u.banner.with_size(512).url))
                 print(f"[rank] {member.display_name}: banner={'yes' if banner else 'fetch-failed'}")
             if u.accent_color:
                 accent = u.accent_color.to_rgb()
@@ -439,6 +457,7 @@ class Levels(commands.Cog):
     @commands.hybrid_command(name='leaderboard', description='Ranking XP', aliases=['lb', 'top'])
     async def leaderboard(self, ctx):
         from lang import t as _t
+        await ctx.defer()
         embeds, files, view = await self._lb_render(ctx.guild, 'xp', 5)
         if not embeds:
             return await ctx.reply(_t(ctx.guild.id, 'lb.empty'), ephemeral=True)
