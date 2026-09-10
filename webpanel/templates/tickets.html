@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% block body %}
+<h1>Tickets ({{ open_n }} open)</h1>
+<p class="hint">1 · Setup where tickets live. 2 · Who can handle them + what kinds exist. 3 · Post the panel.</p>
+<details class="sect" open>
+<summary>1 · Setup <span class="sub">channels, limits, texts</span></summary>
+<div class="inner">
+<form method="post" action="/tickets">
+  <div class="row2">
+    <label>Panel channel<select name="panel_ch">{% for o in chs %}<option value="{{ o[0] }}" {% if o[0]==(c.panel_channel or '') %}selected{% endif %}>{{ o[1] }}</option>{% endfor %}</select></label>
+    <label>Ticket category<select name="category">{% for o in cats %}<option value="{{ o[0] }}" {% if o[0]==(c.category_id or '') %}selected{% endif %}>{{ o[1] }}</option>{% endfor %}</select></label>
+  </div>
+  <div class="row2">
+    <label>Archive category (— = delete on close)<select name="archive">{% for o in cats %}<option value="{{ o[0] }}" {% if o[0]==(c.archive_id or '') %}selected{% endif %}>{{ o[1] }}</option>{% endfor %}</select></label>
+    <label>Transcript log channel<select name="log">{% for o in chs %}<option value="{{ o[0] }}" {% if o[0]==(c.log_channel or '') %}selected{% endif %}>{{ o[1] }}</option>{% endfor %}</select></label>
+  </div>
+  <div class="row2">
+    <label>Max open per user<input type="number" name="max_open" value="{{ c.max_open or 3 }}"></label>
+    <label>Auto-close dead hours (0 = off)<input type="number" name="auto_close" value="{{ c.auto_close_hours or 0 }}"></label>
+  </div>
+  <label>Naming ({user} {n} {type})<input name="naming" value="{{ c.naming or 'ticket-{user}-{n}' }}"></label>
+  <label>Greeting ({user} {type} {server})<textarea name="greeting" rows="3">{{ c.greeting or '' }}</textarea></label>
+  <label>Button label (no types)<input name="btn" value="{{ c.btn_label or 'Open ticket' }}"></label>
+  <label>Panel title<input name="title" value="{{ c.title or 'Support' }}"></label>
+  <label>Panel text<textarea name="desc" rows="3">{{ c.description or '' }}</textarea></label>
+  <div class="row"><button name="save_cfg" value="1">Save setup</button></div>
+</form>
+</div>
+</details>
+<details class="sect">
+<summary>2 · People &amp; types <span class="sub">support roles + ticket kinds</span></summary>
+<div class="inner">
+<h2>Support roles</h2>
+<table>
+{% for rid, rname in support %}<tr><td>{{ rname }}</td>
+<td><form method="post" action="/tickets" style="display:inline"><input type="hidden" name="staff_del" value="{{ rid }}"><button class="danger">X</button></form></td></tr>{% endfor %}
+</table>
+<form class="row" method="post" action="/tickets">
+  <select name="staff_add">{% for o in roles %}<option value="{{ o[0] }}">{{ o[1] }}</option>{% endfor %}</select>
+  <button>Add support</button>
+</form>
+<h2>Types (empty = single button)</h2>
+<table>
+{% for x in types %}<tr><td>{{ x.label }}</td><td>{{ x.description or '' }}</td>
+<td><form method="post" action="/tickets" style="display:inline"><input type="hidden" name="t_del" value="{{ x.id }}"><button class="danger">X</button></form></td></tr>{% endfor %}
+</table>
+<form class="row" method="post" action="/tickets">
+  <input name="t_add" placeholder="label">
+  <input name="t_desc" placeholder="description">
+  <select name="t_role"><option value="">no extra role</option>{% for o in roles %}<option value="{{ o[0] }}">{{ o[1] }}</option>{% endfor %}</select>
+  <button>Add type</button>
+</form>
+</div>
+</details>
+<details class="sect" open>
+<summary>3 · Post panel <span class="sub">{% if c.panel_message %}live — posting again replaces it{% else %}not posted yet{% endif %}</span></summary>
+<div class="inner">
+<form method="post" action="/tickets">
+  <div class="row"><button name="post" value="1" {% if not c.panel_channel %}disabled{% endif %}>Post / refresh panel</button></div>
+</form>
+  {% if not c.panel_channel %}<p class="hint">Pick a panel channel in step 1 first.</p>{% endif %}
+</div>
+</details>
+{% endblock %}

@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block body %}
+<h1>Info panels</h1>
+<table>
+<tr><th>ID</th><th>Title</th><th>Channel</th><th></th></tr>
+{% for r in rows %}<tr><td>{{ r.id }}</td><td>{{ r.title }}</td><td>{{ r.channel_id }}</td>
+<td><form method="post" action="/panels" style="display:inline"><input type="hidden" name="del" value="{{ r.id }}"><button class="danger">X</button></form></td></tr>{% endfor %}
+</table>
+<h2>New panel (posts immediately)</h2>
+<form method="post" action="/panels">
+  <label>Channel<select name="create_ch">{% for c in channels %}<option value="{{ c.id }}">#{{ c.name }}</option>{% endfor %}</select></label>
+  <label>Title<input name="create_title"></label>
+  <label>Description<textarea name="create_desc" rows="3"></textarea></label>
+  <button>Post panel</button>
+</form>
+<h2>Add button to panel</h2>
+<form method="post" action="/panels">
+  <label>Panel ID<input name="btn_panel" type="number"></label>
+  <label>Button text<input name="btn_label"></label>
+  <label>Answer<textarea name="btn_text" rows="3"></textarea></label>
+  <label>Color<select name="btn_color"><option>grey</option><option>green</option><option>red</option></select></label>
+  <button>Add button</button>
+</form>
+<p class="hint">Answers show privately and self-delete after 2 min.</p>
+{% endblock %}

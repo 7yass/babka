@@ -1,0 +1,194 @@
+{% extends 'base.html' %}
+{% block pageclass %}wide{% endblock %}
+{% block body %}
+<h1>Studio</h1>
+<p class="hint">Build a message on the left, see exactly what Discord shows on the right, Send. Link buttons go by webhook — role/verify buttons go by bot.</p>
+<form method="post" action="/studio" id="studio">
+  <div class="cols studio-cols">
+  <div class="composer">
+    <details class="sect" open>
+    <summary>1 · What to say <span class="sub">text + embeds</span></summary>
+    <div class="inner">
+    <label>Message content<textarea name="content" id="f_content" rows="3"></textarea></label>
+    <div id="embeds"></div>
+    <div class="row"><button type="button" id="addEmbed">+ Embed</button></div>
+    </div>
+    </details>
+    <details class="sect">
+    <summary>2 · Buttons <span class="sub">optional — role + verify handled by the bot</span></summary>
+    <div class="inner">
+    <div id="buttons"></div>
+    <div class="row"><button type="button" id="addBtn">+ Button</button></div>
+    </div>
+    </details>
+    <details class="sect">
+    <summary>3 · Where to send <span class="sub">server, channel, webhook identity</span></summary>
+    <div class="inner">
+    <div class="row2">
+      <label>Server<select id="f_guild" oninput="loadRoles()"></select></label>
+      <label>Channel (for role/verify buttons — sent via bot)<select name="channel" id="f_chan"></select></label>
+    </div>
+    <label>Webhook URL<input name="url" id="f_url" value="{{ wh_url }}" placeholder="https://discord.com/api/webhooks/..."></label>
+    <div class="row2">
+      <label>Username<input name="username" id="f_user" value="{{ wh_user }}" placeholder="Babka Danka"></label>
+      <label>Avatar URL<input name="avatar" id="f_avatar" value="{{ wh_avatar }}"></label>
+    </div>
+    </div>
+    </details>
+    <div class="row"><button>Send</button></div>
+  </div>
+  <div class="preview">
+    <div class="dmsg">
+      <div class="dhead"><span class="davatar"></span><span class="dname" id="p_user">Babka Danka</span><span class="dtime">today</span></div>
+      <div class="dbody" id="p_content"></div>
+      <div id="p_embeds"></div>
+      <div id="p_btns" class="dbtns"></div>
+    </div>
+  </div>
+  </div>
+</form>
+<script>
+let ROLES = [];
+let GUILDS = [];
+let CUR_GID = '';
+async function loadGuilds() {
+  try {
+    const r = await fetch('/api/roles');
+    const j = await r.json();
+    GUILDS = j.guilds || [];
+    ROLES = j.roles || [];
+    const sel = document.getElementById('f_guild');
+    sel.innerHTML = GUILDS.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
+    if (GUILDS.length) {
+      CUR_GID = GUILDS[0].id;
+      sel.value = CUR_GID;
+    }
+    document.querySelectorAll('select.b_role').forEach(fillRoles);
+  } catch (e) {}
+}
+async function loadRoles() {
+  const sel = document.getElementById('f_guild');
+  CUR_GID = sel.value || CUR_GID;
+  try {
+    const r = await fetch('/api/roles?gid=' + encodeURIComponent(CUR_GID));
+    const j = await r.json();
+    ROLES = j.roles || [];
+    document.querySelectorAll('select.b_role').forEach(fillRoles);
+  } catch (e) {}
+  try {
+    const r = await fetch('/api/channels?gid=' + encodeURIComponent(CUR_GID));
+    const j = await r.json();
+    const csel = document.getElementById('f_chan');
+    csel.innerHTML = (j.channels || []).map(c => `<option value="${c.id}">#${esc(c.name)}</option>`).join('');
+  } catch (e) {}
+}
+function fillRoles(sel) {
+  const cur = sel.dataset.cur || '';
+  sel.innerHTML = '<option value="">— pick role —</option>' +
+    ROLES.map(r => `<option value="${r.id}"${r.id === cur ? ' selected' : ''}>@${r.name}</option>`).join('');
+}
+let n = 0;
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const nl = s => esc(s).replace(/\n/g,'<br>');
+function addEmbed() {
+  if (n >= 10) return;
+  const i = n++;
+  const d = document.createElement('div');
+  d.className = 'embedform';
+  d.dataset.idx = i;
+  d.innerHTML = `<h3>Embed ${i + 1} <button type="button" class="danger" onclick="this.closest('.embedform').remove();preview()">X</button></h3>
+    <div class="row2"><label>Author<input name="e_author" oninput="preview()"></label>
+    <label>Author icon URL<input name="e_authoricon" oninput="preview()"></label></div>
+    <label>Title<input name="e_title" oninput="preview()"></label>
+    <div class="row2"><label>Title URL<input name="e_titleurl" oninput="preview()"></label>
+    <label>Sidebar color<input type="color" name="e_color" value="#ffffff" oninput="preview()"></label></div>
+    <label>Description<textarea name="e_desc" rows="4" oninput="preview()"></textarea></label>
+    <div class="efields"></div>
+    <div class="row"><button type="button" onclick="addField(${i},this)">+ Field</button></div>
+    <div class="row2"><label>Image URL<input name="e_image" oninput="preview()"></label>
+    <label>Thumbnail URL<input name="e_thumb" oninput="preview()"></label></div>
+    <div class="row2"><label>Footer<input name="e_footer" oninput="preview()"></label>
+    <label>Footer icon URL<input name="e_footicon" oninput="preview()"></label></div>
+    <label class="check"><input type="checkbox" name="e_timestamp_${i}" oninput="preview()"> Timestamp now</label>`;
+  document.getElementById('embeds').appendChild(d);
+  preview();
+}
+let fcount = 0;
+function addField(i, btn) {
+  const box = btn.closest('.embedform').querySelector('.efields');
+  const k = box.children.length;
+  const d = document.createElement('div');
+  d.className = 'efield';
+  d.innerHTML = `<input name="f_name_${i}" placeholder="Field name" oninput="preview()">
+    <input name="f_value_${i}" placeholder="Field value" oninput="preview()">
+    <label class="check"><input type="checkbox" name="f_inline_${i}" value="${k}" oninput="preview()"> inline</label>
+    <button type="button" class="danger" onclick="this.parentNode.remove();preview()">X</button>`;
+  box.appendChild(d);
+}
+function addBtn() {
+  const box = document.getElementById('buttons');
+  if (box.children.length >= 5) return;
+  const d = document.createElement('div');
+  d.className = 'brow';
+  d.innerHTML = `<input name="b_label" placeholder="Label" oninput="preview()">
+    <select name="b_color" oninput="preview()"><option>grey</option><option>green</option><option>red</option></select>
+    <select name="b_action" oninput="actionChanged(this);preview()"><option value="role">Give role</option><option value="verify">Verify</option><option value="link">Link</option></select>
+    <select name="b_role" class="b_role" oninput="preview()"></select>
+    <input name="b_url" placeholder="https://…" style="display:none" oninput="preview()">
+    <button type="button" class="danger" onclick="this.parentNode.remove();preview()">X</button>`;
+  box.appendChild(d);
+  fillRoles(d.querySelector('.b_role'));
+  preview();
+}
+function actionChanged(sel) {
+  const row = sel.closest('.brow');
+  const isLink = sel.value === 'link';
+  row.querySelector('.b_role').style.display = isLink ? 'none' : '';
+  row.querySelector('[name="b_url"]').style.display = isLink ? '' : 'none';
+}
+const btnStyle = { grey: '#4e5058', green: '#248046', red: '#da373c' };
+function preview() {
+  const v = id => (document.getElementById(id) || {}).value || '';
+  document.getElementById('p_user').textContent = v('f_user') || 'Babka Danka';
+  document.getElementById('p_content').innerHTML = nl(v('f_content'));
+  const box = document.getElementById('p_embeds');
+  box.innerHTML = '';
+  document.querySelectorAll('#embeds .embedform').forEach(f => {
+    const g = n => (f.querySelector(`[name="${n}"]`) || {}).value || '';
+    const e = document.createElement('div');
+    e.className = 'dembed';
+    e.style.borderLeftColor = g('e_color') || '#ffffff';
+    let h = '';
+    if (g('e_author').trim()) h += `<div class="dauthor">${nl(g('e_author'))}</div>`;
+    if (g('e_title').trim()) h += `<div class="dtitle">${nl(g('e_title'))}</div>`;
+    if (g('e_desc').trim()) h += `<div class="ddesc">${nl(g('e_desc'))}</div>`;
+    f.querySelectorAll('.efield').forEach(fl => {
+      const fn = fl.querySelector('[name^="f_name"]'), fv = fl.querySelector('[name^="f_value"]');
+      if ((fn.value || fv.value || '').trim()) h += `<div class="dfield"><b>${nl(fn.value)}</b><br>${nl(fv.value)}</div>`;
+    });
+    if (g('e_image').trim()) h += `<img src="${esc(g('e_image'))}" onerror="this.remove()">`;
+    if (g('e_thumb').trim()) h += `<img class="dthumb" src="${esc(g('e_thumb'))}" onerror="this.remove()">`;
+    if (g('e_footer').trim()) h += `<div class="dfooter">${nl(g('e_footer'))}</div>`;
+    e.innerHTML = h;
+    box.appendChild(e);
+  });
+  const bb = document.getElementById('p_btns');
+  bb.innerHTML = '';
+  document.querySelectorAll('#buttons .brow').forEach(r => {
+    const lab = r.querySelector('[name="b_label"]').value || 'Button';
+    const col = r.querySelector('[name="b_color"]').value || 'grey';
+    const b = document.createElement('span');
+    b.className = 'pbtn';
+    b.style.background = btnStyle[col] || btnStyle.grey;
+    b.textContent = lab;
+    bb.appendChild(b);
+  });
+}
+document.getElementById('addEmbed').addEventListener('click', addEmbed);
+document.getElementById('addBtn').addEventListener('click', addBtn);
+['f_user','f_content'].forEach(id => document.getElementById(id).addEventListener('input', preview));
+addEmbed();
+loadGuilds();
+preview();
+</script>
+{% endblock %}

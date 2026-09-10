@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block body %}
+<h1>{{ title }}</h1>
+<form method="post" action="{{ action }}">
+{% for f in fields %}
+  {% if f.type == 'check' %}
+  <label class="check"><input type="checkbox" name="{{ f.k }}" {% if f.v %}checked{% endif %}> {{ f.label }}</label>
+  {% elif f.type == 'select' %}
+  <label>{{ f.label }}<select name="{{ f.k }}">{% for o in f.opts %}{% if o is sequence and o is not string %}<option value="{{ o[0] }}" {% if o[0]==f.v %}selected{% endif %}>{{ o[1] }}</option>{% else %}<option {% if o==f.v %}selected{% endif %}>{{ o }}</option>{% endif %}{% endfor %}</select></label>
+  {% elif f.type == 'area' %}
+  <label>{{ f.label }}<textarea name="{{ f.k }}" rows="5">{{ f.v }}</textarea></label>
+  {% elif f.type == 'number' %}
+  <label>{{ f.label }}<input type="number" name="{{ f.k }}" value="{{ f.v }}"></label>
+  {% elif f.type != 'hidden' %}
+  <label>{{ f.label }}<input name="{{ f.k }}" value="{{ f.v }}"></label>
+  {% endif %}
+{% endfor %}
+  <button>Save</button>
+</form>
+{% endblock %}

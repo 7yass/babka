@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block body %}
+<h1>Say</h1>
+<p class="hint">Babka posts this as herself in the channel you pick.</p>
+<form method="post" action="/say">
+  <label>Channel<select name="channel">{% for o in chs %}<option value="{{ o[0] }}">{{ o[1] }}</option>{% endfor %}</select></label>
+  <label>Message<textarea name="text" rows="4" placeholder="Co babka ma powiedzieć…"></textarea></label>
+  <div class="row"><button>Send</button></div>
+</form>
+{% endblock %}

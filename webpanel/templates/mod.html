@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block body %}
+<h1>Moderation</h1>
+<h2>Warnings lookup</h2>
+<form class="row" method="post" action="/mod">
+  <input name="lookup" placeholder="user ID" value="{{ lookup }}">
+  <button>Find</button>
+</form>
+{% if warns %}
+<table>
+<tr><th>#</th><th>Reason</th><th>By</th><th>When</th></tr>
+{% for w in warns %}<tr><td>{{ w.id }}</td><td>{{ w.reason }}</td><td>{{ w.mod_id }}</td><td>{{ w.created_at }}</td></tr>{% endfor %}
+</table>
+<form method="post" action="/mod">
+  <input type="hidden" name="clear" value="{{ lookup }}">
+  <button class="danger">Clear all for this user</button>
+</form>
+{% endif %}
+<h2>Permabans</h2>
+<table>
+<tr><th>User ID</th><th>Reason</th><th></th></tr>
+{% for b in bans %}<tr><td>{{ b.user_id }}</td><td>{{ b.reason }}</td>
+<td><form method="post" action="/mod" style="display:inline"><input type="hidden" name="pban_del" value="{{ b.user_id }}"><button class="danger">X</button></form></td></tr>{% endfor %}
+</table>
+<form class="row" method="post" action="/mod">
+  <input name="pban_add" placeholder="user ID">
+  <input name="pban_reason" placeholder="reason">
+  <button>Permaban</button>
+</form>
+{% endblock %}

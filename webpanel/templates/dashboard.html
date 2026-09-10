@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block body %}
+<h1>Status</h1>
+<div class="card guildbar">
+  <form class="row" method="post" action="/guild">
+    <select name="gid">{% for g in guilds %}<option value="{{ g }}" {% if g==gid %}selected{% endif %}>{{ g }}</option>{% endfor %}</select>
+    <input name="gid" placeholder="or paste server ID" value="{{ gid }}">
+    <button>Use</button>
+  </form>
+</div>
+<div class="stats">
+{% for k, v in rows %}<div class="stat"><span>{{ k }}</span><b>{{ v }}</b></div>{% endfor %}
+</div>
+<h2>Setup checklist</h2>
+<div class="card check">
+<ul>
+{% for label, done, link in checks %}<li><span class="dot {% if done %}ok{% else %}no{% endif %}"></span>{{ label }}<a href="{{ link }}">open →</a></li>{% endfor %}
+</ul>
+</div>
+<p class="hint">IDs: Discord settings → Advanced → Developer Mode, then right-click → Copy ID.</p>
+{% endblock %}

@@ -1,0 +1,1184 @@
+{
+  "meta": {
+    "rank": [
+      "levels",
+      "View your rank card.",
+      [
+        "level",
+        "xp"
+      ],
+      "[member]",
+      "Everyone"
+    ],
+    "rewards": [
+      "levels",
+      "List level → role rewards.",
+      [],
+      null,
+      "Everyone"
+    ],
+    "rewardadd": [
+      "levels",
+      "Give a role at a level.",
+      [],
+      "<level> <@role>",
+      "Manage Server"
+    ],
+    "rewarddel": [
+      "levels",
+      "Remove a level reward.",
+      [],
+      "<level>",
+      "Manage Server"
+    ],
+    "xpmult": [
+      "levels",
+      "Set the XP multiplier.",
+      [],
+      "<0-10>",
+      "Manage Server"
+    ],
+    "addxp": [
+      "levels",
+      "Give XP to a user.",
+      [],
+      "<member> <amount>",
+      "Manage Server"
+    ],
+    "noxp": [
+      "levels",
+      "Toggle XP on/off for a channel.",
+      [],
+      "#channel",
+      "Manage Server"
+    ],
+    "lvlchannel": [
+      "levels",
+      "Where level-ups get announced.",
+      [],
+      "[#channel]",
+      "Manage Server"
+    ],
+    "stack": [
+      "levels",
+      "Toggle stacking of reward roles.",
+      [],
+      null,
+      "Manage Server"
+    ],
+    "vcsetup": [
+      "voice",
+      "Voice lobby setup and configuration.",
+      [
+        "vc"
+      ],
+      "[#channel|off]",
+      "Manage Server"
+    ],
+    "vcpanel": [
+      "voice",
+      "Drop your room control panel in the room chat.",
+      [],
+      null,
+      "Everyone"
+    ],
+    "voicemaster": [
+      "voice",
+      "Full voice setup (slash).",
+      [],
+      "<subcommand>",
+      "Manage Server",
+      true
+    ],
+    "ban": [
+      "moderation",
+      "Ban a user from the server.",
+      [],
+      "<member> [reason]",
+      "Ban Members"
+    ],
+    "unban": [
+      "moderation",
+      "Unban a user by ID.",
+      [],
+      "<user_id>",
+      "Ban Members"
+    ],
+    "kick": [
+      "moderation",
+      "Kick a user from the server.",
+      [],
+      "<member> [reason]",
+      "Kick Members"
+    ],
+    "mute": [
+      "moderation",
+      "Mute with default duration.",
+      [],
+      "<member> [time] [reason]",
+      "Moderate Members",
+      false
+    ],
+    "unmute": [
+      "moderation",
+      "Lift a timeout.",
+      [
+        "untimeout"
+      ],
+      "<member>",
+      "Moderate Members"
+    ],
+    "tempban": [
+      "moderation",
+      "Ban for a duration, auto-unban.",
+      [],
+      "<member> <duration> [reason]",
+      "Ban Members"
+    ],
+    "softban": [
+      "moderation",
+      "Ban + instant unban, wipes messages.",
+      [],
+      "<member> [reason]",
+      "Ban Members"
+    ],
+    "nick": [
+      "moderation",
+      "Change or reset a nickname.",
+      [],
+      "<member> [nick]",
+      "Manage Nicknames"
+    ],
+    "warn": [
+      "moderation",
+      "Issue a warning to a user.",
+      [],
+      "<member> [reason]",
+      "Manage Messages"
+    ],
+    "warnings": [
+      "moderation",
+      "View all warnings for a user.",
+      [
+        "warns"
+      ],
+      "<member>",
+      "Manage Messages"
+    ],
+    "clearwarns": [
+      "moderation",
+      "Clear all warnings for a user.",
+      [
+        "clearwarn"
+      ],
+      "<member>",
+      "Manage Server"
+    ],
+    "clear": [
+      "moderation",
+      "Bulk delete messages.",
+      [
+        "purge"
+      ],
+      "<amount>",
+      "Manage Messages"
+    ],
+    "slowmode": [
+      "moderation",
+      "Set slowmode in the current channel.",
+      [
+        "slow"
+      ],
+      "<seconds>",
+      "Manage Channels"
+    ],
+    "lock": [
+      "moderation",
+      "Lock the current channel.",
+      [],
+      null,
+      "Manage Channels"
+    ],
+    "unlock": [
+      "moderation",
+      "Unlock the current channel.",
+      [],
+      null,
+      "Manage Channels"
+    ],
+    "antiraid": [
+      "protection",
+      "Age gate, burst lockdown, honeypot.",
+      [],
+      "<subcommand>",
+      "Administrator",
+      true
+    ],
+    "automod": [
+      "protection",
+      "Spam, invites, links, bad words filter.",
+      [],
+      "<subcommand>",
+      "Manage Server",
+      true
+    ],
+    "banlist": [
+      "protection",
+      "Permanent bans that re-ban on rejoin.",
+      [],
+      "<subcommand>",
+      "Ban Members",
+      true
+    ],
+    "mod": [
+      "protection",
+      "Full moderation panel (warn/kick/ban/timeout...).",
+      [],
+      "<subcommand>",
+      "Moderate Members",
+      true
+    ],
+    "raid": [
+      "protection",
+      "Show antiraid config.",
+      [],
+      null,
+      "Everyone"
+    ],
+    "raidtoggle": [
+      "protection",
+      "Toggle antiraid on/off.",
+      [],
+      null,
+      "Administrator"
+    ],
+    "raction": [
+      "protection",
+      "What happens to too-new accounts.",
+      [],
+      "<kick|ban|log>",
+      "Administrator"
+    ],
+    "rburst": [
+      "protection",
+      "Join-burst lockdown threshold.",
+      [],
+      "<joins> <seconds>",
+      "Administrator"
+    ],
+    "lockdown": [
+      "protection",
+      "Lock/unlock ALL channels (raid emergency).",
+      [
+        "ld"
+      ],
+      null,
+      "Administrator"
+    ],
+    "honeypot": [
+      "protection",
+      "Trap channel: talkers get auto-banned.",
+      [
+        "hp"
+      ],
+      "[#channel|off]",
+      "Administrator"
+    ],
+    "age": [
+      "protection",
+      "Minimum account age in days.",
+      [],
+      "<days>",
+      "Administrator"
+    ],
+    "am": [
+      "protection",
+      "AutoMod status + usage.",
+      [],
+      "[status]",
+      "Manage Server"
+    ],
+    "amtoggle": [
+      "protection",
+      "Toggle AutoMod on/off.",
+      [],
+      null,
+      "Manage Server"
+    ],
+    "amword": [
+      "protection",
+      "Block/unblock a word.",
+      [],
+      "<add|del> <word>",
+      "Manage Server"
+    ],
+    "aminivite": [
+      "protection",
+      "Toggle the invite filter.",
+      [
+        "aminvite"
+      ],
+      "<on|off>",
+      "Manage Server"
+    ],
+    "amlinks": [
+      "protection",
+      "Toggle the all-links filter.",
+      [],
+      "<on|off>",
+      "Manage Server"
+    ],
+    "pban": [
+      "protection",
+      "Permaban by ID, forever.",
+      [],
+      "<user_id> [reason]",
+      "Ban Members"
+    ],
+    "punban": [
+      "protection",
+      "Lift a permaban + unban.",
+      [],
+      "<user_id>",
+      "Ban Members"
+    ],
+    "pbanlist": [
+      "protection",
+      "List permabanned users.",
+      [],
+      null,
+      "Ban Members"
+    ],
+    "help": [
+      "info",
+      "This help center.",
+      [
+        "h",
+        "commands"
+      ],
+      "[command]",
+      "Everyone"
+    ],
+    "info": [
+      "info",
+      "FAQ button panels with self-deleting answers.",
+      [],
+      "<subcommand>",
+      "Manage Server",
+      true
+    ],
+    "infosetup": [
+      "info",
+      "Post a button panel.",
+      [],
+      "[#channel] | Title | text",
+      "Manage Server"
+    ],
+    "infoadd": [
+      "info",
+      "Add a button with a private answer.",
+      [],
+      "<panel> | Label | text",
+      "Manage Server"
+    ],
+    "inforem": [
+      "info",
+      "Remove a button from a panel.",
+      [],
+      "<panel> | Label",
+      "Manage Server"
+    ],
+    "infodel": [
+      "info",
+      "Delete a whole panel.",
+      [],
+      "<panel>",
+      "Manage Server"
+    ],
+    "infolist": [
+      "info",
+      "List panels and buttons.",
+      [],
+      null,
+      "Everyone"
+    ],
+    "rules": [
+      "info",
+      "Rules panel with click-to-verify.",
+      [],
+      "<subcommand>",
+      "Manage Server",
+      true
+    ],
+    "rulesetup": [
+      "info",
+      "Post rules + verify button.",
+      [],
+      "#channel @role | Label | Title | text",
+      "Manage Server"
+    ],
+    "rulesedit": [
+      "info",
+      "Edit rules text/label/title.",
+      [],
+      "| Label | Title | text",
+      "Manage Server"
+    ],
+    "rulesoff": [
+      "info",
+      "Remove the rules panel.",
+      [],
+      null,
+      "Manage Server"
+    ],
+    "tttest": [
+      "info",
+      "Check the latest video of an account.",
+      [],
+      "<username>",
+      "Everyone"
+    ],
+    "rr": [
+      "info",
+      "Post a self-role button row (up to 5 roles).",
+      [],
+      "@role1 @role2 ...",
+      "Manage Roles"
+    ],
+    "tiktok": [
+      "info",
+      "Ping the channel when a TikTok account posts.",
+      [],
+      "<subcommand>",
+      "Manage Server",
+      true
+    ],
+    "ttwatch": [
+      "info",
+      "Watch a TikTok account.",
+      [],
+      "<username> <#channel>",
+      "Manage Server"
+    ],
+    "ttunwatch": [
+      "info",
+      "Stop watching an account.",
+      [],
+      "<username>",
+      "Manage Server"
+    ],
+    "ttlist": [
+      "info",
+      "List watched accounts.",
+      [],
+      null,
+      "Everyone"
+    ],
+    "prefix": [
+      "info",
+      "Change the prefix.",
+      [],
+      "<subcommand>",
+      "Manage Server",
+      true
+    ],
+    "setup": [
+      "setup",
+      "Full server checklist + staff roles + log channels.",
+      [],
+      null,
+      "Everyone"
+    ],
+    "staff": [
+      "setup",
+      "Add a staff role (passes every gate).",
+      [],
+      "@role",
+      "Manage Server"
+    ],
+    "unstaff": [
+      "setup",
+      "Remove a staff role.",
+      [],
+      "@role",
+      "Manage Server"
+    ],
+    "stafflist": [
+      "setup",
+      "List staff roles.",
+      [],
+      null,
+      "Everyone"
+    ],
+    "setlog": [
+      "setup",
+      "Set the mod-log channel.",
+      [],
+      "#channel",
+      "Manage Server"
+    ],
+    "setlevelup": [
+      "setup",
+      "Set the level-up channel.",
+      [],
+      "[#channel]",
+      "Manage Server"
+    ],
+    "lang": [
+      "setup",
+      "Switch bot language EN/PL.",
+      [],
+      "[en|pl]",
+      "Manage Server"
+    ],
+    "wsetup": [
+      "setup",
+      "Set greeting channel + texts.",
+      [],
+      "#channel | join | leave",
+      "Manage Server"
+    ],
+    "wtest": [
+      "setup",
+      "Preview greeting texts.",
+      [],
+      null,
+      "Manage Server"
+    ],
+    "woff": [
+      "setup",
+      "Turn greetings off.",
+      [],
+      null,
+      "Manage Server"
+    ],
+    "leaderboard": [
+      "levels",
+      "View the XP standings.",
+      [
+        "lb",
+        "top"
+      ],
+      null,
+      "Everyone",
+      false
+    ],
+    "muteduration": [
+      "moderation",
+      "Default mute length.",
+      [],
+      "<time>",
+      "Manage Server",
+      false
+    ],
+    "unmuteall": [
+      "moderation",
+      "Remove all timeouts.",
+      [],
+      null,
+      "Moderate Members",
+      false
+    ],
+    "mutelist": [
+      "moderation",
+      "Currently timed out.",
+      [],
+      null,
+      "Moderate Members",
+      false
+    ],
+    "imute": [
+      "moderation",
+      "Block images for a user here.",
+      [],
+      "<member> [reason]",
+      "Manage Messages",
+      false
+    ],
+    "iunmute": [
+      "moderation",
+      "Allow images again.",
+      [],
+      "<member>",
+      "Manage Messages",
+      false
+    ],
+    "imutelist": [
+      "moderation",
+      "Image-muted here.",
+      [],
+      null,
+      "Manage Messages",
+      false
+    ],
+    "rmute": [
+      "moderation",
+      "Block reactions for a user here.",
+      [],
+      "<member> [reason]",
+      "Manage Messages",
+      false
+    ],
+    "runmute": [
+      "moderation",
+      "Allow reactions again.",
+      [],
+      "<member>",
+      "Manage Messages",
+      false
+    ],
+    "rmutelist": [
+      "moderation",
+      "Reaction-muted here.",
+      [],
+      null,
+      "Manage Messages",
+      false
+    ],
+    "permkick": [
+      "moderation",
+      "Kick plus re-kick on rejoin.",
+      [],
+      "<member> [reason]",
+      "Kick Members",
+      false
+    ],
+    "permkicked": [
+      "moderation",
+      "List permkicks.",
+      [],
+      null,
+      "Kick Members",
+      false
+    ],
+    "unpermkick": [
+      "moderation",
+      "Lift permkick.",
+      [],
+      "<user|all>",
+      "Kick Members",
+      false
+    ],
+    "bans": [
+      "moderation",
+      "Server ban list.",
+      [],
+      null,
+      "Ban Members",
+      false
+    ],
+    "hackban": [
+      "moderation",
+      "Ban a raw user ID.",
+      [],
+      "<user_id> [reason]",
+      "Ban Members",
+      false
+    ],
+    "unbanall": [
+      "moderation",
+      "Unban everyone.",
+      [],
+      null,
+      "Administrator",
+      false
+    ],
+    "unwarn": [
+      "moderation",
+      "Remove latest warn.",
+      [],
+      "<member>",
+      "Manage Messages",
+      false
+    ],
+    "hide": [
+      "moderation",
+      "Hide this channel.",
+      [],
+      null,
+      "Manage Channels",
+      false
+    ],
+    "reveal": [
+      "moderation",
+      "Reveal this channel.",
+      [],
+      null,
+      "Manage Channels",
+      false
+    ],
+    "history": [
+      "moderation",
+      "Warns plus timeout state.",
+      [],
+      "<member>",
+      "Manage Messages",
+      false
+    ],
+    "reason": [
+      "moderation",
+      "Rewrite latest warn reason.",
+      [],
+      "<member> <text>",
+      "Manage Messages",
+      false
+    ],
+    "modstats": [
+      "moderation",
+      "Warns given per mod.",
+      [],
+      null,
+      "Manage Server",
+      false
+    ],
+    "naughty": [
+      "moderation",
+      "Most warned users.",
+      [],
+      null,
+      "Manage Messages",
+      false
+    ],
+    "role": [
+      "moderation",
+      "Give a role.",
+      [],
+      "<member> <role>",
+      "Manage Roles",
+      false
+    ],
+    "unrole": [
+      "moderation",
+      "Take a role.",
+      [],
+      "<member> <role>",
+      "Manage Roles",
+      false
+    ],
+    "inrole": [
+      "moderation",
+      "Who has a role.",
+      [],
+      "<role>",
+      "Manage Roles",
+      false
+    ],
+    "stripstaff": [
+      "moderation",
+      "Strip all roles.",
+      [],
+      "<member>",
+      "Administrator",
+      false
+    ],
+    "cleanup": [
+      "moderation",
+      "Delete bot messages.",
+      [],
+      "[amount]",
+      "Manage Messages",
+      false
+    ],
+    "forcenick": [
+      "moderation",
+      "Lock a nickname.",
+      [],
+      "<member> [nick|off]",
+      "Manage Nicknames",
+      false
+    ],
+    "jail": [
+      "moderation",
+      "Jail a user.",
+      [],
+      "<member> [reason]",
+      "Moderate Members",
+      false
+    ],
+    "jailed": [
+      "moderation",
+      "Who is jailed.",
+      [],
+      null,
+      "Moderate Members",
+      false
+    ],
+    "unjail": [
+      "moderation",
+      "Free a user.",
+      [],
+      "<member>",
+      "Moderate Members",
+      false
+    ],
+    "blind": [
+      "moderation",
+      "Hide channel from a user.",
+      [],
+      "<member>",
+      "Manage Channels",
+      false
+    ],
+    "unblind": [
+      "moderation",
+      "Show channel again.",
+      [],
+      "<member>",
+      "Manage Channels",
+      false
+    ],
+    "drag": [
+      "moderation",
+      "Drag a user to your VC.",
+      [],
+      "<member>",
+      "Move Members",
+      false
+    ],
+    "newusers": [
+      "moderation",
+      "Recently joined members.",
+      [],
+      "[count]",
+      "Manage Server",
+      false
+    ],
+    "purge": [
+      "moderation",
+      "Full purge suite: nuke, filters, logs.",
+      [
+        "clear"
+      ],
+      "[amount]",
+      "Manage Messages",
+      false
+    ],
+    "afk": [
+      "info",
+      "Go AFK with an optional reason.",
+      [],
+      "[reason]",
+      "Everyone",
+      false
+    ],
+    "avatar": [
+      "info",
+      "Show a user avatar.",
+      [],
+      "[member]",
+      "Everyone",
+      false
+    ],
+    "banner": [
+      "info",
+      "Show a user banner.",
+      [],
+      "[member]",
+      "Everyone",
+      false
+    ],
+    "roblox": [
+      "info",
+      "Roblox user, avatar and name history.",
+      [],
+      "<subcommand>",
+      "Everyone",
+      false
+    ],
+    "bal": [
+      "info",
+      "Your coin balance.",
+      [
+        "balance"
+      ],
+      null,
+      "Everyone",
+      false
+    ],
+    "daily": [
+      "info",
+      "Daily coins.",
+      [],
+      null,
+      "Everyone",
+      false
+    ],
+    "blackjack": [
+      "info",
+      "Blackjack for coins.",
+      [
+        "bj"
+      ],
+      "<bet>",
+      "Everyone",
+      false
+    ],
+    "embed": [
+      "info",
+      "Post and manage rich embeds.",
+      [],
+      "<subcommand>",
+      "Manage Server",
+      false
+    ],
+    "giveaway": [
+      "info",
+      "Timed draws with reroll.",
+      [],
+      "<subcommand>",
+      "Manage Server",
+      false
+    ],
+    "poll": [
+      "info",
+      "Button polls with live counts.",
+      [],
+      "<subcommand>",
+      "Manage Server",
+      false
+    ],
+    "reactionroles": [
+      "info",
+      "Emoji reaction roles.",
+      [],
+      "<subcommand>",
+      "Manage Roles",
+      false
+    ],
+    "welcome": [
+      "setup",
+      "Greetings, boost and ping-on-join.",
+      [],
+      "<subcommand>",
+      "Manage Server",
+      false
+    ],
+    "tickets": [
+      "setup",
+      "Typed panels, claim, transcripts, ratings, auto-close.",
+      [],
+      "<subcommand>",
+      "Manage Server",
+      false
+    ],
+    "vcs": [
+      "voice",
+      "One-command voice setup.",
+      [],
+      "<lobby> <panel>",
+      "Manage Server",
+      false
+    ],
+    "verify": [
+      "setup",
+      "Verification gate: button or captcha.",
+      [],
+      "<subcommand>",
+      "Manage Server",
+      false
+    ],
+    "slots": [
+      "economy",
+      "Spin the reels.",
+      [],
+      "<bet>",
+      "Everyone"
+    ],
+    "coinflip": [
+      "economy",
+      "Heads or tails, double or nothing.",
+      [
+        "moneta"
+      ],
+      "<bet> <heads/tails>",
+      "Everyone"
+    ],
+    "rob": [
+      "economy",
+      "Steal from someone (or pay them trying).",
+      [],
+      "<member>",
+      "Everyone"
+    ],
+    "rich": [
+      "economy",
+      "Top 10 richest degenerates.",
+      [
+        "baltop"
+      ],
+      "",
+      "Everyone"
+    ],
+    "pay": [
+      "economy",
+      "Send money to someone.",
+      [],
+      "<member> <amount>",
+      "Everyone"
+    ],
+    "work": [
+      "economy",
+      "Do an honest job, earn honest cash.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "ship": [
+      "fun",
+      "Love % between two users. Stored forever.",
+      [],
+      "<user> [user]",
+      "Everyone"
+    ],
+    "shiplb": [
+      "fun",
+      "Top couples ranking.",
+      [
+        "ships"
+      ],
+      "",
+      "Everyone"
+    ],
+    "fitleader": [
+      "fun",
+      "Hardest fits leaderboard.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "clownleader": [
+      "fun",
+      "Top clown moments.",
+      [
+        "clowns"
+      ],
+      "",
+      "Everyone"
+    ],
+    "clownwall": [
+      "fun",
+      "Clown wall setup.",
+      [],
+      "set / off",
+      "Manage Server"
+    ],
+    "babka": [
+      "fun",
+      "Babka herself.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "wordle": [
+      "fun",
+      "Daily Polish word game. Win XP + cash.",
+      [],
+      "[guess]",
+      "Everyone"
+    ],
+    "counting": [
+      "fun",
+      "Counting channel setup.",
+      [],
+      "set / off",
+      "Manage Server"
+    ],
+    "voice-state": [
+      "levels",
+      "Who earns voice XP right now.",
+      [],
+      "",
+      "Manage Server"
+    ],
+    "party": [
+      "voice",
+      "No-limit party mode for your room.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "bring": [
+      "voice",
+      "Drag a role into your voice channel.",
+      [],
+      "<role>",
+      "Move Members"
+    ],
+    "whitelist": [
+      "protection",
+      "Channels exempt from automod/level limits.",
+      [],
+      "add / remove / list",
+      "Manage Server"
+    ],
+    "strikes": [
+      "protection",
+      "Check bad-word strikes.",
+      [],
+      "<member>",
+      "Manage Messages"
+    ],
+    "strike-reset": [
+      "protection",
+      "Clear bad-word strikes.",
+      [],
+      "<member>",
+      "Manage Messages"
+    ],
+    "youtube": [
+      "info",
+      "YouTube upload notifications.",
+      [],
+      "watch / unwatch / list / test",
+      "Everyone"
+    ],
+    "stats": [
+      "setup",
+      "Live server stat channels.",
+      [],
+      "setup / refresh",
+      "Manage Server"
+    ],
+    "langroles": [
+      "setup",
+      "Auto language roles + panel.",
+      [],
+      "setup",
+      "Manage Server"
+    ]
+  },
+  "cats": {
+    "levels": [
+      "Levels",
+      "XP, rank cards and standings. Text + voice XP with role rewards."
+    ],
+    "voice": [
+      "Voice",
+      "Join-to-create rooms with a full control panel in the room chat."
+    ],
+    "moderation": [
+      "Moderation",
+      "Bans, kicks, mutes, warns, purges, slowmode, locks."
+    ],
+    "protection": [
+      "Protection",
+      "Age gate, raid lockdown, honeypot, filters, permabans. Slash only."
+    ],
+    "info": [
+      "Info",
+      "Help, FAQ panels, rules + verify, TikTok notifier, roles, prefix."
+    ],
+    "setup": [
+      "Setup",
+      "First-run checklist, staff roles, greetings, log channels."
+    ],
+    "economy": [
+      "Economy",
+      "Money games, balances and crime."
+    ],
+    "fun": [
+      "Fun",
+      "Ships, walls of shame, games and chaos."
+    ]
+  }
+}

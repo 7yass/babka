@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block body %}
+<h1>Activity</h1>
+<p class="hint">Tracking since today — charts fill up over the next days.</p>
+<h2>Messages per day (14d)</h2>
+<div class="card">
+  <div class="chart">
+  {% for b in bars %}
+    <div class="bar" style="height:{{ (b.msgs * 120 / peak)|round }}px" title="{{ b.day }}: {{ b.msgs }} msgs, +{{ b.joins }}/-{{ b.leaves }}"></div>
+  {% endfor %}
+  </div>
+  <div class="chart-x">{% for b in bars %}<span>{{ b.day }}</span>{% endfor %}</div>
+</div>
+<div class="row2">
+<div>
+<h2>Top chatters (7d)</h2>
+<table>
+{% for r in top %}<tr><td>{{ loop.index }}</td><td>@{{ names.get(r.user_id, r.user_id) }}</td><td>{{ r.c }}</td></tr>{% endfor %}
+</table>
+</div>
+<div>
+<h2>Top voice (all time)</h2>
+<table>
+{% for r in voice %}<tr><td>{{ loop.index }}</td><td>{{ r.user_id }}</td><td>{{ r.voice_minutes // 60 }}h {{ r.voice_minutes % 60 }}m</td></tr>{% endfor %}
+</table>
+</div>
+</div>
+{% endblock %}

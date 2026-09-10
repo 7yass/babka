@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block body %}
+<h1>Roles</h1>
+<table>
+<tr><th>Name</th><th>ID</th><th></th></tr>
+{% for r in roles %}<tr><td>{{ r.name }}{% if r.managed %} (bot){% endif %}</td><td>{{ r.id }}</td>
+<td>{% if not r.managed and r.name != '@everyone' %}<form method="post" action="/roles" style="display:inline"><input type="hidden" name="del" value="{{ r.id }}"><button class="danger">X</button></form>{% endif %}</td></tr>{% endfor %}
+</table>
+<h2>New role</h2>
+<form method="post" action="/roles">
+  <label>Name<input name="add_name"></label>
+  <label>Color hex (empty = none)<input name="add_color" placeholder="ff0000"></label>
+  <label class="check"><input type="checkbox" name="add_mention"> Mentionable</label>
+  <label class="check"><input type="checkbox" name="add_hoist"> Show separately</label>
+  <button>Create</button>
+</form>
+<p class="hint">New roles land at the bottom — drag them up in Discord settings above the roles they must manage.</p>
+{% endblock %}
