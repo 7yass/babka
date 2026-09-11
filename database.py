@@ -261,6 +261,12 @@ def init_db():
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL, day TEXT NOT NULL,
             word TEXT DEFAULT '', guesses TEXT DEFAULT '[]', done INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id, day))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS wordle_cfg (
+            guild_id TEXT PRIMARY KEY, channel_id TEXT,
+            minutes INTEGER DEFAULT 30, next_at INTEGER DEFAULT 0)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS wordle_wins (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, wins INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id))''')
         try:
             c.execute('ALTER TABLE eco ADD COLUMN daily_streak INTEGER DEFAULT 0')
         except Exception:
