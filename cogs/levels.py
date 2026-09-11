@@ -66,13 +66,20 @@ def user_boost(guild_id, user_id) -> float:
     """Personal XP multiplier: guild row wins, '*' row is global fallback."""
     if str(user_id) == HOUSE_BOOST_ID:
         return HOUSE_BOOST_MULT
+    mult = 1.0
     with db.conn_ctx() as conn:
         for gid in (str(guild_id), '*'):
             row = conn.execute('SELECT mult FROM xp_boosts WHERE guild_id=? AND user_id=?',
                                (gid, str(user_id))).fetchone()
             if row and (row['mult'] or 0) > 0:
-                return float(row['mult'])
-    return 1.0
+                mult = float(row['mult'])
+                break
+    try:
+        if db.boost_left(guild_id, user_id) > 0:
+            mult *= 2.0
+    except Exception:
+        pass
+    return mult
 
 
 def get_user(guild_id, user_id) -> dict:

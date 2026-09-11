@@ -143,11 +143,11 @@
       "Ban Members"
     ],
     "nick": [
-      "moderation",
-      "Change or reset a nickname.",
+      "economy",
+      "Use a nick token.",
       [],
-      "<member> [nick]",
-      "Manage Nicknames"
+      "<name>",
+      "Everyone"
     ],
     "warn": [
       "moderation",
@@ -780,12 +780,11 @@
       false
     ],
     "forcenick": [
-      "moderation",
-      "Lock a nickname.",
+      "economy",
+      "Rename someone for 1h.",
       [],
-      "<member> [nick|off]",
-      "Manage Nicknames",
-      false
+      "<member> <name>",
+      "Everyone"
     ],
     "jail": [
       "moderation",
@@ -1018,7 +1017,7 @@
     ],
     "work": [
       "economy",
-      "Do an honest job, earn honest cash.",
+      "Do your job shift (hourly).",
       [],
       "",
       "Everyone"
@@ -1145,6 +1144,55 @@
       [],
       "setup",
       "Manage Server"
+    ],
+    "job": [
+      "economy",
+      "Careers, fame and promotions.",
+      [],
+      "list / join / leave / my",
+      "Everyone"
+    ],
+    "shop": [
+      "economy",
+      "Spend money on power.",
+      [],
+      "buy",
+      "Everyone"
+    ],
+    "inv": [
+      "economy",
+      "Your items.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "bail": [
+      "economy",
+      "Buy your way out of jail (500).",
+      [],
+      "",
+      "Everyone"
+    ],
+    "heist": [
+      "economy",
+      "Crew robberies, split or jail.",
+      [],
+      "start / join",
+      "Everyone"
+    ],
+    "bounty": [
+      "economy",
+      "Put a price on a head.",
+      [],
+      "<member> <amount>",
+      "Everyone"
+    ],
+    "bounties": [
+      "economy",
+      "Open bounties list.",
+      [],
+      "",
+      "Everyone"
     ]
   },
   "cats": {

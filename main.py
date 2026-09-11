@@ -59,6 +59,9 @@ COGS = [
     'cogs.serverstats',
     'cogs.youtube',
     'cogs.activity',
+    'cogs.jobs',
+    'cogs.shop',
+    'cogs.crime',
 ]
 
 

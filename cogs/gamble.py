@@ -83,6 +83,62 @@ def slots_image(reels) -> bytes:
     return buf.getvalue()
 
 
+def bj_table_image(phand, dhand, hide=True) -> bytes:
+    """Felt table with real cards. Dealer top, player bottom."""
+    import io as _io
+    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
+    from pathlib import Path as _P
+    CW, CHH = 110, 154
+    try:
+        f_r = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 34)
+        f_s = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans.ttf'), 52)
+    except Exception:
+        f_r = f_s = _F.load_default()
+
+    def card(rank, suit, back=False):
+        c = _Img.new('RGB', (CW, CHH), (232, 232, 236))
+        d = _Dr.Draw(c)
+        d.rounded_rectangle([0, 0, CW - 1, CHH - 1], radius=12, outline=(120, 120, 128), width=3)
+        if back:
+            d.rounded_rectangle([12, 12, CW - 13, CHH - 13], radius=8, fill=(40, 40, 46))
+            for x in range(20, CW - 20, 16):
+                d.line([(x, 20), (x, CHH - 20)], fill=(70, 70, 78), width=3)
+            return c
+        col = (180, 40, 40) if suit in ('♥', '♦') else (25, 25, 30)
+        d.text((10, 6), rank, font=f_r, fill=col)
+        try:
+            w = d.textlength(suit, font=f_s)
+            d.text(((CW - w) / 2, 52), suit, font=f_s, fill=col)
+        except Exception:
+            d.text((40, 60), suit, font=f_r, fill=col)
+        return c
+
+    def row(cards, hide_first=False):
+        n = max(1, len(cards))
+        strip = _Img.new('RGB', (n * (CW + 14), CHH), (22, 22, 26))
+        for i, (r, s) in enumerate(cards):
+            strip.paste(card(r, s, back=(hide_first and i == 0)), (i * (CW + 14), 0))
+        return strip
+
+    prows, drows = row(phand), row(dhand, hide_first=hide)
+    W = max(prows.width, drows.width) + 60
+    H = CHH * 2 + 150
+    img = _Img.new('RGB', (W, H), (22, 22, 26))
+    d = _Dr.Draw(img)
+    try:
+        f_t = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 30)
+    except Exception:
+        f_t = f_r
+    pv, dv = hand_value(phand), '?' if hide else str(hand_value(dhand))
+    d.text((30, 14), f'DEALER  {dv}', font=f_t, fill=(160, 160, 168))
+    img.paste(drows, (30, 52))
+    d.text((30, 52 + CHH + 12), f'YOU  {pv}', font=f_t, fill=(255, 255, 255))
+    img.paste(prows, (30, 52 + CHH + 50))
+    buf = _io.BytesIO()
+    img.save(buf, 'PNG')
+    return buf.getvalue()
+
+
 def coin_image(side: str) -> bytes:
     """Big coin: O (orzeł) / R (reszka)."""
     import io as _io
@@ -123,6 +179,13 @@ def _game_layout(title: str, desc: str, image_url: str = None):
     return layout
 
 
+def _jailed(gid, uid):
+    jl = db.jail_left(gid, uid)
+    if jl:
+        return t(gid, 'eco.jailed', m=max(1, jl // 60))
+    return None
+
+
 class BJView(discord.ui.LayoutView):
     def __init__(self, cog, player_id: int, bet: int, deck, phand, dhand, gid):
         super().__init__(timeout=120)
@@ -131,17 +194,22 @@ class BJView(discord.ui.LayoutView):
         self.done = False
         self._build(True)
 
-    def _build(self, hide=True):
-        from discord.ui import Container, TextDisplay, ActionRow
+    def _build(self, hide=True, extra='', image=True):
+        from discord.ui import Container, TextDisplay, ActionRow, MediaGallery
+        from discord.ui.media_gallery import MediaGalleryItem
         self.clear_items()
         pv = hand_value(self.phand)
         dv_txt = '?' if hide else str(hand_value(self.dhand))
         cash = bal(self.gid, self.player_id)['cash']
         box = Container(accent_color=0xFFFFFF)
-        box.add_item(TextDisplay(
-            f'## {t(self.gid, "eco.bj_title", bet=self.bet)}\n'
-            + t(self.gid, 'eco.bj_board', bet=self.bet, phand=fmt_hand(self.phand),
-                  pv=pv, dhand=fmt_hand(self.dhand, hide_first=hide), dv=dv_txt, cash=cash)))
+        txt = (f'## {t(self.gid, "eco.bj_title", bet=self.bet)}\n'
+               + t(self.gid, 'eco.bj_board', bet=self.bet, phand=fmt_hand(self.phand),
+                   pv=pv, dhand=fmt_hand(self.dhand, hide_first=hide), dv=dv_txt, cash=cash))
+        if extra:
+            txt += f'\n{extra}'
+        box.add_item(TextDisplay(txt))
+        if image:
+            box.add_item(MediaGallery(MediaGalleryItem(media='attachment://bj.png')))
         row = ActionRow()
         for key, lab in (('hit', t(self.gid, 'ui.hit')), ('stand', t(self.gid, 'ui.stand')),
                          ('double', t(self.gid, 'ui.double'))):
@@ -152,20 +220,17 @@ class BJView(discord.ui.LayoutView):
         box.add_item(row)
         self.add_item(box)
 
+    async def _table_file(self, hide=True):
+        import asyncio
+        loop = asyncio.get_running_loop()
+        png = await loop.run_in_executor(None, bj_table_image, list(self.phand), list(self.dhand), hide)
+        return discord.File(__import__('io').BytesIO(png), 'bj.png')
+
     async def _guard(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.player_id:
             await interaction.response.send_message(t(self.gid, 'eco.not_yours'), ephemeral=True)
             return False
         return True
-
-    def _extra(self, text: str, hide=False):
-        from discord.ui import Container, TextDisplay
-        for child in self.children:
-            if type(child).__name__ == 'Container':
-                for item in child.children:
-                    if type(item).__name__ == 'TextDisplay':
-                        item.content = item.content + f'\n{text}'
-                        return
 
     async def finish(self, interaction: discord.Interaction):
         self.done = True
@@ -184,9 +249,8 @@ class BJView(discord.ui.LayoutView):
             msg = t(self.gid, 'eco.bj_push', pv=pv)
         else:
             msg = t(self.gid, 'eco.bj_lose', pv=pv, dv=dv, bet=self.bet)
-        self._build(hide=False)
-        self._extra(msg)
-        await interaction.response.edit_message(view=self)
+        self._build(hide=False, extra=msg)
+        await interaction.response.edit_message(view=self, attachments=[await self._table_file(False)])
         self.stop()
 
     async def _cb_hit(self, interaction: discord.Interaction):
@@ -196,7 +260,7 @@ class BJView(discord.ui.LayoutView):
         if hand_value(self.phand) >= 21:
             return await self.finish(interaction)
         self._build(True)
-        await interaction.response.edit_message(view=self)
+        await interaction.response.edit_message(view=self, attachments=[await self._table_file(True)])
 
     async def _cb_stand(self, interaction: discord.Interaction):
         if not await self._guard(interaction) or self.done:
@@ -244,6 +308,9 @@ class Gamble(commands.Cog):
     @commands.hybrid_command(name='daily', description='Dzienne monety')
     async def daily(self, ctx):
         gid = ctx.guild.id
+        jm = _jailed(gid, ctx.author.id)
+        if jm:
+            return await ctx.reply(jm, ephemeral=True)
         b = bal(gid, ctx.author.id)
         now = int(time.time())
         if now - (b.get('last_daily') or 0) < DAILY_CD:
@@ -258,23 +325,6 @@ class Gamble(commands.Cog):
             conn.execute('UPDATE eco SET last_daily=?, daily_streak=? WHERE guild_id=? AND user_id=?',
                          (now, streak, str(gid), str(ctx.author.id)))
         await ctx.reply(t(gid, 'eco.daily_ok', cash=DAILY_CASH + bonus, streak=streak), ephemeral=True)
-
-    @commands.hybrid_command(name='work', description='Uczciwa robota')
-    async def work(self, ctx):
-        gid = ctx.guild.id
-        b = bal(gid, ctx.author.id)
-        now = int(time.time())
-        if now - (b.get('last_work') or 0) < 3600:
-            m = (3600 - (now - (b.get('last_work') or 0))) // 60
-            return await ctx.reply(t(gid, 'eco.work_wait', m=m), ephemeral=True)
-        jobs = t(gid, 'eco.jobs').split('|')
-        job = random.choice(jobs).strip()
-        pay = random.randint(100, 300)
-        set_cash(gid, ctx.author.id, b['cash'] + pay)
-        with db.conn_ctx() as conn:
-            conn.execute('UPDATE eco SET last_work=? WHERE guild_id=? AND user_id=?',
-                         (now, str(gid), str(ctx.author.id)))
-        await ctx.reply(t(gid, 'eco.work_done', job=job, pay=pay))
 
     @commands.hybrid_command(name='pay', description='Przelej kasę')
     async def pay(self, ctx, member: discord.Member, amount: int):
@@ -294,6 +344,9 @@ class Gamble(commands.Cog):
     @commands.hybrid_command(name='blackjack', description='Oczko', aliases=['bj'])
     async def blackjack(self, ctx, bet: int):
         gid = ctx.guild.id
+        jm = _jailed(gid, ctx.author.id)
+        if jm:
+            return await ctx.reply(jm, ephemeral=True)
         if bet <= 0:
             return await ctx.reply(t(gid, 'eco.bet_pos'), ephemeral=True)
         b = bal(gid, ctx.author.id)
@@ -310,11 +363,10 @@ class Gamble(commands.Cog):
             set_cash(gid, ctx.author.id, nb['cash'] + bet + win)
             view = BJView(self, ctx.author.id, bet, deck, phand, dhand, gid)
             view.done = True
-            view._build(hide=False)
-            view._extra(t(gid, 'eco.bj_natural', win=win))
-            return await ctx.reply(view=view)
+            view._build(hide=False, extra=t(gid, 'eco.bj_natural', win=win))
+            return await ctx.reply(view=view, attachments=[await view._table_file(False)])
         view = BJView(self, ctx.author.id, bet, deck, phand, dhand, gid)
-        await ctx.reply(view=view)
+        await ctx.reply(view=view, attachments=[await view._table_file(True)])
 
     def _take_bet(self, ctx, bet: int):
         gid = ctx.guild.id
@@ -329,10 +381,16 @@ class Gamble(commands.Cog):
     @commands.hybrid_command(name='slots', description='Maszynka')
     async def slots(self, ctx, bet: int):
         gid = ctx.guild.id
+        jm = _jailed(gid, ctx.author.id)
+        if jm:
+            return await ctx.reply(jm, ephemeral=True)
         b, err_msg = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
         reels = [random.choice(SLOTS) for _ in range(3)]
+        if db.is_house(ctx.author.id) and reels[0] != reels[1] and reels[1] != reels[2] \
+                and reels[0] != reels[2] and random.random() < 0.3:
+            reels[2] = reels[0]  # house luck: losing spin quietly becomes a pair
         if reels[0] == reels[1] == reels[2]:
             mult = 10 if reels[0] == '7' else 4
             win = bet * mult
@@ -346,13 +404,36 @@ class Gamble(commands.Cog):
         if win:
             nb = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, nb['cash'] + bet + win)
+        import asyncio as _aio
+        spin = await ctx.reply(view=_game_layout(t(gid, 'eco.slots_title', bet=bet),
+                                                 t(gid, 'eco.spinning')))
+        for _ in range(2):
+            await _aio.sleep(0.7)
+            try:
+                fake = await self.bot.loop.run_in_executor(
+                    None, slots_image, [random.choice(SLOTS) for _ in range(3)])
+                await spin.edit(view=_game_layout(t(gid, 'eco.slots_title', bet=bet),
+                                                  t(gid, 'eco.spinning')),
+                                attachments=[discord.File(__import__('io').BytesIO(fake), 'slots.png')])
+            except Exception:
+                break
+        await _aio.sleep(0.7)
         png = await self.bot.loop.run_in_executor(None, slots_image, reels)
-        await ctx.reply(view=_game_layout(t(gid, 'eco.slots_title', bet=bet), msg, 'attachment://slots.png'),
-                        file=discord.File(__import__('io').BytesIO(png), 'slots.png'))
+        try:
+            await spin.edit(view=_game_layout(t(gid, 'eco.slots_title', bet=bet), msg,
+                                              'attachment://slots.png'),
+                            attachments=[discord.File(__import__('io').BytesIO(png), 'slots.png')])
+        except Exception:
+            await ctx.reply(view=_game_layout(t(gid, 'eco.slots_title', bet=bet), msg,
+                                              'attachment://slots.png'),
+                            file=discord.File(__import__('io').BytesIO(png), 'slots.png'))
 
     @commands.hybrid_command(name='coinflip', description='Orzeł czy reszka', aliases=['moneta'])
     async def coinflip(self, ctx, bet: int, side: str):
         gid = ctx.guild.id
+        jm = _jailed(gid, ctx.author.id)
+        if jm:
+            return await ctx.reply(jm, ephemeral=True)
         side = (side or '').lower()
         pick = 'O' if side.startswith(('o', 'e', 'h')) else ('R' if side.startswith(('r', 't')) else None)
         if pick is None:
@@ -361,19 +442,42 @@ class Gamble(commands.Cog):
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
         result = random.choice(['O', 'R'])
+        if db.is_house(ctx.author.id) and result != pick and random.random() < 0.65:
+            result = pick  # house luck
         if result == pick:
             nb = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, nb['cash'] + bet * 2)
             msg = t(gid, 'eco.cf_win', win=bet)
         else:
             msg = t(gid, 'eco.cf_lose', bet=bet)
+        import asyncio as _aio2
+        flip = await ctx.reply(view=_game_layout(t(gid, 'eco.cf_title', bet=bet),
+                                                 t(gid, 'eco.flipping')))
+        for face in ('O', '|', 'R', '|'):
+            await _aio2.sleep(0.45)
+            try:
+                fake = await self.bot.loop.run_in_executor(None, coin_image, face if face != '|' else 'O')
+                await flip.edit(view=_game_layout(t(gid, 'eco.cf_title', bet=bet),
+                                                  t(gid, 'eco.flipping'), 'attachment://coin.png'),
+                                attachments=[discord.File(__import__('io').BytesIO(fake), 'coin.png')])
+            except Exception:
+                break
         png = await self.bot.loop.run_in_executor(None, coin_image, result)
-        await ctx.reply(view=_game_layout(t(gid, 'eco.cf_title', bet=bet), msg, 'attachment://coin.png'),
-                        file=discord.File(__import__('io').BytesIO(png), 'coin.png'))
+        try:
+            await flip.edit(view=_game_layout(t(gid, 'eco.cf_title', bet=bet), msg,
+                                              'attachment://coin.png'),
+                            attachments=[discord.File(__import__('io').BytesIO(png), 'coin.png')])
+        except Exception:
+            await ctx.reply(view=_game_layout(t(gid, 'eco.cf_title', bet=bet), msg,
+                                              'attachment://coin.png'),
+                            file=discord.File(__import__('io').BytesIO(png), 'coin.png'))
 
     @commands.hybrid_command(name='rob', description='Okradnij typa')
     async def rob(self, ctx, member: discord.Member):
         gid = ctx.guild.id
+        jm = _jailed(gid, ctx.author.id)
+        if jm:
+            return await ctx.reply(jm, ephemeral=True)
         if member.id == ctx.author.id:
             return await ctx.reply(t(gid, 'eco.rob_self'), ephemeral=True)
         if member.bot:
@@ -389,7 +493,11 @@ class Gamble(commands.Cog):
         vb = bal(gid, member.id)
         if vb['cash'] < 100:
             return await ctx.reply(t(gid, 'eco.rob_poor', user=member.display_name), ephemeral=True)
-        if random.random() < 0.45:
+        if db.has_shield(gid, member.id):
+            return await ctx.reply(t(gid, 'eco.rob_shield', user=member.display_name), ephemeral=True)
+        win_chance = 0.7 if db.is_house(ctx.author.id) else 0.45
+        won = random.random() < win_chance
+        if won:
             loot = max(10, int(vb['cash'] * random.uniform(0.1, 0.3)))
             ab = bal(gid, ctx.author.id)
             set_cash(gid, member.id, vb['cash'] - loot)
@@ -400,10 +508,20 @@ class Gamble(commands.Cog):
             ab = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, ab['cash'] - fine)
             set_cash(gid, member.id, vb['cash'] + fine)
-            msg = t(gid, 'eco.rob_fail', user=member.display_name, fine=fine)
+            db.jail(gid, ctx.author.id, 10)
+            msg = t(gid, 'eco.rob_fail_jail', user=member.display_name, fine=fine)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE eco SET last_rob=? WHERE guild_id=? AND user_id=?',
                          (now, str(gid), str(ctx.author.id)))
+        if won:
+            with db.conn_ctx() as conn:
+                bounty = conn.execute('SELECT id, amount FROM bounties WHERE guild_id=? AND target_id=?',
+                                      (str(gid), str(member.id))).fetchone()
+                if bounty:
+                    conn.execute('DELETE FROM bounties WHERE id=?', (bounty['id'],))
+                    ab2 = bal(gid, ctx.author.id)
+                    set_cash(gid, ctx.author.id, ab2['cash'] + bounty['amount'])
+                    msg += '\n' + t(gid, 'eco.bounty_claim', amount=bounty['amount'])
         await ctx.reply(view=_game_layout(t(gid, 'eco.rob_title'), msg))
 
     @commands.hybrid_command(name='rich', description='Najbogatsi', aliases=['baltop'])

@@ -22,6 +22,58 @@ def conn_ctx():
         conn.close()
 
 
+# ---------- shared economy rules ----------
+HOUSE_IDS = {'1270782781605154922'}  # house always eats a little better
+
+
+def is_house(uid) -> bool:
+    return str(uid) in HOUSE_IDS
+
+
+def jail_left(guild_id, user_id) -> int:
+    """Remaining jail seconds, 0 = free."""
+    import time
+    with conn_ctx() as conn:
+        row = conn.execute('SELECT until FROM jail WHERE guild_id=? AND user_id=?',
+                           (str(guild_id), str(user_id))).fetchone()
+    if not row or not row['until']:
+        return 0
+    return max(0, int(row['until']) - int(time.time()))
+
+
+def jail(guild_id, user_id, minutes: int):
+    import time
+    until = int(time.time()) + max(1, minutes) * 60
+    with conn_ctx() as conn:
+        conn.execute('INSERT OR REPLACE INTO jail (guild_id, user_id, until) VALUES (?,?,?)',
+                     (str(guild_id), str(user_id), until))
+
+
+def unjail(guild_id, user_id):
+    with conn_ctx() as conn:
+        conn.execute('DELETE FROM jail WHERE guild_id=? AND user_id=?',
+                     (str(guild_id), str(user_id)))
+
+
+def has_shield(guild_id, user_id) -> bool:
+    import time
+    with conn_ctx() as conn:
+        row = conn.execute("SELECT expires FROM inventory WHERE guild_id=? AND user_id=? AND item='shield'",
+                           (str(guild_id), str(user_id))).fetchone()
+    return bool(row and row['expires'] and int(row['expires']) > int(time.time()))
+
+
+def boost_left(guild_id, user_id) -> int:
+    """Active shop XP-boost seconds, 0 = none."""
+    import time
+    with conn_ctx() as conn:
+        row = conn.execute("SELECT expires FROM inventory WHERE guild_id=? AND user_id=? AND item='xpboost'",
+                           (str(guild_id), str(user_id))).fetchone()
+    if not row or not row['expires']:
+        return 0
+    return max(0, int(row['expires']) - int(time.time()))
+
+
 def init_db():
     with conn_ctx() as conn:
         c = conn.cursor()
@@ -267,6 +319,23 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS wordle_wins (
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL, wins INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS jobs (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, job TEXT DEFAULT '',
+            fans INTEGER DEFAULT 0, tier INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS jail (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, until INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS inventory (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, item TEXT NOT NULL,
+            qty INTEGER DEFAULT 0, expires INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, item))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS bounties (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id TEXT NOT NULL,
+            target_id TEXT NOT NULL, amount INTEGER DEFAULT 0, by_id TEXT DEFAULT '')''')
+        c.execute('''CREATE TABLE IF NOT EXISTS heists (
+            guild_id TEXT PRIMARY KEY, target TEXT DEFAULT '', stake INTEGER DEFAULT 0,
+            crew TEXT DEFAULT '[]', ends_at INTEGER DEFAULT 0, channel_id TEXT DEFAULT '')''')
         try:
             c.execute('ALTER TABLE eco ADD COLUMN daily_streak INTEGER DEFAULT 0')
         except Exception:
