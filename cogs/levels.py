@@ -444,14 +444,15 @@ class Levels(commands.Cog):
         from utils.cards import get_style, fetch_bytes, get_skin, apply_skin, get_tier_names
         style = apply_skin(get_style(ctx.guild.id, 'rank'), get_skin(ctx.guild.id, data['level']))
         names = get_tier_names(ctx.guild.id)
-        custom_bg = None
-        if style.get('bg_url'):
+        # nitro banner wins; server style bg is the fallback
+        custom_bg = banner
+        if not custom_bg and style.get('bg_url'):
             if style['bg_url'] not in _BG_CACHE or time.time() - _BG_CACHE[style['bg_url']][0] > 3600:
                 _BG_CACHE[style['bg_url']] = (time.time(), await fetch_bytes(style['bg_url']))
             custom_bg = _BG_CACHE[style['bg_url']][1]
         card = await self.bot.loop.run_in_executor(
             None, rank_card, member, data, get_rank(ctx.guild.id, member.id),
-            __import__('lang').get_lang(ctx.guild.id), avatar, banner, accent, style, custom_bg, names)
+            __import__('lang').get_lang(ctx.guild.id), avatar, None, accent, style, custom_bg, names)
         await ctx.reply(file=card, mention_author=False)
 
     @commands.hybrid_command(name='leaderboard', description='Ranking XP', aliases=['lb', 'top'])

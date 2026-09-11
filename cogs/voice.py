@@ -167,6 +167,37 @@ class RenameModal(discord.ui.Modal, title='Rename'):
         await interaction.response.send_message(t(gid, 'vm.renamed', name=self.name_input.value[:100]), ephemeral=True)
 
 
+class TrustModal(discord.ui.Modal, title='Trust'):
+    def __init__(self, channel_id: int, gid):
+        super().__init__(title=t(gid, 'vm.trust_title'))
+        self.channel_id = channel_id
+        self.uid = discord.ui.TextInput(label=t(gid, 'vm.trust_label'), max_length=40,
+                                        placeholder='@user / user ID')
+        self.add_item(self.uid)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        gid = interaction.guild_id
+        ch = interaction.guild.get_channel(self.channel_id)
+        if not ch:
+            return await interaction.response.send_message(t(gid, 'vm.vc_gone2'), ephemeral=True)
+        if not _owns_channel(interaction.guild, interaction.user.id, self.channel_id):
+            return await interaction.response.send_message(t(gid, 'vm.no_owner'), ephemeral=True)
+        raw = self.uid.value.strip().strip('<@!>')
+        target = interaction.guild.get_member(int(raw)) if raw.isdigit() else None
+        if not target:
+            return await interaction.response.send_message(t(gid, 'mod.no_member'), ephemeral=True)
+        try:
+            await ch.set_permissions(target, connect=True, view_channel=True, speak=True)
+            # a trusted user must fit: bump the limit when the room is full
+            humans = len([m for m in ch.members if not m.bot])
+            if (ch.user_limit or 0) > 0 and humans >= ch.user_limit:
+                await ch.edit(user_limit=min(99, ch.user_limit + 1))
+        except Exception:
+            pass
+        await refresh_panel(interaction.guild, ch)
+        await interaction.response.send_message(t(gid, 'vm.trusted', user=target.mention), ephemeral=True)
+
+
 def _is_owner(interaction: discord.Interaction, channel_id: int):
     """Only the room owner (or a server Administrator) may touch the panel."""
     gid = interaction.guild_id
@@ -366,12 +397,7 @@ class Voice(commands.Cog):
             view.add_item(_MemberSelect(f'vm_kick_select:{arg}', t(gid, 'vm.kick_who'), cands))
             return await interaction.response.send_message(t(gid, 'vm.kick_who'), view=view, ephemeral=True)
         if ns == 'vm_trust':
-            cands = [m for m in channel.members if m.id != interaction.user.id and not m.bot][:25]
-            if not cands:
-                return await interaction.response.send_message(t(gid, 'vm.no_one'), ephemeral=True)
-            view = discord.ui.View(timeout=60)
-            view.add_item(_MemberSelect(f'vm_trust_select:{arg}', t(gid, 'vm.trust_who'), cands))
-            return await interaction.response.send_message(t(gid, 'vm.trust_who'), view=view, ephemeral=True)
+            return await interaction.response.send_modal(TrustModal(arg, gid))
         if ns == 'vm_delete':
             with db.conn_ctx() as conn:
                 conn.execute('DELETE FROM temp_vcs WHERE channel_id=?', (arg,))
@@ -639,6 +665,9 @@ class _MemberSelect(discord.ui.Select):
         if ns == 'vm_trust_select':
             try:
                 await ch.set_permissions(discord.Object(id=int(uid)), connect=True, view_channel=True)
+                humans = len([m for m in ch.members if not m.bot])
+                if (ch.user_limit or 0) > 0 and humans >= ch.user_limit:
+                    await ch.edit(user_limit=min(99, ch.user_limit + 1))
             except Exception:
                 pass
             return await interaction.response.send_message(t(gid, 'vm.trusted', user=f'<@{uid}>'), ephemeral=True)
