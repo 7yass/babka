@@ -93,7 +93,7 @@ class Shop(commands.Cog):
             return await ctx.reply(t(gid, 'shop.nick_fail'), ephemeral=True)
         await ctx.reply(t(gid, 'shop.nick_ok', name=newname[:32]))
 
-    @commands.hybrid_command(name='forcenick', description='Zmień komuś nick na 1h')
+    @commands.hybrid_command(name='nickbomb', description='Zmień komuś nick na 1h')
     async def forcenick(self, ctx, member: discord.Member, *, newname: str):
         gid = ctx.guild.id
         if not inv_take(gid, ctx.author.id, 'force'):
