@@ -342,6 +342,9 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS suggest_cfg (
             guild_id TEXT PRIMARY KEY, panel_channel TEXT,
             panel_message TEXT, inbox_channel TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS tributes (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, total INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id))''')
         try:
             c.execute('ALTER TABLE eco ADD COLUMN daily_streak INTEGER DEFAULT 0')
         except Exception:
@@ -352,7 +355,9 @@ def init_db():
             pass  # already there
         for col in ('ALTER TABLE eco ADD COLUMN energy INTEGER DEFAULT 100',
                     'ALTER TABLE eco ADD COLUMN energy_at INTEGER DEFAULT 0',
-                    'ALTER TABLE jobs ADD COLUMN shifts INTEGER DEFAULT 0'):
+                    'ALTER TABLE jobs ADD COLUMN shifts INTEGER DEFAULT 0',
+                    'ALTER TABLE eco ADD COLUMN bank INTEGER DEFAULT 0',
+                    'ALTER TABLE eco ADD COLUMN bank_at INTEGER DEFAULT 0'):
             try:
                 c.execute(col)
             except Exception:

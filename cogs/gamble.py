@@ -387,6 +387,98 @@ class Gamble(commands.Cog):
         await ctx.reply(t(gid, 'eco.pay_ok', user=member.display_name, amount=amount)
                         + _wallet_line(gid, ctx.author.id))
 
+    @staticmethod
+    def _bank_accrue(gid, uid) -> tuple:
+        """Lazy 2%/day interest, capped +500/day. Returns (bank, earned_now)."""
+        b = bal(gid, uid)
+        now = int(time.time())
+        bank = b.get('bank') or 0
+        at = b.get('bank_at') or now
+        days = (now - at) // 86400
+        earned = 0
+        if bank > 0 and days > 0:
+            earned = min(int(bank * 0.02 * days), 500 * days)
+            bank += earned
+            with db.conn_ctx() as conn:
+                conn.execute('UPDATE eco SET bank=?, bank_at=? WHERE guild_id=? AND user_id=?',
+                             (bank, now, str(gid), str(uid)))
+        return bank, earned
+
+    @commands.hybrid_command(name='bank', description='Twój bank')
+    async def bank(self, ctx):
+        gid = ctx.guild.id
+        bank, earned = self._bank_accrue(gid, ctx.author.id)
+        b = bal(gid, ctx.author.id)
+        msg = t(gid, 'eco.bank_view', cash=b['cash'], bank=bank)
+        if earned:
+            msg += '\n' + t(gid, 'eco.bank_interest', earned=earned)
+        await ctx.reply(view=_game_layout(t(gid, 'eco.bank_title'), msg), ephemeral=True)
+
+    @commands.hybrid_command(name='deposit', description='Wpłać do banku', aliases=['dep'])
+    async def deposit(self, ctx, amount: str):
+        gid = ctx.guild.id
+        b = bal(gid, ctx.author.id)
+        bank, _ = self._bank_accrue(gid, ctx.author.id)
+        if (amount or '').lower() == 'all':
+            amount = b['cash']
+        else:
+            try:
+                amount = int(amount)
+            except (ValueError, TypeError):
+                return await ctx.reply(t(gid, 'eco.dep_use'), ephemeral=True)
+        if amount < 10:
+            return await ctx.reply(t(gid, 'eco.pay_min'), ephemeral=True)
+        if amount > b['cash']:
+            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+        now = int(time.time())
+        with db.conn_ctx() as conn:
+            conn.execute('UPDATE eco SET cash=?, bank=?, bank_at=? WHERE guild_id=? AND user_id=?',
+                         (b['cash'] - amount, bank + amount, now, str(gid), str(ctx.author.id)))
+        await ctx.reply(t(gid, 'eco.dep_ok', amount=amount, bank=bank + amount)
+                        + _wallet_line(gid, ctx.author.id), ephemeral=True)
+
+    @commands.hybrid_command(name='withdraw', description='Wypłać z banku', aliases=['with'])
+    async def withdraw(self, ctx, amount: str):
+        gid = ctx.guild.id
+        b = bal(gid, ctx.author.id)
+        bank, _ = self._bank_accrue(gid, ctx.author.id)
+        if (amount or '').lower() == 'all':
+            amount = bank
+        else:
+            try:
+                amount = int(amount)
+            except (ValueError, TypeError):
+                return await ctx.reply(t(gid, 'eco.dep_use'), ephemeral=True)
+        if amount < 10:
+            return await ctx.reply(t(gid, 'eco.pay_min'), ephemeral=True)
+        if amount > bank:
+            return await ctx.reply(t(gid, 'eco.bank_poor', bank=bank), ephemeral=True)
+        with db.conn_ctx() as conn:
+            conn.execute('UPDATE eco SET cash=?, bank=? WHERE guild_id=? AND user_id=?',
+                         (b['cash'] + amount, bank - amount, str(gid), str(ctx.author.id)))
+        await ctx.reply(t(gid, 'eco.with_ok', amount=amount) + _wallet_line(gid, ctx.author.id),
+                        ephemeral=True)
+
+    @commands.hybrid_command(name='tribute', description='Daj babce napiwek')
+    async def tribute(self, ctx, amount: int):
+        import random
+        gid = ctx.guild.id
+        if amount < 10:
+            return await ctx.reply(t(gid, 'eco.pay_min'), ephemeral=True)
+        b = bal(gid, ctx.author.id)
+        if amount > b['cash']:
+            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+        set_cash(gid, ctx.author.id, b['cash'] - amount)
+        with db.conn_ctx() as conn:
+            conn.execute('''INSERT INTO tributes (guild_id, user_id, total) VALUES (?,?,?)
+                ON CONFLICT(guild_id, user_id) DO UPDATE SET total=total+excluded.total''',
+                         (str(gid), str(ctx.author.id), amount))
+            total = conn.execute('SELECT total FROM tributes WHERE guild_id=? AND user_id=?',
+                                 (str(gid), str(ctx.author.id))).fetchone()['total']
+        thanks = random.choice(t(gid, 'eco.tribute_lines').split('|'))
+        await ctx.reply(view=_game_layout(t(gid, 'eco.tribute_title'),
+                                          thanks + '\n' + t(gid, 'eco.tribute_total', total=total)))
+
     @commands.hybrid_command(name='blackjack', description='Oczko', aliases=['bj'])
     async def blackjack(self, ctx, bet: int):
         gid = ctx.guild.id

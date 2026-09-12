@@ -1193,6 +1193,38 @@
       [],
       "",
       "Everyone"
+    ],
+    "bank": [
+      "economy",
+      "Vault balance + interest.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "deposit": [
+      "economy",
+      "Hide money from robbers.",
+      [
+        "dep"
+      ],
+      "<amount|all>",
+      "Everyone"
+    ],
+    "withdraw": [
+      "economy",
+      "Take money out.",
+      [
+        "with"
+      ],
+      "<amount|all>",
+      "Everyone"
+    ],
+    "tribute": [
+      "economy",
+      "Tip Babka. She remembers.",
+      [],
+      "<amount>",
+      "Everyone"
     ]
   },
   "cats": {
