@@ -60,6 +60,7 @@ COGS = [
     'cogs.youtube',
     'cogs.activity',
     'cogs.jobs',
+    'cogs.suggest',
     'cogs.shop',
     'cogs.crime',
 ]
