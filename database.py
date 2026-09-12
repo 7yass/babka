@@ -336,6 +336,9 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS heists (
             guild_id TEXT PRIMARY KEY, target TEXT DEFAULT '', stake INTEGER DEFAULT 0,
             crew TEXT DEFAULT '[]', ends_at INTEGER DEFAULT 0, channel_id TEXT DEFAULT '')''')
+        c.execute('''CREATE TABLE IF NOT EXISTS fit_links (
+            guild_id TEXT NOT NULL, u1 TEXT NOT NULL, u2 TEXT NOT NULL,
+            PRIMARY KEY (guild_id, u1))''')
         try:
             c.execute('ALTER TABLE eco ADD COLUMN daily_streak INTEGER DEFAULT 0')
         except Exception:

@@ -2,6 +2,9 @@
 import discord
 from discord.ext import commands
 
+import database as db
+from lang import t
+
 FIT_CHANNEL = '1546599670074310716'
 POS = {'❤', '🔥', '👽'}
 NEG = {'🗑'}
@@ -54,17 +57,18 @@ def board_image(rows) -> bytes:
                 pass
         x, ty = PAD + 4 + AV + 14, y0 + 8
         rank_col = RANK_COLS.get(rank, (150, 150, 158))
-        segs = [(f'#{rank}', rank_col), (' • ', (110, 110, 116)),
-                (name, (255, 255, 255)), (' • ', (110, 110, 116)), (title, rank_col)]
+        head_parts = [(f'#{rank}', rank_col), (' • ', (110, 110, 116)), (name, (255, 255, 255))]
+        if title:
+            head_parts += [(' • ', (110, 110, 116)), (title, rank_col)]
         try:
             maxw = W - x - PAD
             nm = name
-            while d.textlength(f'#{rank} • {nm} • {title}', font=f_mid) > maxw and len(nm) > 4:
+            while d.textlength(f'#{rank} • {nm}' + (f' • {title}' if title else ''), font=f_mid) > maxw and len(nm) > 4:
                 nm = nm[:-2]
             if nm != name:
-                segs[2] = (nm + '…', (255, 255, 255))
+                head_parts[2] = (nm + '…', (255, 255, 255))
             cx = x
-            for txt, col in segs:
+            for txt, col in head_parts:
                 d.text((cx, ty), txt, font=f_mid, fill=col)
                 cx += d.textlength(txt, font=f_mid)
         except Exception:
@@ -147,7 +151,25 @@ class FitCheck(commands.Cog):
                 t['neg'] += neg
         except Exception:
             pass
-        ranked = sorted(totals.values(), key=lambda t: (-t['pos'], t['neg']))[:10]
+        ranked = sorted(totals.values(), key=lambda t: (-t['pos'], t['neg']))
+        # merge linked alts into one entry
+        with db.conn_ctx() as conn:
+            links = conn.execute('SELECT u1, u2 FROM fit_links WHERE guild_id=?',
+                                 (str(ctx.guild.id),)).fetchall()
+        partner = {}
+        for r in links:
+            partner[r['u1']] = r['u2']
+            partner[r['u2']] = r['u1']
+        merged: dict = {}
+        for t in ranked:
+            uid = str(t['m'].id)
+            key = min(uid, partner.get(uid, uid))
+            e = merged.setdefault(key, {'pos': 0, 'neg': 0, 'm': t['m']})
+            e['pos'] += t['pos']
+            e['neg'] += t['neg']
+            if t['pos'] > 0 and (e['m'].id != t['m'].id):
+                pass  # keep first-seen member for name/avatar
+        ranked = sorted(merged.values(), key=lambda t: (-t['pos'], t['neg']))[:10]
         if not ranked or ranked[0]['pos'] == 0:
             return await ctx.reply('No voted fits yet — post pics and vote.', ephemeral=True)
         top = max(t['pos'] for t in ranked)
@@ -160,7 +182,7 @@ class FitCheck(commands.Cog):
                 av = await m.display_avatar.with_size(128).read()
             except Exception:
                 av = None
-            rows.append((i, name[:20], TITLES.get(i, f'#{i}'), t['pos'] / top if top else 0,
+            rows.append((i, name[:20], TITLES.get(i, ''), t['pos'] / top if top else 0,
                          t['pos'], t['neg'], av))
         png = await self.bot.loop.run_in_executor(None, board_image, rows)
         emb = discord.Embed(title='HARDEST FITS', color=0xFFFFFF)
@@ -168,6 +190,32 @@ class FitCheck(commands.Cog):
         emb.set_image(url='attachment://fits.png')
         await ctx.reply(embed=emb, file=discord.File(__import__('io').BytesIO(png), 'fits.png'),
                         mention_author=False)
+
+
+    @commands.hybrid_command(name='fitlink', description='Połącz dwa konta w jedne fity')
+    async def fitlink(self, ctx, other: discord.Member):
+        gid, me = str(ctx.guild.id), str(ctx.author.id)
+        if other.id == ctx.author.id or other.bot:
+            return await ctx.reply(t(ctx.guild.id, 'fit.link_no'), ephemeral=True)
+        with db.conn_ctx() as conn:
+            busy = conn.execute('SELECT * FROM fit_links WHERE guild_id=? AND (u1=? OR u2=? OR u1=? OR u2=?)',
+                                (gid, me, me, str(other.id), str(other.id))).fetchone()
+            if busy:
+                return await ctx.reply(t(ctx.guild.id, 'fit.link_busy'), ephemeral=True)
+            a, b = sorted((me, str(other.id)))
+            conn.execute('INSERT INTO fit_links (guild_id, u1, u2) VALUES (?,?,?)', (gid, a, b))
+        await ctx.reply(t(ctx.guild.id, 'fit.linked', user=other.display_name), ephemeral=True)
+
+    @commands.hybrid_command(name='fitunlink', description='Rozłącz konta')
+    async def fitunlink(self, ctx):
+        gid, me = str(ctx.guild.id), str(ctx.author.id)
+        from utils.checks import is_staff
+        with db.conn_ctx() as conn:
+            if is_staff(ctx.author):
+                conn.execute('DELETE FROM fit_links WHERE guild_id=? AND (u1=? OR u2=?)', (gid, me, me))
+            else:
+                conn.execute('DELETE FROM fit_links WHERE guild_id=? AND (u1=? OR u2=?)', (gid, me, me))
+        await ctx.reply(t(ctx.guild.id, 'fit.unlinked'), ephemeral=True)
 
 
 async def setup(bot):
