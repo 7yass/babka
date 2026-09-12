@@ -80,12 +80,14 @@ class Jobs(commands.Cog):
 
     @job.command(name='list', description='Oferty pracy')
     async def job_list(self, ctx):
+        from cogs.gamble import _game_layout
         lines = []
         for key, j in JOBS.items():
             if j.get('hidden'):
                 continue
             lines.append(f"• **{j['label']}** — {j['base'][0]}–{j['base'][1]} / zmianę")
-        await ctx.reply(embed=ok(t(ctx.guild.id, 'job.list_title') + '\n' + '\n'.join(lines)), ephemeral=True)
+        await ctx.reply(view=_game_layout(t(ctx.guild.id, 'job.list_title'), '\n'.join(lines)),
+                        ephemeral=True)
 
     @job.command(name='join', description='Zatrudnij się')
     async def job_join(self, ctx, name: str):
@@ -122,13 +124,15 @@ class Jobs(commands.Cog):
     @job.command(name='my', description='Twoja kariera i fame')
     async def job_my(self, ctx):
         from cogs.levels import get_user
+        from cogs.gamble import _game_layout
         gid = ctx.guild.id
         j = get_job(gid, ctx.author.id)
         lv = get_user(gid, ctx.author.id).get('level', 0)
         idx, title, mult = fame_of(lv)
         job = JOBS.get(j.get('job'), {}).get('label', t(gid, 'job.none'))
-        await ctx.reply(embed=ok(t(gid, 'job.card', job=job, fame=title, mult=mult,
-                                           fans=j.get('fans', 0), level=lv)), ephemeral=True)
+        await ctx.reply(view=_game_layout(t(gid, 'job.my_title', user=ctx.author.display_name),
+                                          t(gid, 'job.card', job=job, fame=title, mult=mult,
+                                            fans=j.get('fans', 0), level=lv)), ephemeral=True)
 
     @commands.hybrid_command(name='work', description='Idź do roboty')
     async def work(self, ctx):
@@ -211,8 +215,9 @@ class Jobs(commands.Cog):
             if extra.strip():
                 msg += '\n' + extra.strip()
             try:
-                from cogs.gamble import bal as _bal
+                from cogs.gamble import bal as _bal, _game_layout
                 msg += '\n' + t(gid, 'eco.balance_line', cash=_bal(gid, ctx.author.id)['cash'])
+                return await ctx.reply(view=_game_layout(t(gid, 'eco.work_title', job=job['label']), msg))
             except Exception:
                 pass
             return await ctx.reply(msg)
@@ -225,10 +230,14 @@ class Jobs(commands.Cog):
             conn.execute('UPDATE eco SET last_work=? WHERE guild_id=? AND user_id=?',
                          (now, str(gid), str(ctx.author.id)))
         try:
-            from cogs.gamble import bal as _bal2
+            from cogs.gamble import bal as _bal2, _game_layout as _gl2
             extra2 = '\n' + t(gid, 'eco.balance_line', cash=_bal2(gid, ctx.author.id)['cash'])
         except Exception:
             extra2 = ''
+            _gl2 = None
+        if _gl2:
+            return await ctx.reply(view=_gl2(t(gid, 'eco.work_title', job=t(gid, 'job.none')),
+                                             t(gid, 'eco.work_done', job=job, pay=pay) + extra2))
         await ctx.reply(t(gid, 'eco.work_done', job=job, pay=pay) + extra2)
 
 
