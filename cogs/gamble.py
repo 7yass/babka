@@ -440,11 +440,11 @@ class Gamble(commands.Cog):
                 and reels[0] != reels[2] and random.random() < 0.3:
             reels[2] = reels[0]  # house luck: losing spin quietly becomes a pair
         if reels[0] == reels[1] == reels[2]:
-            mult = 10 if reels[0] == '7' else 4
+            mult = 12 if reels[0] == '7' else 5
             win = bet * mult
             msg = t(gid, 'eco.slots_jackpot', mult=mult, win=win)
         elif reels[0] == reels[1] or reels[1] == reels[2] or reels[0] == reels[2]:
-            win = int(bet * 0.5)
+            win = bet
             msg = t(gid, 'eco.slots_small', win=win)
         else:
             win = 0
