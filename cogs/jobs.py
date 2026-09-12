@@ -36,57 +36,115 @@ OF_F = ['Lola Słodka', 'Mia Gorąca', 'Diana Dym']
 
 JOBS = {
     'tiktoker': {'label': 'TikToker', 'base': (120, 260),
+                 'track': ['Widz', 'Początkujący', 'Twórca', 'Regularny', 'Znany Twórca',
+                           'Influencer', 'Gwiazda', 'Supergwiazda', 'Ikona', 'Legenda TikToka'],
+                 'house_title': 'Król Algorytmu',
                  'shifts': ['nagrywałeś tańce na parkingu', 'robiłeś live z lodówki',
                             'kręciłeś pranka na sąsiedzie', 'montowałeś vloga całą noc']},
     'onlyfans': {'label': 'OnlyFans', 'base': (100, 220),
+                 'track': ['Nowy', 'Początkujący', 'Twórca', 'Regularny', 'Popularny',
+                           'Top Twórca', 'Gwiazda', 'Supergwiazda', 'Ikona', 'Legenda OF'],
+                 'house_title': 'Właściciel Platformy',
                  'shifts': ['wrzucałeś ekskluzywną sesję', 'robiłeś Q&A dla fanów',
                             'streamowałeś backstage', 'podpisywałeś fotki dla top fanów']},
     'mcdonalds': {'label': 'McDonalds', 'base': (110, 200),
+                  'track': ['Praktykant', 'Kasjer', 'Kucharz', 'Starszy Kucharz', 'Manager Zmiany',
+                            'Kierownik', 'Manager Restauracji', 'Manager Regionalny', 'Dyrektor', 'Prezes Frytek'],
+                  'house_title': 'Właściciel Franczyzy',
                   'shifts': ['smażyłeś frytki na nocnej zmianie', 'obsługiwałeś drive-thru w deszczu',
                              'składałeś Big Maci na czas', 'sprzątałeś salę po imprezie klasowej']},
     'kurier': {'label': 'Kurier', 'base': (120, 230),
+               'track': ['Nowy', 'Rowerzysta', 'Kierowca', 'Szybki', 'Ekspres',
+                         'Veteran', 'Mistrz Trasy', 'Logistyk', 'Koordynator', 'Król Dróg'],
+               'house_title': 'Właściciel Floty',
                'shifts': ['wiozłeś paczki po całym mieście', 'goniłeś z jedzeniem w ulewie',
                           'wdrapywałeś się na 10 piętro bez windy', 'rozwoziłeś prezenty przed świętami']},
     'mechanik': {'label': 'Mechanik', 'base': (130, 250),
+                 'track': ['Uczeń', 'Pomocnik', 'Mechanik', 'Starszy Mechanik', 'Specjalista',
+                           'Diagnosta', 'Mistrz', 'Ekspert', 'Guru', 'Legenda Warsztatu'],
+                 'house_title': 'Właściciel Warsztatu',
                  'shifts': ['wymieniałeś sprzęgło w passacie', 'stawiałeś diagnozę po dźwięku',
                             'robiłeś przegląd przed zimą', 'wyciągałeś auto z rowu']},
     'barman': {'label': 'Barman', 'base': (120, 240),
+               'track': ['Praktykant', 'Pomocnik', 'Barman', 'Starszy Barman', 'Miksolog',
+                         'Szef Zmiany', 'Manager Baru', 'Właściciel', 'Sieciówka', 'Król Nocy'],
+               'house_title': 'Właściciel Sieci Barów',
                'shifts': ['mieszałeś drinki na piątkowej zmianie', 'lewałeś piwo szybciej niż spływało',
                           'słuchałeś żali gościa przy barze', 'robiłeś flair z butelkami']},
     'taksowkarz': {'label': 'Taksówkarz', 'base': (115, 235),
+                   'track': ['Kursant', 'Kierowca', 'Taksówkarz', 'Stały', 'Nocny Wilk',
+                             'Veteran', 'Złoty Kierowca', 'Dyspozytor', 'Właściciel', 'Król Szos'],
+                   'house_title': 'Właściciel Korporacji Taxi',
                    'shifts': ['woziłeś ludzi po nocnym mieście', 'stałeś w korku na Wisłostradzie',
                               'słuchałeś historii życia pasażera', 'goniłeś na lotnisko na czas']},
     'fryzjer': {'label': 'Fryzjer', 'base': (125, 245),
+                'track': ['Uczeń', 'Pomocnik', 'Fryzjer', 'Stylista', 'Starszy Stylista',
+                          'Kolorysta', 'Master', 'Artysta', 'Trendsetter', 'Ikona Stylu'],
+                'house_title': 'Właściciel Sieci Salonów',
                 'shifts': ['ciniowałeś fade na zero', 'słuchałeś dram klienta godzinę',
                            'prostowałeś grzywki przed sylwestrem', 'goliłeś brody jak chirurg']},
     'programista': {'label': 'Programista', 'base': (200, 380), 'min_level': 10,
+                    'track': ['Stażysta', 'Junior', 'Regular', 'Mid', 'Starszy Mid',
+                              'Senior', 'Starszy Senior', 'Tech Lead', 'Architect', 'CTO'],
+                    'house_title': 'Założyciel Startupu',
                     'shifts': ['debugowałeś produkcję o 3 w nocy', 'pisałeś testy których nikt nie czyta',
                                'tłumaczyłeś menedżerowi czemu nie działa', 'deployowałeś w piątek']},
     'ochroniarz': {'label': 'Ochroniarz', 'base': (150, 280), 'min_level': 5,
+                   'track': ['Nowy', 'Bramkarz', 'Ochroniarz', 'Patrol', 'Starszy',
+                             'Koordynator', 'Szef Zmiany', 'Manager', 'Dyrektor', 'Szef Ochrony'],
+                   'house_title': 'Właściciel Agencji',
                    'shifts': ['stałeś pod klubem całą noc', 'wyrzucałeś zadymiarza za drzwi',
                               'sprawdzałeś listy gości', 'pilnowałeś parkingu']},
     'kucharz': {'label': 'Kucharz', 'base': (170, 300), 'min_level': 8,
+                'track': ['Uczeń', 'Pomocnik', 'Kucharz', 'Starszy Kucharz', 'Sous-Chef',
+                          'Szef Kuchni', 'MasterChef', 'Restaurator', 'Gwiazdka Michelin', 'Legenda Gastronomii'],
+                'house_title': 'Właściciel Restauracji',
                 'shifts': ['ogarniałeś serwis na 200 osób', 'kroiłeś cebulę bez płaczu',
                            'wymyślałeś danie dnia', 'gasiłeś pożar na patelni']},
     'fotograf': {'label': 'Fotograf', 'base': (180, 330), 'min_level': 12,
+                 'track': ['Amator', 'Początkujący', 'Fotograf', 'Eventowy', 'Portrecista',
+                           'Ślubny', 'Komercyjny', 'Modowy', 'Artysta', 'Legenda Obiektywu'],
+                 'house_title': 'Właściciel Agencji',
                  'shifts': ['robiłeś ślub do białego rana', 'łapałeś zachód nad Wisłą',
                             'retuszowałeś sesję całą noc', 'kręciłeś teledysk w garażu']},
     'agent': {'label': 'Agent Nieruchomości', 'base': (220, 420), 'min_level': 18,
+              'track': ['Stażysta', 'Agent', 'Pośrednik', 'Starszy Agent', 'Ekspert Rynku',
+                        'Top Sprzedawca', 'Manager', 'Dyrektor', 'Partner', 'Król Nieruchomości'],
+              'house_title': 'Deweloper',
               'shifts': ['sprzedałeś kawalerkę powyżej ceny', 'oprowadzałeś willę z basenem',
                          'podpisywałeś akt u notariusza', 'negocjowałeś prowizję']},
     'prawnik': {'label': 'Prawnik', 'base': (300, 550), 'min_level': 25,
+                'track': ['Aplikant', 'Młodszy', 'Prawnik', 'Radca', 'Starszy Radca',
+                          'Partner', 'Starszy Partner', 'Mecenas', 'Adwokat', 'Legenda Sali Sądowej'],
+                'house_title': 'Właściciel Kancelarii',
                 'shifts': ['wygrałeś sprawę w sądzie', 'pisałeś umowę 40 stron',
                            'broniłeś klienta z urzędu', 'liczyłeś godziny na fakturze']},
     'lekarz': {'label': 'Lekarz', 'base': (350, 650), 'min_level': 30,
+               'track': ['Stażysta', 'Rezydent', 'Lekarz', 'Specjalista', 'Starszy Specjalista',
+                         'Ordynator', 'Zastępca Dyrektora', 'Dyrektor Szpitala', 'Profesor', 'Legenda Medycyny'],
+               'house_title': 'Właściciel Kliniki',
                'shifts': ['miałeś dyżur 24h na SORze', 'szyłeś łuk brwiowy po bójce',
                           'wypisywałeś recepty hurtowo', 'uspokajałeś spanikowanych rodziców']},
     'entrepreneur': {'label': 'Entrepreneur', 'base': (600, 1000), 'hidden': True, 'min_level': 20,
+                     'track': ['Marzyciel', 'Freelancer', 'Założyciel', 'Startupowiec', 'Biznesmen',
+                               'Inwestor', 'Rekin', 'Magnat', 'Miliarder', 'Legenda Biznesu'],
+                     'house_title': 'Ten Jedyny',
                      'shifts': ['podpisywałeś kontrakty na jachcie', 'zwalniałeś zarząd przez telefon',
                                 'kupowałeś kolejną firmę z nudów', 'grałeś w golfa z inwestorami']},
 }
 
 # old secret key -> new (keeps existing hires working)
 JOB_ALIAS = {'ceo': 'entrepreneur'}
+
+
+def job_title(key: str, idx: int, uid=None) -> str:
+    """Per-job rank title. House gets its own legend name at the top rungs."""
+    track = (JOBS.get(key) or {}).get('track') or []
+    if uid is not None and db.is_house(uid) and idx >= 8:
+        return (JOBS.get(key) or {}).get('house_title') or 'Ten Jedyny'
+    if 0 <= idx < len(track):
+        return track[idx]
+    return LADDER[idx][1] if 0 <= idx < len(LADDER) else LADDER[-1][1]
 
 
 def fame_of(level: int):
@@ -178,7 +236,8 @@ class Jobs(commands.Cog):
         j = get_job(gid, ctx.author.id)
         jkey = JOB_ALIAS.get(j.get('job'), j.get('job'))
         lv = get_user(gid, ctx.author.id).get('level', 0)
-        idx, title, mult, nxt = ladder_of(lv)
+        idx, _, mult, nxt = ladder_of(lv)
+        title = job_title(jkey, idx, ctx.author.id) if jkey in JOBS else ladder_of(lv)[1]
         job = JOBS.get(jkey, {}).get('label', t(gid, 'job.none'))
         nxt_txt = t(gid, 'job.next', level=nxt) if nxt else t(gid, 'job.top')
         await ctx.reply(view=_game_layout(t(gid, 'job.my_title', user=ctx.author.display_name),
@@ -204,7 +263,8 @@ class Jobs(commands.Cog):
         if key not in JOBS:
             key = None
         lv = get_user(gid, ctx.author.id).get('level', 0)
-        idx, title, mult, nxt = ladder_of(lv)
+        idx, _, mult, nxt = ladder_of(lv)
+        title = job_title(key, idx, ctx.author.id) if key else ladder_of(lv)[1]
         shifts = j.get('shifts', 0) if key else 0
         senior = min(shifts // 10 * 0.05, 0.5)
         house_edge = 1.5 if db.is_house(ctx.author.id) else 1.0
