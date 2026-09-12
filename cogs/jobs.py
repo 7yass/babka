@@ -38,7 +38,7 @@ JOBS = {
     'mechanik': {'label': 'Mechanik', 'base': (130, 250),
                  'shifts': ['wymieniałeś sprzęgło w passacie', 'stawiałeś diagnozę po dźwięku',
                             'robiłeś przegląd przed zimą', 'wyciągałeś auto z rowu']},
-    'ceo': {'label': 'Young CEO', 'base': (800, 1500), 'hidden': True,
+    'ceo': {'label': 'Young CEO', 'base': (400, 700), 'hidden': True,
             'shifts': ['podpisywałeś kontrakty na jachcie', 'zwalniałeś zarząd przez telefon',
                        'kupowałeś kolejną firmę z nudów', 'grałeś w golfa z inwestorami']},
 }
@@ -210,6 +210,11 @@ class Jobs(commands.Cog):
             msg = t(gid, 'eco.work_done', job=f"{job['label']}: {flavor}", pay=pay)
             if extra.strip():
                 msg += '\n' + extra.strip()
+            try:
+                from cogs.gamble import bal as _bal
+                msg += '\n' + t(gid, 'eco.balance_line', cash=_bal(gid, ctx.author.id)['cash'])
+            except Exception:
+                pass
             return await ctx.reply(msg)
         # no job: day labor
         jobs_txt = t(gid, 'eco.jobs').split('|')
@@ -219,7 +224,12 @@ class Jobs(commands.Cog):
         with db.conn_ctx() as conn:
             conn.execute('UPDATE eco SET last_work=? WHERE guild_id=? AND user_id=?',
                          (now, str(gid), str(ctx.author.id)))
-        await ctx.reply(t(gid, 'eco.work_done', job=job, pay=pay))
+        try:
+            from cogs.gamble import bal as _bal2
+            extra2 = '\n' + t(gid, 'eco.balance_line', cash=_bal2(gid, ctx.author.id)['cash'])
+        except Exception:
+            extra2 = ''
+        await ctx.reply(t(gid, 'eco.work_done', job=job, pay=pay) + extra2)
 
 
 async def setup(bot):

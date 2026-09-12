@@ -186,6 +186,39 @@ def _jailed(gid, uid):
     return None
 
 
+def _wallet_line(gid, uid) -> str:
+    try:
+        return '\n' + t(gid, 'eco.balance_line', cash=bal(gid, uid)['cash'])
+    except Exception:
+        return ''
+
+
+def wallet_card(name: str, cash: int, streak: int, avatar_bytes: bytes = None) -> bytes:
+    import io as _io
+    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
+    from pathlib import Path as _P
+    from utils.cards import paste_avatar as _paste
+    W, H, AV = 800, 220, 150
+    img = _Img.new('RGB', (W, H), (16, 16, 19))
+    d = _Dr.Draw(img)
+    d.rounded_rectangle([0, 0, W - 1, H - 1], radius=18, outline=(250, 200, 60), width=3)
+    if avatar_bytes:
+        _paste(img, avatar_bytes, (35, 35, AV))
+        d.ellipse([35, 35, 35 + AV, 35 + AV], outline=(250, 200, 60), width=4)
+    try:
+        f_big = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 64)
+        f_mid = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans.ttf'), 32)
+    except Exception:
+        f_big = f_mid = _F.load_default()
+    d.text((220, 35), f'{cash:,}'.replace(',', ' '), font=f_big, fill=(250, 200, 60))
+    d.text((220, 115), name[:20], font=f_mid, fill=(255, 255, 255))
+    if streak and streak > 1:
+        d.text((220, 155), f'{streak}-day streak', font=f_mid, fill=(150, 150, 158))
+    buf = _io.BytesIO()
+    img.save(buf, 'PNG')
+    return buf.getvalue()
+
+
 class BJView(discord.ui.LayoutView):
     def __init__(self, cog, player_id: int, bet: int, deck, phand, dhand, gid):
         super().__init__(timeout=120)
@@ -306,7 +339,17 @@ class Gamble(commands.Cog):
     async def balance(self, ctx, member: discord.Member = None):
         member = member or ctx.author
         b = bal(ctx.guild.id, member.id)
-        await ctx.reply(t(ctx.guild.id, 'eco.bal', user=member.display_name, cash=b['cash']), ephemeral=True)
+        try:
+            av = await member.display_avatar.with_size(256).read()
+        except Exception:
+            av = None
+        png = await self.bot.loop.run_in_executor(
+            None, wallet_card, member.display_name, b['cash'], b.get('daily_streak') or 0, av)
+        await ctx.reply(view=_game_layout(t(ctx.guild.id, 'eco.bal_title', user=member.display_name),
+                                          t(ctx.guild.id, 'eco.bal', user=member.display_name, cash=b['cash']),
+                                          'attachment://wallet.png'),
+                        file=discord.File(__import__('io').BytesIO(png), 'wallet.png'),
+                        ephemeral=True)
 
     @commands.hybrid_command(name='daily', description='Dzienne monety')
     async def daily(self, ctx):
@@ -327,7 +370,8 @@ class Gamble(commands.Cog):
         with db.conn_ctx() as conn:
             conn.execute('UPDATE eco SET last_daily=?, daily_streak=? WHERE guild_id=? AND user_id=?',
                          (now, streak, str(gid), str(ctx.author.id)))
-        await ctx.reply(t(gid, 'eco.daily_ok', cash=DAILY_CASH + bonus, streak=streak), ephemeral=True)
+        await ctx.reply(t(gid, 'eco.daily_ok', cash=DAILY_CASH + bonus, streak=streak)
+                        + _wallet_line(gid, ctx.author.id), ephemeral=True)
 
     @commands.hybrid_command(name='pay', description='Przelej kasę')
     async def pay(self, ctx, member: discord.Member, amount: int):
@@ -342,7 +386,8 @@ class Gamble(commands.Cog):
         vb = bal(gid, member.id)
         set_cash(gid, ctx.author.id, b['cash'] - amount)
         set_cash(gid, member.id, vb['cash'] + amount)
-        await ctx.reply(t(gid, 'eco.pay_ok', user=member.display_name, amount=amount))
+        await ctx.reply(t(gid, 'eco.pay_ok', user=member.display_name, amount=amount)
+                        + _wallet_line(gid, ctx.author.id))
 
     @commands.hybrid_command(name='blackjack', description='Oczko', aliases=['bj'])
     async def blackjack(self, ctx, bet: int):
@@ -404,6 +449,7 @@ class Gamble(commands.Cog):
         else:
             win = 0
             msg = t(gid, 'eco.slots_lose', bet=bet)
+        msg += _wallet_line(gid, ctx.author.id)
         if win:
             nb = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, nb['cash'] + bet + win)
@@ -453,6 +499,7 @@ class Gamble(commands.Cog):
             msg = t(gid, 'eco.cf_win', win=bet)
         else:
             msg = t(gid, 'eco.cf_lose', bet=bet)
+        msg += _wallet_line(gid, ctx.author.id)
         import asyncio as _aio2
         flip = await ctx.reply(view=_game_layout(t(gid, 'eco.cf_title', bet=bet),
                                                  t(gid, 'eco.flipping')))
@@ -525,6 +572,7 @@ class Gamble(commands.Cog):
                     ab2 = bal(gid, ctx.author.id)
                     set_cash(gid, ctx.author.id, ab2['cash'] + bounty['amount'])
                     msg += '\n' + t(gid, 'eco.bounty_claim', amount=bounty['amount'])
+        msg += _wallet_line(gid, ctx.author.id)
         await ctx.reply(view=_game_layout(t(gid, 'eco.rob_title'), msg))
 
     @commands.hybrid_command(name='rich', description='Najbogatsi', aliases=['baltop'])
