@@ -422,32 +422,39 @@ class Levels(commands.Cog):
     @commands.hybrid_command(name='rank', description='Karta gracza')
     async def rank(self, ctx, member: discord.Member = None):
         import aiohttp
+        import asyncio as _aio
         await ctx.defer()
         member = member or ctx.author
         data = get_user(ctx.guild.id, member.id)
 
-        async def grab(url):
+        async def grab(session, url):
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url, headers={'User-Agent': 'Mozilla/5.0'},
-                                           timeout=aiohttp.ClientTimeout(total=10)) as r:
-                        if r.status == 200:
-                            return await r.read()
+                async with session.get(url, headers={'User-Agent': 'Mozilla/5.0'},
+                                       timeout=aiohttp.ClientTimeout(total=4)) as r:
+                    if r.status == 200:
+                        return await r.read()
             except Exception:
                 return None
             return None
 
-        avatar = await grab(str(member.display_avatar.with_size(256).url))
-        banner, accent = None, None
-        try:
-            u = await self.bot.fetch_user(member.id)
-            if u.banner:
-                banner = await grab(str(u.banner.with_size(512).url))
-                print(f"[rank] {member.display_name}: banner={'yes' if banner else 'fetch-failed'}")
-            if u.accent_color:
-                accent = u.accent_color.to_rgb()
-        except Exception as e:
-            print(f'[rank] fetch_user failed: {e}')
+        async def _fetch_all():
+            async with aiohttp.ClientSession() as session:
+                avatar_task = _aio.ensure_future(
+                    grab(session, str(member.display_avatar.with_size(256).url)))
+                try:
+                    u = await self.bot.fetch_user(member.id)
+                    banner_url = str(u.banner.with_size(512).url) if u and u.banner else None
+                    accent = u.accent_color.to_rgb() if u and u.accent_color else None
+                except Exception as e:
+                    print(f'[rank] fetch_user failed: {e}')
+                    banner_url, accent = None, None
+                if banner_url:
+                    banner, avatar = await _aio.gather(grab(session, banner_url), avatar_task)
+                else:
+                    banner, avatar = None, await avatar_task
+                return avatar, banner, accent
+
+        avatar, banner, accent = await _fetch_all()
         from utils.cards import get_style, fetch_bytes, get_skin, apply_skin, get_tier_names
         style = apply_skin(get_style(ctx.guild.id, 'rank'), get_skin(ctx.guild.id, data['level']))
         names = get_tier_names(ctx.guild.id)
