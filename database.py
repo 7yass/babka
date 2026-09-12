@@ -350,6 +350,13 @@ def init_db():
             c.execute('ALTER TABLE eco ADD COLUMN last_work INTEGER DEFAULT 0')
         except Exception:
             pass  # already there
+        for col in ('ALTER TABLE eco ADD COLUMN energy INTEGER DEFAULT 100',
+                    'ALTER TABLE eco ADD COLUMN energy_at INTEGER DEFAULT 0',
+                    'ALTER TABLE jobs ADD COLUMN shifts INTEGER DEFAULT 0'):
+            try:
+                c.execute(col)
+            except Exception:
+                pass  # already there
 
 
 def get_settings(guild_id: str) -> dict:

@@ -13,6 +13,42 @@ from utils.checks import staff_or
 GIRL_ROLE = '1531037037153747025'
 BOY_ROLE = '1531037181270032404'
 WORK_CD = 3600
+SHIFT_COST = 25
+REGEN_PER_SEC = 1 / 180  # 1 energy per 3 min
+
+
+def energy_of(gid, uid) -> int:
+    """Lazy-regen energy. Returns current 0-100 and persists it."""
+    import time
+    from cogs.gamble import bal
+    b = bal(gid, uid)
+    now = int(time.time())
+    e = b.get('energy')
+    e = 100 if e is None else int(e)
+    at = b.get('energy_at') or now
+    e = max(0, min(100, e + int((now - at) * REGEN_PER_SEC)))
+    if e != b.get('energy') or not b.get('energy_at'):
+        with db.conn_ctx() as conn:
+            conn.execute('UPDATE eco SET energy=?, energy_at=? WHERE guild_id=? AND user_id=?',
+                         (e, now, str(gid), str(uid)))
+    return e
+
+
+def spend_energy(gid, uid, amount: int) -> bool:
+    e = energy_of(gid, uid)
+    if e < amount:
+        return False
+    with db.conn_ctx() as conn:
+        conn.execute('UPDATE eco SET energy=?, energy_at=? WHERE guild_id=? AND user_id=?',
+                     (e - amount, int(time.time()), str(gid), str(uid)))
+    return True
+
+
+def feed_energy(gid, uid, amount: int):
+    e = energy_of(gid, uid)
+    with db.conn_ctx() as conn:
+        conn.execute('UPDATE eco SET energy=?, energy_at=? WHERE guild_id=? AND user_id=?',
+                     (min(100, e + amount), int(time.time()), str(gid), str(uid)))
 
 # (min_level, title, pay_mult)
 FAME = [(0, 'nikt', 1.0), (5, 'lokals', 1.3), (10, 'znany', 1.7),
@@ -38,6 +74,18 @@ JOBS = {
     'mechanik': {'label': 'Mechanik', 'base': (130, 250),
                  'shifts': ['wymieniałeś sprzęgło w passacie', 'stawiałeś diagnozę po dźwięku',
                             'robiłeś przegląd przed zimą', 'wyciągałeś auto z rowu']},
+    'barman': {'label': 'Barman', 'base': (120, 240),
+               'shifts': ['mieszałeś drinki na piątkowej zmianie', 'lewałeś piwo szybciej niż spływało',
+                          'słuchałeś żali gościa przy barze', 'robiłeś flair z butelkami']},
+    'taksowkarz': {'label': 'Taksówkarz', 'base': (115, 235),
+                   'shifts': ['woziłeś ludzi po nocnym mieście', 'stałeś w korku na Wisłostradzie',
+                              'słuchałeś historii życia pasażera', 'goniłeś na lotnisko na czas']},
+    'fryzjer': {'label': 'Fryzjer', 'base': (125, 245),
+                'shifts': ['ciniowałeś fade na zero', 'słuchałeś dram klienta godzinę',
+                           'prostowałeś grzywki przed sylwestrem', 'goliłeś brody jak chirurg']},
+    'programista': {'label': 'Programista', 'base': (200, 380), 'min_level': 10,
+                    'shifts': ['debugowałeś produkcję o 3 w nocy', 'pisałeś testy których nikt nie czyta',
+                               'tłumaczyłeś menedżerowi czemu nie działa', 'deployowałeś w piątek']},
     'ceo': {'label': 'Young CEO', 'base': (400, 700), 'hidden': True,
             'shifts': ['podpisywałeś kontrakty na jachcie', 'zwalniałeś zarząd przez telefon',
                        'kupowałeś kolejną firmę z nudów', 'grałeś w golfa z inwestorami']},
@@ -81,22 +129,31 @@ class Jobs(commands.Cog):
     @job.command(name='list', description='Oferty pracy')
     async def job_list(self, ctx):
         from cogs.gamble import _game_layout
+        from cogs.levels import get_user
+        lv = get_user(ctx.guild.id, ctx.author.id).get('level', 0)
         lines = []
         for key, j in JOBS.items():
             if j.get('hidden'):
                 continue
-            lines.append(f"• **{j['label']}** — {j['base'][0]}–{j['base'][1]} / zmianę")
+            lock = t(ctx.guild.id, 'job.need_level', level=j['min_level']) if lv < j.get('min_level', 0) else ''
+            lines.append(f"• **{j['label']}** — {j['base'][0]}–{j['base'][1]} / zmianę {lock}")
+        lines.append('')
+        lines.append(t(ctx.guild.id, 'job.energy_line', e=energy_of(ctx.guild.id, ctx.author.id)))
         await ctx.reply(view=_game_layout(t(ctx.guild.id, 'job.list_title'), '\n'.join(lines)),
                         ephemeral=True)
 
     @job.command(name='join', description='Zatrudnij się')
     async def job_join(self, ctx, name: str):
+        from cogs.levels import get_user
         gid = ctx.guild.id
         key = (name or '').lower().strip()
         if key == 'ceo' and not db.is_house(ctx.author.id):
             return await ctx.reply(t(gid, 'job.nope'), ephemeral=True)
         if key not in JOBS:
             return await ctx.reply(t(gid, 'job.nope'), ephemeral=True)
+        need = JOBS[key].get('min_level', 0)
+        if get_user(gid, ctx.author.id).get('level', 0) < need:
+            return await ctx.reply(t(gid, 'job.locked', level=need), ephemeral=True)
         old = get_job(gid, ctx.author.id).get('job')
         with db.conn_ctx() as conn:
             conn.execute('INSERT OR REPLACE INTO jobs (guild_id, user_id, job, fans, tier) VALUES (?,?,?,?,0)',
@@ -151,11 +208,15 @@ class Jobs(commands.Cog):
         key = j.get('job') if j.get('job') in JOBS else None
         lv = get_user(gid, ctx.author.id).get('level', 0)
         idx, title, mult = fame_of(lv)
+        shifts = j.get('shifts', 0) if key else 0
+        senior = min(shifts // 10 * 0.05, 0.5)
+        if not spend_energy(gid, ctx.author.id, SHIFT_COST):
+            return await ctx.reply(t(gid, 'job.tired', e=energy_of(gid, ctx.author.id)), ephemeral=True)
         if key:
             job = JOBS[key]
             flavor = random.choice(job['shifts'])
             lo, hi = job['base']
-            pay = int(random.randint(lo, hi) * mult)
+            pay = int(random.randint(lo, hi) * mult * (1 + senior))
             extra = ''
             fans_gain = 0
             if key == 'onlyfans':
@@ -205,6 +266,8 @@ class Jobs(commands.Cog):
             with db.conn_ctx() as conn:
                 conn.execute('UPDATE eco SET last_work=? WHERE guild_id=? AND user_id=?',
                              (now, str(gid), str(ctx.author.id)))
+                conn.execute('UPDATE jobs SET shifts=shifts+1 WHERE guild_id=? AND user_id=?',
+                             (str(gid), str(ctx.author.id)))
             try:
                 role = await ensure_job_role(ctx.guild, key)
                 if role and isinstance(ctx.author, discord.Member) and role not in ctx.author.roles:
@@ -212,6 +275,11 @@ class Jobs(commands.Cog):
             except Exception:
                 pass
             msg = t(gid, 'eco.work_done', job=f"{job['label']}: {flavor}", pay=pay)
+            if extra.strip():
+                msg += '\n' + extra.strip()
+            if senior:
+                msg += '\n' + t(gid, 'job.senior', pct=int(senior * 100))
+            msg += '\n' + t(gid, 'job.energy', e=energy_of(gid, ctx.author.id))
             if extra.strip():
                 msg += '\n' + extra.strip()
             try:
