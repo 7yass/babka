@@ -1,4 +1,4 @@
-"""Underworld: crew heists, bounties, jail time."""
+﻿"""Underworld: crew heists, bounties, jail time."""
 import asyncio
 import json
 import random
@@ -23,7 +23,7 @@ class Crime(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_group(name='heist', description='Napad ekipą')
+    @commands.hybrid_group(name='heist', description='Napad ekipÄ…')
     async def heist(self, ctx):
         await ctx.reply('/heist start / join', ephemeral=True)
 
@@ -52,7 +52,7 @@ class Crime(commands.Cog):
         await asyncio.sleep(JOIN_WINDOW + 2)
         await self._resolve(ctx.guild, gid)
 
-    @heist.command(name='join', description='Dołącz do napadu')
+    @heist.command(name='join', description='DoÅ‚Ä…cz do napadu')
     async def heist_join(self, ctx):
         from cogs.gamble import bal, set_cash
         gid = str(ctx.guild.id)
@@ -115,7 +115,7 @@ class Crime(commands.Cog):
             except Exception:
                 pass
 
-    @commands.hybrid_command(name='bounty', description='Nagroda za głowę')
+    @commands.command(name='bounty', description='Nagroda za gÅ‚owÄ™')
     async def bounty(self, ctx, member: discord.Member, amount: int):
         from cogs.gamble import bal, set_cash
         gid = ctx.guild.id
@@ -132,7 +132,7 @@ class Crime(commands.Cog):
                          (str(gid), str(member.id), amount, str(ctx.author.id)))
         await ctx.reply(t(gid, 'crime.bounty_set', user=member.display_name, amount=amount))
 
-    @commands.hybrid_command(name='bounties', description='Lista nagród')
+    @commands.command(name='bounties', description='Lista nagrÃ³d')
     async def bounties(self, ctx):
         gid = ctx.guild.id
         with db.conn_ctx() as conn:
@@ -143,7 +143,7 @@ class Crime(commands.Cog):
         lines = []
         for r in rows:
             m = ctx.guild.get_member(int(r['target_id']))
-            lines.append(f"• {(m.display_name if m else '?')} — **{r['a']}**")
+            lines.append(f"â€¢ {(m.display_name if m else '?')} â€” **{r['a']}**")
         await ctx.reply(embed=ok('\n'.join(lines)), ephemeral=True)
 
 

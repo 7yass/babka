@@ -1,4 +1,4 @@
-"""AntiRaid: permaban re-ban, 60-day age gate, burst lockdown, honeypot."""
+﻿"""AntiRaid: permaban re-ban, 60-day age gate, burst lockdown, honeypot."""
 import asyncio
 import time
 from collections import defaultdict, deque
@@ -125,7 +125,7 @@ class AntiRaid(commands.Cog):
         await ctx.reply('/antiraid status / toggle / set-age / set-action / set-burst / honeypot-set / honeypot-clear / lockdown',
                         ephemeral=True)
 
-    @antiraid.command(name='status', description='Pokaż ustawienia')
+    @antiraid.command(name='status', description='PokaÅ¼ ustawienia')
     async def status(self, ctx):
         gid = ctx.guild.id
         cfg = db.get_antiraid(gid)
@@ -135,7 +135,7 @@ class AntiRaid(commands.Cog):
                             ch=hp, lock=t(gid, 'ar.active') if cfg['lockdown'] else t(gid, 'ar.off')),
                         ephemeral=True)
 
-    @antiraid.command(name='toggle', description='Włącz / wyłącz')
+    @antiraid.command(name='toggle', description='WÅ‚Ä…cz / wyÅ‚Ä…cz')
     @staff_or('administrator')
     async def toggle(self, ctx):
         gid = ctx.guild.id
@@ -163,7 +163,7 @@ class AntiRaid(commands.Cog):
             conn.execute('UPDATE antiraid SET action=? WHERE guild_id=?', (action, str(gid)))
         await ctx.reply(t(gid, 'ar.action_set', a=action), ephemeral=True)
 
-    @antiraid.command(name='set-burst', description='Próg nawałnicy')
+    @antiraid.command(name='set-burst', description='PrÃ³g nawaÅ‚nicy')
     @staff_or('administrator')
     async def set_burst(self, ctx, count: int, seconds: int):
         gid = ctx.guild.id
@@ -173,7 +173,7 @@ class AntiRaid(commands.Cog):
                          (count, seconds, str(gid)))
         await ctx.reply(t(gid, 'ar.burst_set', c=count, s=seconds), ephemeral=True)
 
-    @antiraid.command(name='honeypot-set', description='Kanał-pułapka')
+    @antiraid.command(name='honeypot-set', description='KanaÅ‚-puÅ‚apka')
     @staff_or('administrator')
     async def honeypot_set(self, ctx, channel: discord.TextChannel):
         gid = ctx.guild.id
@@ -182,14 +182,14 @@ class AntiRaid(commands.Cog):
             conn.execute('UPDATE antiraid SET honeypot_channel=? WHERE guild_id=?', (str(channel.id), str(gid)))
         await ctx.reply(embed=ok(t(gid, 'ar.hp_set', ch=channel.mention)))
 
-    @antiraid.command(name='honeypot-clear', description='Usuń honeypota')
+    @antiraid.command(name='honeypot-clear', description='UsuÅ„ honeypota')
     @staff_or('administrator')
     async def honeypot_clear(self, ctx):
         with db.conn_ctx() as conn:
             conn.execute('UPDATE antiraid SET honeypot_channel=NULL WHERE guild_id=?', (str(ctx.guild.id),))
         await ctx.reply(t(ctx.guild.id, 'ar.hp_off'), ephemeral=True)
 
-    @antiraid.command(name='lockdown', description='Lockdown całości')
+    @antiraid.command(name='lockdown', description='Lockdown caÅ‚oÅ›ci')
     @staff_or('administrator')
     async def lockdown(self, ctx):
         gid = ctx.guild.id
@@ -202,12 +202,12 @@ class AntiRaid(commands.Cog):
         else:
             await ctx.reply(t(gid, 'ar.unlocked'))
 
-    @commands.hybrid_command(name='lockdown', description='Lockdown całości (alarmowo)')
+    @commands.command(name='lockdown', description='Lockdown caÅ‚oÅ›ci (alarmowo)')
     @staff_or('administrator')
     async def lockdown_flat(self, ctx):
         await self.lockdown.callback(self, ctx)
 
-    @commands.hybrid_command(name='raid', description='Status ochrony')
+    @commands.command(name='raid', description='Status ochrony')
     async def raid_flat(self, ctx):
         await self.status.callback(self, ctx)
 

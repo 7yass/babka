@@ -1,4 +1,4 @@
-"""Voice Master: join-to-create rooms, panel in room chat. Hybrid setup."""
+﻿"""Voice Master: join-to-create rooms, panel in room chat. Hybrid setup."""
 import re
 
 import discord
@@ -27,7 +27,7 @@ def panel_embed(channel, owner_mention: str, gid, thumb_url: str = None) -> disc
     states.append(t(gid, 'vm.st_limit', cur=limit, max=99) if limit else t(gid, 'vm.st_nolimit'))
     humans = len([m for m in channel.members if not m.bot])
     states.append(t(gid, 'vm.st_inside', n=humans))
-    e = build(f"{owner_mention}\n{' · '.join(states)}",
+    e = build(f"{owner_mention}\n{' Â· '.join(states)}",
               title=channel.name, color=WHITE)
     try:
         with db.conn_ctx() as conn:
@@ -66,12 +66,12 @@ async def refresh_panel(guild: discord.Guild, channel) -> None:
 
 
 def control_grid(channel_id, gid) -> discord.ui.View:
-    """Private control grid — shown ephemerally, never in public."""
+    """Private control grid â€” shown ephemerally, never in public."""
     cid = str(channel_id)
     view = discord.ui.View(timeout=300)
     for key in ('lock', 'hide', 'rename', 'plus', 'minus', 'kick', 'trust', 'delete'):
         label = {'lock': t(gid, 'vm.b_lock'), 'hide': t(gid, 'vm.b_hide'), 'rename': t(gid, 'vm.b_rename'),
-                 'plus': '+', 'minus': '−', 'kick': t(gid, 'vm.b_kick'), 'trust': t(gid, 'vm.b_trust'),
+                 'plus': '+', 'minus': 'âˆ’', 'kick': t(gid, 'vm.b_kick'), 'trust': t(gid, 'vm.b_trust'),
                  'delete': t(gid, 'vm.b_delete')}[key]
         short = {'lock': 'lock', 'hide': 'hide', 'rename': 'rename', 'plus': 'lplus', 'minus': 'lminus',
                  'kick': 'kick', 'trust': 'trust', 'delete': 'delete'}[key]
@@ -104,7 +104,7 @@ def interface_view(guild: discord.Guild) -> discord.ui.View:
     """Static jar-style panel. Icons when configured, grey labels otherwise."""
     icons = get_icons(guild.id)
     labels = {'lock': t(guild.id, 'vm.b_lock'), 'hide': t(guild.id, 'vm.b_hide'),
-              'rename': t(guild.id, 'vm.b_rename'), 'plus': '+', 'minus': '−',
+              'rename': t(guild.id, 'vm.b_rename'), 'plus': '+', 'minus': 'âˆ’',
               'kick': t(guild.id, 'vm.b_kick'), 'trust': t(guild.id, 'vm.b_trust'),
               'delete': t(guild.id, 'vm.b_delete')}
     view = discord.ui.View(timeout=None)
@@ -120,7 +120,7 @@ def interface_layout(guild: discord.Guild):
     gid = guild.id
     icons = get_icons(gid)
     labels = {'lock': t(gid, 'vm.b_lock'), 'hide': t(gid, 'vm.b_hide'),
-              'rename': t(gid, 'vm.b_rename'), 'plus': '+', 'minus': '−',
+              'rename': t(gid, 'vm.b_rename'), 'plus': '+', 'minus': 'âˆ’',
               'kick': t(gid, 'vm.b_kick'), 'trust': t(gid, 'vm.b_trust'),
               'delete': t(gid, 'vm.b_delete'), 'party': t(gid, 'vm.b_party')}
     view = LayoutView(timeout=None)
@@ -412,7 +412,7 @@ class Voice(commands.Cog):
             return
 
     # ---------- commands ----------
-    @commands.hybrid_group(name='voicemaster', description='Pokoje głosowe')
+    @commands.hybrid_group(name='voicemaster', description='Pokoje gÅ‚osowe')
     async def voicemaster(self, ctx):
         await ctx.reply('/voicemaster setup / interface / icon / icons / disable / panel', ephemeral=True)
 
@@ -494,9 +494,9 @@ class Voice(commands.Cog):
         if not icons:
             return await ctx.reply(t(ctx.guild.id, 'vm.icons_empty'), ephemeral=True)
         await ctx.reply(embed=ok(t(ctx.guild.id, 'vm.icons_title') + '\n' +
-                        '\n'.join(f'• **{k}** {v}' for k, v in sorted(icons.items()))), ephemeral=True)
+                        '\n'.join(f'â€¢ **{k}** {v}' for k, v in sorted(icons.items()))), ephemeral=True)
 
-    @voicemaster.command(name='disable', description='Wyłącz voice')
+    @voicemaster.command(name='disable', description='WyÅ‚Ä…cz voice')
     @staff_or('manage_guild')
     async def disable(self, ctx):
         with db.conn_ctx() as conn:
@@ -513,7 +513,7 @@ class Voice(commands.Cog):
                 return ch
         return None
 
-    @voicemaster.command(name='party', description='Tryb imprezy: twój pokój bez limitu')
+    @voicemaster.command(name='party', description='Tryb imprezy: twÃ³j pokÃ³j bez limitu')
     async def party(self, ctx):
         gid = ctx.guild.id
         room = self._my_room(ctx.guild, ctx.author.id)
@@ -525,7 +525,7 @@ class Voice(commands.Cog):
             return await ctx.reply(t(gid, 'vm.fail'), ephemeral=True)
         await ctx.reply(t(gid, 'vm.party', ch=room.mention))
 
-    @voicemaster.command(name='bring', description='Ściągnij rolę na swoją głosówkę')
+    @voicemaster.command(name='bring', description='ÅšciÄ…gnij rolÄ™ na swojÄ… gÅ‚osÃ³wkÄ™')
     @staff_or('move_members')
     async def bring(self, ctx, role: discord.Role):
         gid = ctx.guild.id
@@ -570,10 +570,10 @@ class Voice(commands.Cog):
             except Exception:
                 pass
 
-    @commands.hybrid_command(name='vcs', description='Voice za jednym zamachem')
+    @commands.command(name='vcs', description='Voice za jednym zamachem')
     @staff_or('manage_guild')
     async def vcs(self, ctx, lobby_name: str, interface_name: str):
-        """`.vcs Stworz-Kanal interface` — creates both channels, wires everything, done."""
+        """`.vcs Stworz-Kanal interface` â€” creates both channels, wires everything, done."""
         gid = ctx.guild.id
         lobby_name = lobby_name.strip()[:90]
         slug = re.sub(r'[^a-z0-9-_]', '', interface_name.strip().lower().replace(' ', '-'))[:90] or 'interface'
@@ -598,7 +598,7 @@ class Voice(commands.Cog):
         await self._post_interface(ctx.guild, iface)
         await ctx.reply(t(gid, 'vm.vcs_ok', lobby=lobby.mention, iface=iface.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='vcsetup', description='Szybki setup voice')
+    @commands.command(name='vcsetup', description='Szybki setup voice')
     @staff_or('manage_guild')
     async def vcsetup(self, ctx, voice: discord.VoiceChannel = None, interface: discord.TextChannel = None):
         lobby = voice or (ctx.author.voice.channel if ctx.author.voice else None)
@@ -614,14 +614,14 @@ class Voice(commands.Cog):
         if interface:
             await self._post_interface(ctx.guild, interface)
 
-    @commands.hybrid_command(name='vcpanel', description='Panel pokoju')
+    @commands.command(name='vcpanel', description='Panel pokoju')
     async def vcpanel(self, ctx):
         await self.panel.callback(self, ctx)
 
 
 class _LimitSelect(discord.ui.Select):
     def __init__(self, channel_id: int, options):
-        super().__init__(custom_id=f'vm_limit_select:{channel_id}', placeholder=options[0].label if options else '…',
+        super().__init__(custom_id=f'vm_limit_select:{channel_id}', placeholder=options[0].label if options else 'â€¦',
                          options=options, min_values=1, max_values=1)
 
     async def callback(self, interaction: discord.Interaction):
