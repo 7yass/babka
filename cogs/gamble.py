@@ -364,9 +364,9 @@ class Gamble(commands.Cog):
             view = BJView(self, ctx.author.id, bet, deck, phand, dhand, gid)
             view.done = True
             view._build(hide=False, extra=t(gid, 'eco.bj_natural', win=win))
-            return await ctx.reply(view=view, attachments=[await view._table_file(False)])
+            return await ctx.reply(view=view, files=[await view._table_file(False)])
         view = BJView(self, ctx.author.id, bet, deck, phand, dhand, gid)
-        await ctx.reply(view=view, attachments=[await view._table_file(True)])
+        await ctx.reply(view=view, files=[await view._table_file(True)])
 
     def _take_bet(self, ctx, bet: int):
         gid = ctx.guild.id
