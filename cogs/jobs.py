@@ -13,46 +13,22 @@ from utils.checks import staff_or
 GIRL_ROLE = '1531037037153747025'
 BOY_ROLE = '1531037181270032404'
 WORK_CD = 3600
-SHIFT_COST = 25
-REGEN_PER_SEC = 1 / 180  # 1 energy per 3 min
+
+# career ladder to max level 50: (min_level, title, pay_mult)
+LADDER = [(0, 'Pracownik', 1.0), (5, 'Manager', 1.25), (10, 'Executive', 1.55),
+          (15, 'Dyrektor', 1.9), (20, 'Wiceprezes', 2.25), (25, 'Starszy Wiceprezes', 2.6),
+          (30, 'Dyrektor Operacyjny', 3.0), (35, 'Prezes', 3.4),
+          (40, 'Przewodniczący', 3.8), (45, 'Mogul', 4.3)]
 
 
-def energy_of(gid, uid) -> int:
-    """Lazy-regen energy. Returns current 0-100 and persists it."""
-    import time
-    from cogs.gamble import bal
-    b = bal(gid, uid)
-    now = int(time.time())
-    e = b.get('energy')
-    e = 100 if e is None else int(e)
-    at = b.get('energy_at') or now
-    e = max(0, min(100, e + int((now - at) * REGEN_PER_SEC)))
-    if e != b.get('energy') or not b.get('energy_at'):
-        with db.conn_ctx() as conn:
-            conn.execute('UPDATE eco SET energy=?, energy_at=? WHERE guild_id=? AND user_id=?',
-                         (e, now, str(gid), str(uid)))
-    return e
+def ladder_of(level: int):
+    idx, title, mult = 0, LADDER[0][1], LADDER[0][2]
+    for i, (ml, ti, mu) in enumerate(LADDER):
+        if level >= ml:
+            idx, title, mult = i, ti, mu
+    nxt = LADDER[idx + 1][0] if idx + 1 < len(LADDER) else None
+    return idx, title, mult, nxt
 
-
-def spend_energy(gid, uid, amount: int) -> bool:
-    e = energy_of(gid, uid)
-    if e < amount:
-        return False
-    with db.conn_ctx() as conn:
-        conn.execute('UPDATE eco SET energy=?, energy_at=? WHERE guild_id=? AND user_id=?',
-                     (e - amount, int(time.time()), str(gid), str(uid)))
-    return True
-
-
-def feed_energy(gid, uid, amount: int):
-    e = energy_of(gid, uid)
-    with db.conn_ctx() as conn:
-        conn.execute('UPDATE eco SET energy=?, energy_at=? WHERE guild_id=? AND user_id=?',
-                     (min(100, e + amount), int(time.time()), str(gid), str(uid)))
-
-# (min_level, title, pay_mult)
-FAME = [(0, 'nikt', 1.0), (5, 'lokals', 1.3), (10, 'znany', 1.7),
-        (20, 'gwiazda', 2.2), (30, 'legenda', 3.0)]
 
 BRANDS = ['FitKoks', 'Volt Energy', 'Kebab Sultan', 'BubbleTea Boom', 'Gym Shark PL']
 OF_M = ['Stachu Twardy', 'Benon Wielki', 'Koksu Mario']
@@ -86,17 +62,35 @@ JOBS = {
     'programista': {'label': 'Programista', 'base': (200, 380), 'min_level': 10,
                     'shifts': ['debugowałeś produkcję o 3 w nocy', 'pisałeś testy których nikt nie czyta',
                                'tłumaczyłeś menedżerowi czemu nie działa', 'deployowałeś w piątek']},
-    'ceo': {'label': 'Young CEO', 'base': (400, 700), 'hidden': True,
-            'shifts': ['podpisywałeś kontrakty na jachcie', 'zwalniałeś zarząd przez telefon',
-                       'kupowałeś kolejną firmę z nudów', 'grałeś w golfa z inwestorami']},
+    'ochroniarz': {'label': 'Ochroniarz', 'base': (150, 280), 'min_level': 5,
+                   'shifts': ['stałeś pod klubem całą noc', 'wyrzucałeś zadymiarza za drzwi',
+                              'sprawdzałeś listy gości', 'pilnowałeś parkingu']},
+    'kucharz': {'label': 'Kucharz', 'base': (170, 300), 'min_level': 8,
+                'shifts': ['ogarniałeś serwis na 200 osób', 'kroiłeś cebulę bez płaczu',
+                           'wymyślałeś danie dnia', 'gasiłeś pożar na patelni']},
+    'fotograf': {'label': 'Fotograf', 'base': (180, 330), 'min_level': 12,
+                 'shifts': ['robiłeś ślub do białego rana', 'łapałeś zachód nad Wisłą',
+                            'retuszowałeś sesję całą noc', 'kręciłeś teledysk w garażu']},
+    'agent': {'label': 'Agent Nieruchomości', 'base': (220, 420), 'min_level': 18,
+              'shifts': ['sprzedałeś kawalerkę powyżej ceny', 'oprowadzałeś willę z basenem',
+                         'podpisywałeś akt u notariusza', 'negocjowałeś prowizję']},
+    'prawnik': {'label': 'Prawnik', 'base': (300, 550), 'min_level': 25,
+                'shifts': ['wygrałeś sprawę w sądzie', 'pisałeś umowę 40 stron',
+                           'broniłeś klienta z urzędu', 'liczyłeś godziny na fakturze']},
+    'lekarz': {'label': 'Lekarz', 'base': (350, 650), 'min_level': 30,
+               'shifts': ['miałeś dyżur 24h na SORze', 'szyłeś łuk brwiowy po bójce',
+                          'wypisywałeś recepty hurtowo', 'uspokajałeś spanikowanych rodziców']},
+    'entrepreneur': {'label': 'Entrepreneur', 'base': (600, 1000), 'hidden': True, 'min_level': 20,
+                     'shifts': ['podpisywałeś kontrakty na jachcie', 'zwalniałeś zarząd przez telefon',
+                                'kupowałeś kolejną firmę z nudów', 'grałeś w golfa z inwestorami']},
 }
+
+# old secret key -> new (keeps existing hires working)
+JOB_ALIAS = {'ceo': 'entrepreneur'}
 
 
 def fame_of(level: int):
-    idx, title, mult = 0, FAME[0][1], FAME[0][2]
-    for i, (ml, ti, mu) in enumerate(FAME):
-        if level >= ml:
-            idx, title, mult = i, ti, mu
+    idx, title, mult, nxt = ladder_of(level)
     return idx, title, mult
 
 
@@ -137,8 +131,6 @@ class Jobs(commands.Cog):
                 continue
             lock = t(ctx.guild.id, 'job.need_level', level=j['min_level']) if lv < j.get('min_level', 0) else ''
             lines.append(f"• **{j['label']}** — {j['base'][0]}–{j['base'][1]} / zmianę {lock}")
-        lines.append('')
-        lines.append(t(ctx.guild.id, 'job.energy_line', e=energy_of(ctx.guild.id, ctx.author.id)))
         await ctx.reply(view=_game_layout(t(ctx.guild.id, 'job.list_title'), '\n'.join(lines)),
                         ephemeral=True)
 
@@ -146,8 +138,8 @@ class Jobs(commands.Cog):
     async def job_join(self, ctx, name: str):
         from cogs.levels import get_user
         gid = ctx.guild.id
-        key = (name or '').lower().strip()
-        if key == 'ceo' and not db.is_house(ctx.author.id):
+        key = JOB_ALIAS.get((name or '').lower().strip(), (name or '').lower().strip())
+        if key in JOBS and JOBS[key].get('hidden') and not db.is_house(ctx.author.id):
             return await ctx.reply(t(gid, 'job.nope'), ephemeral=True)
         if key not in JOBS:
             return await ctx.reply(t(gid, 'job.nope'), ephemeral=True)
@@ -184,12 +176,15 @@ class Jobs(commands.Cog):
         from cogs.gamble import _game_layout
         gid = ctx.guild.id
         j = get_job(gid, ctx.author.id)
+        jkey = JOB_ALIAS.get(j.get('job'), j.get('job'))
         lv = get_user(gid, ctx.author.id).get('level', 0)
-        idx, title, mult = fame_of(lv)
-        job = JOBS.get(j.get('job'), {}).get('label', t(gid, 'job.none'))
+        idx, title, mult, nxt = ladder_of(lv)
+        job = JOBS.get(jkey, {}).get('label', t(gid, 'job.none'))
+        nxt_txt = t(gid, 'job.next', level=nxt) if nxt else t(gid, 'job.top')
         await ctx.reply(view=_game_layout(t(gid, 'job.my_title', user=ctx.author.display_name),
                                           t(gid, 'job.card', job=job, fame=title, mult=mult,
-                                            fans=j.get('fans', 0), level=lv)), ephemeral=True)
+                                            fans=j.get('fans', 0), level=lv, shifts=j.get('shifts', 0),
+                                            nxt=nxt_txt)), ephemeral=True)
 
     @commands.hybrid_command(name='work', description='Idź do roboty')
     async def work(self, ctx):
@@ -205,18 +200,19 @@ class Jobs(commands.Cog):
             m = (WORK_CD - (now - (b.get('last_work') or 0))) // 60
             return await ctx.reply(t(gid, 'eco.work_wait', m=m), ephemeral=True)
         j = get_job(gid, ctx.author.id)
-        key = j.get('job') if j.get('job') in JOBS else None
+        key = JOB_ALIAS.get(j.get('job'), j.get('job'))
+        if key not in JOBS:
+            key = None
         lv = get_user(gid, ctx.author.id).get('level', 0)
-        idx, title, mult = fame_of(lv)
+        idx, title, mult, nxt = ladder_of(lv)
         shifts = j.get('shifts', 0) if key else 0
         senior = min(shifts // 10 * 0.05, 0.5)
-        if not spend_energy(gid, ctx.author.id, SHIFT_COST):
-            return await ctx.reply(t(gid, 'job.tired', e=energy_of(gid, ctx.author.id)), ephemeral=True)
+        house_edge = 1.5 if db.is_house(ctx.author.id) else 1.0
         if key:
             job = JOBS[key]
             flavor = random.choice(job['shifts'])
             lo, hi = job['base']
-            pay = int(random.randint(lo, hi) * mult * (1 + senior))
+            pay = int(random.randint(lo, hi) * mult * (1 + senior) * house_edge)
             extra = ''
             fans_gain = 0
             if key == 'onlyfans':
@@ -279,9 +275,6 @@ class Jobs(commands.Cog):
                 msg += '\n' + extra.strip()
             if senior:
                 msg += '\n' + t(gid, 'job.senior', pct=int(senior * 100))
-            msg += '\n' + t(gid, 'job.energy', e=energy_of(gid, ctx.author.id))
-            if extra.strip():
-                msg += '\n' + extra.strip()
             try:
                 from cogs.gamble import bal as _bal, _game_layout
                 msg += '\n' + t(gid, 'eco.balance_line', cash=_bal(gid, ctx.author.id)['cash'])

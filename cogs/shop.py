@@ -14,8 +14,6 @@ ITEMS = {
     'force': {'price': 1500, 'use': 'shop.u_force'},
     'xpboost': {'price': 2000, 'use': 'shop.u_xpboost'},
     'shield': {'price': 1200, 'use': 'shop.u_shield'},
-    'zapiekanka': {'price': 300, 'use': 'shop.u_food', 'energy': 50},
-    'kawa': {'price': 150, 'use': 'shop.u_food', 'energy': 25},
 }
 BAIL_COST = 500
 
@@ -63,11 +61,6 @@ class Shop(commands.Cog):
         if item in ('xpboost', 'shield'):
             exp = int(time.time()) + 24 * 3600
         inv_add(gid, ctx.author.id, item, 1, exp)
-        if item in ('zapiekanka', 'kawa'):
-            from cogs.jobs import feed_energy
-            feed_energy(gid, ctx.author.id, ITEMS[item]['energy'])
-            inv_take(gid, ctx.author.id, item)
-            return await ctx.reply(t(gid, 'shop.eaten', item=item), ephemeral=True)
         await ctx.reply(t(gid, 'shop.bought', item=item), ephemeral=True)
 
     @commands.hybrid_command(name='inv', description='Twoje graty')
