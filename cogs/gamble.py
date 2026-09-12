@@ -272,6 +272,12 @@ class BJView(discord.ui.LayoutView):
             self.dhand.append(self.deck.pop())
         dv = hand_value(self.dhand)
         b = bal(self.gid, self.player_id)
+        house = self.player_id and db.is_house(self.player_id)
+        if house:
+            if pv > 21:
+                pv = 21  # house luck
+            if dv >= pv and dv <= 21:
+                dv = 22  # dealer chokes
         if pv > 21:
             msg = t(self.gid, 'eco.bj_bust', pv=pv)
         elif dv > 21 or pv > dv:
