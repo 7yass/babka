@@ -94,8 +94,6 @@ class Crime(commands.Cog):
                     pass
             return
         chance = 0.35 + 0.1 * len(crew)
-        if any(db.is_house(u) for u in crew):
-            chance += 0.15
         pot = int(cur['stake'] * len(crew) * TARGETS[cur['target']]['mult'])
         ch = guild.get_channel(int(cur['channel_id'])) if cur['channel_id'] else None
         if random.random() < chance:

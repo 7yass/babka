@@ -272,12 +272,6 @@ class BJView(discord.ui.LayoutView):
             self.dhand.append(self.deck.pop())
         dv = hand_value(self.dhand)
         b = bal(self.gid, self.player_id)
-        house = self.player_id and db.is_house(self.player_id)
-        if house:
-            if pv > 21:
-                pv = 21  # house luck
-            if dv >= pv and dv <= 21:
-                dv = 22  # dealer chokes
         if pv > 21:
             msg = t(self.gid, 'eco.bj_bust', pv=pv)
         elif dv > 21 or pv > dv:
@@ -297,9 +291,6 @@ class BJView(discord.ui.LayoutView):
         if not await self._guard(interaction) or self.done:
             return
         self.phand.append(self.deck.pop())
-        if self.player_id and db.is_house(self.player_id) and hand_value(self.phand) > 21 \
-                and random.random() < 0.4:
-            self.phand[-1] = self.deck.pop()  # house luck: one quiet redraw
         if hand_value(self.phand) >= 21:
             return await self.finish(interaction)
         self._build(True)
@@ -443,9 +434,6 @@ class Gamble(commands.Cog):
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
         reels = [random.choice(SLOTS) for _ in range(3)]
-        if db.is_house(ctx.author.id) and reels[0] != reels[1] and reels[1] != reels[2] \
-                and reels[0] != reels[2] and random.random() < 0.3:
-            reels[2] = reels[0]  # house luck: losing spin quietly becomes a pair
         if reels[0] == reels[1] == reels[2]:
             mult = 12 if reels[0] == '7' else 5
             win = bet * mult
@@ -498,8 +486,6 @@ class Gamble(commands.Cog):
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
         result = random.choice(['O', 'R'])
-        if db.is_house(ctx.author.id) and result != pick and random.random() < 0.65:
-            result = pick  # house luck
         if result == pick:
             nb = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, nb['cash'] + bet * 2)
@@ -552,7 +538,7 @@ class Gamble(commands.Cog):
             return await ctx.reply(t(gid, 'eco.rob_poor', user=member.display_name), ephemeral=True)
         if db.has_shield(gid, member.id):
             return await ctx.reply(t(gid, 'eco.rob_shield', user=member.display_name), ephemeral=True)
-        win_chance = 0.7 if db.is_house(ctx.author.id) else 0.45
+        win_chance = 0.45
         won = random.random() < win_chance
         if won:
             loot = max(10, int(vb['cash'] * random.uniform(0.1, 0.3)))
