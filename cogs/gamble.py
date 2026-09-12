@@ -404,21 +404,59 @@ class Gamble(commands.Cog):
                              (bank, now, str(gid), str(uid)))
         return bank, earned
 
+    @staticmethod
+    def _vault(gid, uid) -> tuple:
+        """Resolve joint vault: (owner_uid, partner_name_or_None)."""
+        with db.conn_ctx() as conn:
+            row = conn.execute('SELECT u1, u2 FROM bank_links WHERE guild_id=? AND (u1=? OR u2=?)',
+                               (str(gid), str(uid), str(uid))).fetchone()
+        if not row:
+            return str(uid), None
+        other = row['u2'] if row['u1'] == str(uid) else row['u1']
+        return row['u1'], other
+
     @commands.hybrid_command(name='bank', description='Twój bank')
     async def bank(self, ctx):
         gid = ctx.guild.id
-        bank, earned = self._bank_accrue(gid, ctx.author.id)
+        owner, partner = self._vault(gid, ctx.author.id)
+        bank, earned = self._bank_accrue(gid, owner)
         b = bal(gid, ctx.author.id)
         msg = t(gid, 'eco.bank_view', cash=b['cash'], bank=bank)
+        if partner:
+            m = ctx.guild.get_member(int(partner))
+            msg += '\n' + t(gid, 'eco.bank_joint', user=(m.display_name if m else '?'))
         if earned:
             msg += '\n' + t(gid, 'eco.bank_interest', earned=earned)
         await ctx.reply(view=_game_layout(t(gid, 'eco.bank_title'), msg), ephemeral=True)
+
+    @commands.hybrid_command(name='bankshare', description='Wspólny sejf we dwoje')
+    async def bankshare(self, ctx, partner: discord.Member = None):
+        gid = ctx.guild.id
+        me = str(ctx.author.id)
+        with db.conn_ctx() as conn:
+            cur = conn.execute('SELECT u1, u2 FROM bank_links WHERE guild_id=? AND (u1=? OR u2=?)',
+                               (str(gid), me, me)).fetchone()
+            if partner is None:
+                if not cur:
+                    return await ctx.reply(t(gid, 'eco.share_none'), ephemeral=True)
+                conn.execute('DELETE FROM bank_links WHERE guild_id=? AND u1=?', (str(gid), cur['u1']))
+                return await ctx.reply(t(gid, 'eco.share_end'), ephemeral=True)
+            if partner.id == ctx.author.id or partner.bot:
+                return await ctx.reply(t(gid, 'eco.share_no'), ephemeral=True)
+            busy = conn.execute('SELECT 1 FROM bank_links WHERE guild_id=? AND (u1=? OR u2=? OR u1=? OR u2=?)',
+                                (str(gid), me, me, str(partner.id), str(partner.id))).fetchone()
+            if busy:
+                return await ctx.reply(t(gid, 'eco.share_busy'), ephemeral=True)
+            a, b = sorted((me, str(partner.id)))
+            conn.execute('INSERT INTO bank_links (guild_id, u1, u2) VALUES (?,?,?)', (str(gid), a, b))
+        await ctx.reply(t(gid, 'eco.share_ok', user=partner.display_name), ephemeral=True)
 
     @commands.hybrid_command(name='deposit', description='Wpłać do banku', aliases=['dep'])
     async def deposit(self, ctx, amount: str):
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
-        bank, _ = self._bank_accrue(gid, ctx.author.id)
+        owner, _ = self._vault(gid, ctx.author.id)
+        bank, _ = self._bank_accrue(gid, owner)
         if (amount or '').lower() == 'all':
             amount = b['cash']
         else:
@@ -432,8 +470,10 @@ class Gamble(commands.Cog):
             return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
         now = int(time.time())
         with db.conn_ctx() as conn:
-            conn.execute('UPDATE eco SET cash=?, bank=?, bank_at=? WHERE guild_id=? AND user_id=?',
-                         (b['cash'] - amount, bank + amount, now, str(gid), str(ctx.author.id)))
+            conn.execute('UPDATE eco SET cash=? WHERE guild_id=? AND user_id=?',
+                         (b['cash'] - amount, str(gid), str(ctx.author.id)))
+            conn.execute('UPDATE eco SET bank=?, bank_at=? WHERE guild_id=? AND user_id=?',
+                         (bank + amount, now, str(gid), str(owner)))
         await ctx.reply(t(gid, 'eco.dep_ok', amount=amount, bank=bank + amount)
                         + _wallet_line(gid, ctx.author.id), ephemeral=True)
 
@@ -441,7 +481,8 @@ class Gamble(commands.Cog):
     async def withdraw(self, ctx, amount: str):
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
-        bank, _ = self._bank_accrue(gid, ctx.author.id)
+        owner, _ = self._vault(gid, ctx.author.id)
+        bank, _ = self._bank_accrue(gid, owner)
         if (amount or '').lower() == 'all':
             amount = bank
         else:
@@ -454,8 +495,10 @@ class Gamble(commands.Cog):
         if amount > bank:
             return await ctx.reply(t(gid, 'eco.bank_poor', bank=bank), ephemeral=True)
         with db.conn_ctx() as conn:
-            conn.execute('UPDATE eco SET cash=?, bank=? WHERE guild_id=? AND user_id=?',
-                         (b['cash'] + amount, bank - amount, str(gid), str(ctx.author.id)))
+            conn.execute('UPDATE eco SET cash=? WHERE guild_id=? AND user_id=?',
+                         (b['cash'] + amount, str(gid), str(ctx.author.id)))
+            conn.execute('UPDATE eco SET bank=? WHERE guild_id=? AND user_id=?',
+                         (bank - amount, str(gid), str(owner)))
         await ctx.reply(t(gid, 'eco.with_ok', amount=amount) + _wallet_line(gid, ctx.author.id),
                         ephemeral=True)
 
