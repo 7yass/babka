@@ -275,10 +275,11 @@ class BJView(discord.ui.LayoutView):
         if pv > 21:
             msg = t(self.gid, 'eco.bj_bust', pv=pv)
         elif dv > 21 or pv > dv:
-            win = int(self.bet * 1.5) if pv == 21 and len(self.phand) == 2 else self.bet
-            set_cash(self.gid, self.player_id, b['cash'] + win)
-            msg = t(self.gid, 'eco.bj_win', pv=pv, dv=dv, win=win)
+            profit = int(self.bet * 1.5) if pv == 21 and len(self.phand) == 2 else self.bet
+            set_cash(self.gid, self.player_id, b['cash'] + self.bet + profit)
+            msg = t(self.gid, 'eco.bj_win', pv=pv, dv=dv, win=profit)
         elif pv == dv:
+            set_cash(self.gid, self.player_id, b['cash'] + self.bet)  # push refunds stake
             msg = t(self.gid, 'eco.bj_push', pv=pv)
         else:
             msg = t(self.gid, 'eco.bj_lose', pv=pv, dv=dv, bet=self.bet)
