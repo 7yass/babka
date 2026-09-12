@@ -73,20 +73,23 @@ def board_image(rows) -> bytes:
                 cx += d.textlength(txt, font=f_mid)
         except Exception:
             d.text((x, ty), f'#{rank} • {name[:14]}', font=f_mid, fill=(255, 255, 255))
-        # counts line: heart pos, trash neg
+        # counts line: heart pos, trash neg — or plain text when neg is None
         cy = ty + 34
         try:
-            parts = []
-            if f_emoji:
-                parts += [('❤', f_emoji)]
-            parts += [(f' {pos}   ', f_mid)]
-            if f_emoji:
-                parts += [('🗑', f_emoji)]
-            parts += [(f' {neg}', f_mid)]
-            cx = x
-            for txt, font in parts:
-                d.text((cx, cy), txt, font=font, fill=(150, 150, 158))
-                cx += d.textlength(txt, font=font)
+            if neg is None:
+                d.text((x, cy), str(pos)[:60], font=f_mid, fill=(150, 150, 158))
+            else:
+                parts = []
+                if f_emoji:
+                    parts += [('❤', f_emoji)]
+                parts += [(f' {pos}   ', f_mid)]
+                if f_emoji:
+                    parts += [('🗑', f_emoji)]
+                parts += [(f' {neg}', f_mid)]
+                cx = x
+                for txt, font in parts:
+                    d.text((cx, cy), txt, font=font, fill=(150, 150, 158))
+                    cx += d.textlength(txt, font=font)
         except Exception:
             d.text((x, cy), f'{pos} fire / {neg} trash', font=f_mid, fill=(150, 150, 158))
         bx, by, bw, bh = x, y0 + RH - 20, W - x - PAD, 5

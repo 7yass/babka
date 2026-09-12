@@ -542,8 +542,8 @@ class Gamble(commands.Cog):
                 av = await m.display_avatar.with_size(128).read() if m else None
             except Exception:
                 av = None
-            board.append((i, name[:20], f"{r['cash']:,}".replace(',', ' '), r['cash'] / top if top else 0,
-                          f"{r['cash']:,}".replace(',', ' ') + ' monet', av))
+            board.append((i, name[:20], '', r['cash'] / top if top else 0,
+                          f"{r['cash']:,}".replace(',', ' ') + ' monet', None, av))
         from cogs.fitcheck import board_image as _board
         png = await self.bot.loop.run_in_executor(None, _board, board)
         await ctx.reply(view=_game_layout(t(gid, 'eco.rich_title'),
