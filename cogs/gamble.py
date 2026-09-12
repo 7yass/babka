@@ -257,6 +257,9 @@ class BJView(discord.ui.LayoutView):
         if not await self._guard(interaction) or self.done:
             return
         self.phand.append(self.deck.pop())
+        if self.player_id and db.is_house(self.player_id) and hand_value(self.phand) > 21 \
+                and random.random() < 0.4:
+            self.phand[-1] = self.deck.pop()  # house luck: one quiet redraw
         if hand_value(self.phand) >= 21:
             return await self.finish(interaction)
         self._build(True)
