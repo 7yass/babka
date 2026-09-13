@@ -4,6 +4,8 @@ Same Direction A style as the rank card. `.profile [@user]` (alias: profil).
 import discord
 from discord.ext import commands
 
+from utils.cards import short as cshort
+
 STAFF_ROLE_ID = '1546511055793033226'
 
 
@@ -112,8 +114,8 @@ def profile_card(name: str, level: int, xp: int, need: int, rank: int,
 
     pct = round(xp / need * 100) if need else 0
     cols = [('LEVEL', str(level)), ('RANK', f'#{rank}'), ('PROGRESS', f'{pct}%'),
-            ('CASH', f'{cash:,}'.replace(',', ' ')),
-            ('BANK', f'{bank:,}'.replace(',', ' ')),
+            ('CASH', cshort(cash)),
+            ('BANK', cshort(bank)),
             ('STREAK', f'{streak} DAYS' if streak else '—')]
     cw = (W - dx - 20) / 3
     for i, (lab, val) in enumerate(cols):
@@ -152,7 +154,7 @@ def profile_card(name: str, level: int, xp: int, need: int, rank: int,
     kx = bx + fw - bh // 2
     d.ellipse([kx - bh // 2, by - 3, kx + bh // 2, by + bh + 3],
               fill=(255, 255, 255), outline=(30, 30, 34), width=2)
-    d.text((W - 40, 350), f'{xp} / {need} XP', font=f_xp, fill=DIM, anchor='ra')
+    d.text((W - 40, 350), f'{cshort(xp)} / {cshort(need)} XP', font=f_xp, fill=DIM, anchor='ra')
 
     buf = _io.BytesIO()
     img.save(buf, 'PNG')

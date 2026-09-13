@@ -6,6 +6,27 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 import database as db
 
+
+def short(n) -> str:
+    """Compact money/XP display: 9999 -> '9 999', 26000 -> '26K',
+    2600000 -> '2.6M', 1500000000 -> '1.5B'. Non-numbers pass through."""
+    try:
+        n = int(n)
+    except Exception:
+        return str(n)
+    neg = n < 0
+    n = abs(n)
+    if n >= 10_000:
+        if n >= 1_000_000_000:
+            s = f'{n / 1e9:.1f}'.rstrip('0').rstrip('.') + 'B'
+        elif n >= 1_000_000:
+            s = f'{n / 1e6:.1f}'.rstrip('0').rstrip('.') + 'M'
+        else:
+            s = f'{n / 1e3:.1f}'.rstrip('0').rstrip('.') + 'K'
+    else:
+        s = f'{n:,}'.replace(',', ' ')
+    return ('-' if neg else '') + s
+
 W, H = 900, 260
 
 DEFAULTS = {

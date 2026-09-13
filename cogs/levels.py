@@ -9,6 +9,7 @@ from discord.ext import commands, tasks
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 import database as db
+from utils.cards import short as cshort
 from lang import t, get_lang
 from utils.embeds import build, err, foot, ok, say, WHITE, GREEN
 from utils.checks import staff_or
@@ -385,7 +386,7 @@ def rank_card(member: discord.Member, data: dict, rank: int, lang: str = 'en', a
         if i:
             d.line([(cx - 22, 106), (cx - 22, 158)], fill=HAIR, width=1)
     if show_xp:
-        d.text((W - 40, 176), f"{data['xp']} / {need} XP", font=f_xp, fill=DIM, anchor='ra')
+        d.text((W - 40, 176), f"{cshort(data['xp'])} / {cshort(need)} XP", font=f_xp, fill=DIM, anchor='ra')
     if show_bar:
         _bar_knob(img, dx, 204, W - dx - 40, 13, pct, ac)
     if data['level'] >= 20:

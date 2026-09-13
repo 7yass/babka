@@ -6,6 +6,7 @@ import discord
 from discord.ext import commands
 
 import database as db
+from utils.cards import short as cshort
 from lang import t
 from utils.embeds import foot
 
@@ -413,7 +414,7 @@ def _gamble_use(gid, uid):
 
 def _wallet_line(gid, uid) -> str:
     try:
-        return '\n' + t(gid, 'eco.balance_line', cash=bal(gid, uid)['cash'])
+        return '\n' + t(gid, 'eco.balance_line', cash=cshort(bal(gid, uid)['cash']))
     except Exception:
         return ''
 
@@ -499,11 +500,11 @@ def wallet_card(name: str, cash: int, streak: int, avatar_bytes: bytes = None, b
     d.rectangle([0, 0, 6, H], fill=GOLD)
     dx = x0 + s + 34
     d.text((dx, 30), name[:20], font=f_name, fill=INK)
-    d.text((dx, 74), f'{cash:,}'.replace(',', ' '), font=f_big, fill=GOLD)
+    d.text((dx, 74), cshort(cash), font=f_big, fill=GOLD)
     tracked((dx, 148), 'COINS', f_lab, FAINT)
     rx = 520
     rows = [('DAILY STREAK', f'{streak} DAYS' if streak else '—'),
-            ('BANK', f'{bank:,}'.replace(',', ' '))]
+            ('BANK', cshort(bank))]
     ry = 52
     for lab, val in rows:
         tracked((rx, ry), lab, f_row, FAINT)
@@ -620,7 +621,7 @@ class PokerView(discord.ui.LayoutView):
         from discord.ui.media_gallery import MediaGalleryItem
         self.clear_items()
         box = Container(accent_color=0xFFFFFF)
-        txt = f'## {t(self.gid, "eco.poker_title", bet=self.bet)}'
+        txt = f'## {t(self.gid, "eco.poker_title", bet=cshort(self.bet))}'
         if result:
             txt += f'\n{result}'
         box.add_item(TextDisplay(txt))
@@ -680,9 +681,9 @@ class PokerView(discord.ui.LayoutView):
             if str(self.player_id) not in GOD_IDS:
                 profit = min(profit, POKER_MAX_WIN)
             set_cash(self.gid, self.player_id, b['cash'] + self.bet + profit)
-            msg = t(self.gid, 'eco.poker_win', hand=key.replace('_', ' '), win=profit)
+            msg = t(self.gid, 'eco.poker_win', hand=key.replace('_', ' '), win=cshort(profit))
         else:
-            msg = t(self.gid, 'eco.poker_lose', bet=self.bet)
+            msg = t(self.gid, 'eco.poker_lose', bet=cshort(self.bet))
         msg += _wallet_line(self.gid, self.player_id)
         self._build(msg)
         await interaction.response.edit_message(
@@ -712,9 +713,9 @@ class BJView(discord.ui.LayoutView):
         dv_txt = '?' if hide else str(hand_value(self.dhand))
         cash = bal(self.gid, self.player_id)['cash']
         box = Container(accent_color=0xFFFFFF)
-        txt = (f'## {t(self.gid, "eco.bj_title", bet=self.bet)}\n'
-               + t(self.gid, 'eco.bj_board', bet=self.bet, phand=fmt_hand(self.phand),
-                   pv=pv, dhand=fmt_hand(self.dhand, hide_first=hide), dv=dv_txt, cash=cash))
+        txt = (f'## {t(self.gid, "eco.bj_title", bet=cshort(self.bet))}\n'
+               + t(self.gid, 'eco.bj_board', bet=cshort(self.bet), phand=fmt_hand(self.phand),
+                   pv=pv, dhand=fmt_hand(self.dhand, hide_first=hide), dv=dv_txt, cash=cshort(cash)))
         if extra:
             txt += f'\n{extra}'
         box.add_item(TextDisplay(txt))
@@ -760,15 +761,15 @@ class BJView(discord.ui.LayoutView):
             if not god:
                 profit = min(profit, BJ_MAX_WIN)
             set_cash(self.gid, self.player_id, b['cash'] + self.bet + profit)
-            msg = t(self.gid, 'eco.bj_win', pv=pv, dv=dv, win=profit)
+            msg = t(self.gid, 'eco.bj_win', pv=pv, dv=dv, win=cshort(profit))
         elif pv == dv:
             if god:
                 set_cash(self.gid, self.player_id, b['cash'] + self.bet)  # push refunds stake
                 msg = t(self.gid, 'eco.bj_push', pv=pv)
             else:
-                msg = t(self.gid, 'eco.bj_lose', pv=pv, dv=dv, bet=self.bet)  # house wins ties
+                msg = t(self.gid, 'eco.bj_lose', pv=pv, dv=dv, bet=cshort(self.bet))  # house wins ties
         else:
-            msg = t(self.gid, 'eco.bj_lose', pv=pv, dv=dv, bet=self.bet)
+            msg = t(self.gid, 'eco.bj_lose', pv=pv, dv=dv, bet=cshort(self.bet))
         self._build(hide=False, extra=msg)
         await interaction.response.edit_message(view=self, attachments=[await self._table_file(False)])
         self.stop()
@@ -799,7 +800,7 @@ class BJView(discord.ui.LayoutView):
         b = bal(self.gid, self.player_id)
         if b['cash'] < self.bet:
             try:
-                await interaction.response.send_message(t(self.gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+                await interaction.response.send_message(t(self.gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
             except Exception:
                 pass
             return
@@ -881,7 +882,7 @@ class Gamble(commands.Cog):
             None, wallet_card, member.display_name, b['cash'], b.get('daily_streak') or 0, av,
             b.get('bank') or 0, banner)
         await ctx.reply(view=_game_layout(t(ctx.guild.id, 'eco.bal_title', user=member.display_name),
-                                          t(ctx.guild.id, 'eco.bal', user=member.display_name, cash=b['cash']),
+                                          t(ctx.guild.id, 'eco.bal', user=member.display_name, cash=cshort(b['cash'])),
                                           'attachment://wallet.png'),
                         file=discord.File(__import__('io').BytesIO(png), 'wallet.png'),
                         ephemeral=True)
@@ -905,7 +906,7 @@ class Gamble(commands.Cog):
         with db.conn_ctx() as conn:
             conn.execute('UPDATE eco SET last_daily=?, daily_streak=? WHERE guild_id=? AND user_id=?',
                          (now, streak, str(gid), str(ctx.author.id)))
-        await ctx.reply(t(gid, 'eco.daily_ok', cash=DAILY_CASH + bonus, streak=streak)
+        await ctx.reply(t(gid, 'eco.daily_ok', cash=cshort(DAILY_CASH + bonus), streak=streak)
                         + _wallet_line(gid, ctx.author.id), ephemeral=True)
 
     @commands.command(name='pay', description='Przelej kasę')
@@ -917,11 +918,11 @@ class Gamble(commands.Cog):
             return await ctx.reply(t(gid, 'eco.pay_min'), ephemeral=True)
         b = bal(gid, ctx.author.id)
         if amount > b['cash']:
-            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
         vb = bal(gid, member.id)
         set_cash(gid, ctx.author.id, b['cash'] - amount)
         set_cash(gid, member.id, vb['cash'] + amount)
-        await ctx.reply(t(gid, 'eco.pay_ok', user=member.display_name, amount=amount)
+        await ctx.reply(t(gid, 'eco.pay_ok', user=member.display_name, amount=cshort(amount))
                         + _wallet_line(gid, ctx.author.id))
 
     @staticmethod
@@ -937,7 +938,7 @@ class Gamble(commands.Cog):
             earned = min(int(bank * 0.02 * days), 500 * days)
             bank += earned
             with db.conn_ctx() as conn:
-                conn.execute('UPDATE eco SET bank=?, bank_at=? WHERE guild_id=? AND user_id=?',
+                conn.execute('UPDATE eco SET bank=cshort(?), bank_at=? WHERE guild_id=? AND user_id=?',
                              (bank, now, str(gid), str(uid)))
         return bank, earned
 
@@ -958,7 +959,7 @@ class Gamble(commands.Cog):
         owner, partner = self._vault(gid, ctx.author.id)
         bank, earned = self._bank_accrue(gid, owner)
         b = bal(gid, ctx.author.id)
-        msg = t(gid, 'eco.bank_view', cash=b['cash'], bank=bank)
+        msg = t(gid, 'eco.bank_view', cash=cshort(b['cash']), bank=cshort(bank))
         if partner:
             m = ctx.guild.get_member(int(partner))
             msg += '\n' + t(gid, 'eco.bank_joint', user=(m.display_name if m else '?'))
@@ -1004,14 +1005,14 @@ class Gamble(commands.Cog):
         if amount < 10:
             return await ctx.reply(t(gid, 'eco.pay_min'), ephemeral=True)
         if amount > b['cash']:
-            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
         now = int(time.time())
         with db.conn_ctx() as conn:
-            conn.execute('UPDATE eco SET cash=? WHERE guild_id=? AND user_id=?',
+            conn.execute('UPDATE eco SET cash=cshort(? WHERE guild_id=? AND user_id=?',
                          (b['cash'] - amount, str(gid), str(ctx.author.id)))
-            conn.execute('UPDATE eco SET bank=?, bank_at=? WHERE guild_id=? AND user_id=?',
+            conn.execute('UPDATE eco SET bank=?)cshort(?), bank_at=? WHERE guild_id=? AND user_id=?',
                          (bank + amount, now, str(gid), str(owner)))
-        await ctx.reply(t(gid, 'eco.dep_ok', amount=amount, bank=bank + amount)
+        await ctx.reply(t(gid, 'eco.dep_ok', amount=cshort(amount), bank=cshort(bank + amount))
                         + _wallet_line(gid, ctx.author.id), ephemeral=True)
 
     @commands.command(name='withdraw', description='Wypłać z banku', aliases=['with'])
@@ -1030,13 +1031,13 @@ class Gamble(commands.Cog):
         if amount < 10:
             return await ctx.reply(t(gid, 'eco.pay_min'), ephemeral=True)
         if amount > bank:
-            return await ctx.reply(t(gid, 'eco.bank_poor', bank=bank), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.bank_poor', bank=cshort(bank)), ephemeral=True)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE eco SET cash=? WHERE guild_id=? AND user_id=?',
                          (b['cash'] + amount, str(gid), str(ctx.author.id)))
             conn.execute('UPDATE eco SET bank=? WHERE guild_id=? AND user_id=?',
                          (bank - amount, str(gid), str(owner)))
-        await ctx.reply(t(gid, 'eco.with_ok', amount=amount) + _wallet_line(gid, ctx.author.id),
+        await ctx.reply(t(gid, 'eco.with_ok', amount=cshort(amount)) + _wallet_line(gid, ctx.author.id),
                         ephemeral=True)
 
     @commands.command(name='tribute', description='Daj babce napiwek')
@@ -1047,7 +1048,7 @@ class Gamble(commands.Cog):
             return await ctx.reply(t(gid, 'eco.pay_min'), ephemeral=True)
         b = bal(gid, ctx.author.id)
         if amount > b['cash']:
-            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
         set_cash(gid, ctx.author.id, b['cash'] - amount)
         with db.conn_ctx() as conn:
             conn.execute('''INSERT INTO tributes (guild_id, user_id, total) VALUES (?,?,?)
@@ -1070,13 +1071,13 @@ class Gamble(commands.Cog):
             return await ctx.reply(t(gid, 'eco.bet_pos'), ephemeral=True)
         if not god:
             if bet > BJ_MAX_BET:
-                return await ctx.reply(t(gid, 'eco.bj_maxbet', max=BJ_MAX_BET), ephemeral=True)
+                return await ctx.reply(t(gid, 'eco.bj_maxbet', max=cshort(BJ_MAX_BET)), ephemeral=True)
             wait = _gamble_gate(gid, ctx.author.id)
             if wait is not None:
                 return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
         b = bal(gid, ctx.author.id)
         if bet > b['cash']:
-            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
         set_cash(gid, ctx.author.id, b['cash'] - bet)
         _gamble_use(gid, ctx.author.id)
         deck = [(r, s) for s in SUITS for r in RANKS]
@@ -1097,7 +1098,7 @@ class Gamble(commands.Cog):
             set_cash(gid, ctx.author.id, nb['cash'] + bet + win)
             view = BJView(self, ctx.author.id, bet, deck, phand, dhand, gid)
             view.done = True
-            view._build(hide=False, extra=t(gid, 'eco.bj_natural', win=win))
+            view._build(hide=False, extra=t(gid, 'eco.bj_natural', win=cshort(win)))
             return await ctx.reply(view=view, files=[await view._table_file(False)])
         view = BJView(self, ctx.author.id, bet, deck, phand, dhand, gid)
         await ctx.reply(view=view, files=[await view._table_file(True)])
@@ -1107,10 +1108,10 @@ class Gamble(commands.Cog):
         if bet <= 0:
             return None, t(gid, 'eco.bet_pos')
         if str(ctx.author.id) not in GOD_IDS and bet > GAMBLES_MAX_BET:
-            return None, t(gid, 'eco.max_bet', max=GAMBLES_MAX_BET)
+            return None, t(gid, 'eco.max_bet', max=cshort(GAMBLES_MAX_BET))
         b = bal(gid, ctx.author.id)
         if bet > b['cash']:
-            return None, t(gid, 'eco.broke', cash=b['cash'])
+            return None, t(gid, 'eco.broke', cash=cshort(b['cash']))
         set_cash(gid, ctx.author.id, b['cash'] - bet)
         return b, None
 
@@ -1148,24 +1149,24 @@ class Gamble(commands.Cog):
             win = bet * mult
             if str(ctx.author.id) not in GOD_IDS:
                 win = min(win, SLOTS_MAX_WIN)
-            msg = t(gid, 'eco.slots_jackpot', mult=mult, win=win)
+            msg = t(gid, 'eco.slots_jackpot', mult=mult, win=cshort(win))
         else:
             reels = random.sample(SLOTS, 3)  # guaranteed no pair — matches the loss
             win = 0
-            msg = t(gid, 'eco.slots_lose', bet=bet)
+            msg = t(gid, 'eco.slots_lose', bet=cshort(bet))
         msg += _wallet_line(gid, ctx.author.id)
         if win:
             nb = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, nb['cash'] + bet + win)
         import asyncio as _aio
-        spin = await ctx.reply(view=_game_layout(t(gid, 'eco.slots_title', bet=bet),
+        spin = await ctx.reply(view=_game_layout(t(gid, 'eco.slots_title', bet=cshort(bet)),
                                                  t(gid, 'eco.spinning')))
         for _ in range(2):
             await _aio.sleep(0.7)
             try:
                 fake = await self.bot.loop.run_in_executor(
                     None, slots_image, [random.choice(SLOTS) for _ in range(3)])
-                await spin.edit(view=_game_layout(t(gid, 'eco.slots_title', bet=bet),
+                await spin.edit(view=_game_layout(t(gid, 'eco.slots_title', bet=cshort(bet)),
                                                   t(gid, 'eco.spinning')),
                                 attachments=[discord.File(__import__('io').BytesIO(fake), 'slots.png')])
             except Exception:
@@ -1173,11 +1174,11 @@ class Gamble(commands.Cog):
         await _aio.sleep(0.7)
         png = await self.bot.loop.run_in_executor(None, slots_image, reels)
         try:
-            await spin.edit(view=_game_layout(t(gid, 'eco.slots_title', bet=bet), msg,
+            await spin.edit(view=_game_layout(t(gid, 'eco.slots_title', bet=cshort(bet)), msg,
                                               'attachment://slots.png'),
                             attachments=[discord.File(__import__('io').BytesIO(png), 'slots.png')])
         except Exception:
-            await ctx.reply(view=_game_layout(t(gid, 'eco.slots_title', bet=bet), msg,
+            await ctx.reply(view=_game_layout(t(gid, 'eco.slots_title', bet=cshort(bet)), msg,
                                               'attachment://slots.png'),
                             file=discord.File(__import__('io').BytesIO(png), 'slots.png'))
 
@@ -1204,29 +1205,29 @@ class Gamble(commands.Cog):
         if won:
             nb = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, nb['cash'] + bet * 2)
-            msg = t(gid, 'eco.cf_win', win=bet)
+            msg = t(gid, 'eco.cf_win', win=cshort(bet))
         else:
-            msg = t(gid, 'eco.cf_lose', bet=bet)
+            msg = t(gid, 'eco.cf_lose', bet=cshort(bet))
         msg += _wallet_line(gid, ctx.author.id)
         import asyncio as _aio2
-        flip = await ctx.reply(view=_game_layout(t(gid, 'eco.cf_title', bet=bet),
+        flip = await ctx.reply(view=_game_layout(t(gid, 'eco.cf_title', bet=cshort(bet)),
                                                  t(gid, 'eco.flipping')))
         for face in ('O', '|', 'R', '|'):
             await _aio2.sleep(0.45)
             try:
                 fake = await self.bot.loop.run_in_executor(None, coin_image, face if face != '|' else 'O')
-                await flip.edit(view=_game_layout(t(gid, 'eco.cf_title', bet=bet),
+                await flip.edit(view=_game_layout(t(gid, 'eco.cf_title', bet=cshort(bet)),
                                                   t(gid, 'eco.flipping'), 'attachment://coin.png'),
                                 attachments=[discord.File(__import__('io').BytesIO(fake), 'coin.png')])
             except Exception:
                 break
         png = await self.bot.loop.run_in_executor(None, coin_image, result)
         try:
-            await flip.edit(view=_game_layout(t(gid, 'eco.cf_title', bet=bet), msg,
+            await flip.edit(view=_game_layout(t(gid, 'eco.cf_title', bet=cshort(bet)), msg,
                                               'attachment://coin.png'),
                             attachments=[discord.File(__import__('io').BytesIO(png), 'coin.png')])
         except Exception:
-            await ctx.reply(view=_game_layout(t(gid, 'eco.cf_title', bet=bet), msg,
+            await ctx.reply(view=_game_layout(t(gid, 'eco.cf_title', bet=cshort(bet)), msg,
                                               'attachment://coin.png'),
                             file=discord.File(__import__('io').BytesIO(png), 'coin.png'))
 
@@ -1276,7 +1277,7 @@ class Gamble(commands.Cog):
             return await ctx.reply(err_msg, ephemeral=True)
         _gamble_use(gid, ctx.author.id)
         n, msg = self._roulette_round(gid, ctx.author.id, bet, kind, num)
-        title = t(gid, 'eco.rou_title', bet=bet)
+        title = t(gid, 'eco.rou_title', bet=cshort(bet))
         layout = _game_layout(title, msg, 'attachment://rou.png')
         _attach_roulette_again(
             layout, self._roulette_again_button(gid, ctx.author.id, bet, kind, num))
@@ -1328,9 +1329,9 @@ class Gamble(commands.Cog):
                 profit = min(profit, ROU_MAX_WIN)
             nb = bal(gid, uid)
             set_cash(gid, uid, nb['cash'] + bet + profit)
-            msg = t(gid, 'eco.rou_win', ball=ball, choice=label, win=profit)
+            msg = t(gid, 'eco.rou_win', ball=ball, choice=label, win=cshort(profit))
         else:
-            msg = t(gid, 'eco.rou_lose', ball=ball, choice=label, bet=bet)
+            msg = t(gid, 'eco.rou_lose', ball=ball, choice=label, bet=cshort(bet))
         msg += '\n' + t(gid, 'eco.rou_recent', nums=recent)
         msg += _wallet_line(gid, uid)
         return n, msg
@@ -1350,12 +1351,12 @@ class Gamble(commands.Cog):
             b = bal(gid, uid)
             if bet <= 0 or bet > b['cash']:
                 return await interaction.response.send_message(
-                    t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+                    t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
             set_cash(gid, uid, b['cash'] - bet)
             _gamble_use(gid, uid)
             n, msg = cog._roulette_round(gid, uid, bet, kind, num)
             png = cog._rou_wheels.get(n) or roulette_image(n)
-            layout = _game_layout(t(gid, 'eco.rou_title', bet=bet), msg,
+            layout = _game_layout(t(gid, 'eco.rou_title', bet=cshort(bet)), msg,
                                   'attachment://rou2.png')
             _attach_roulette_again(
                 layout, cog._roulette_again_button(gid, uid, bet, kind, num))
@@ -1417,14 +1418,14 @@ class Gamble(commands.Cog):
             ab = bal(gid, ctx.author.id)
             set_cash(gid, member.id, vb['cash'] - loot)
             set_cash(gid, ctx.author.id, ab['cash'] + loot)
-            msg = t(gid, 'eco.rob_win', user=member.display_name, loot=loot)
+            msg = t(gid, 'eco.rob_win', user=member.display_name, loot=cshort(loot))
         else:
             fine = min(bal(gid, ctx.author.id)['cash'], max(100, int(vb['cash'] * 0.2)))
             ab = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, ab['cash'] - fine)
             set_cash(gid, member.id, vb['cash'] + fine)
             db.jail(gid, ctx.author.id, 15)
-            msg = t(gid, 'eco.rob_fail_jail', user=member.display_name, fine=fine)
+            msg = t(gid, 'eco.rob_fail_jail', user=member.display_name, fine=cshort(fine))
         with db.conn_ctx() as conn:
             conn.execute('UPDATE eco SET last_rob=? WHERE guild_id=? AND user_id=?',
                          (now, str(gid), str(ctx.author.id)))
@@ -1436,7 +1437,7 @@ class Gamble(commands.Cog):
                     conn.execute('DELETE FROM bounties WHERE id=?', (bounty['id'],))
                     ab2 = bal(gid, ctx.author.id)
                     set_cash(gid, ctx.author.id, ab2['cash'] + bounty['amount'])
-                    msg += '\n' + t(gid, 'eco.bounty_claim', amount=bounty['amount'])
+                    msg += '\n' + t(gid, 'eco.bounty_claim', amount=cshort(bounty['amount']))
         msg += _wallet_line(gid, ctx.author.id)
         await ctx.reply(view=_game_layout(t(gid, 'eco.rob_title'), msg))
 
@@ -1448,7 +1449,7 @@ class Gamble(commands.Cog):
         if confirm.lower() != 'yes':
             return await ctx.reply(t(gid, 'eco.reset_warn'), ephemeral=True)
         with db.conn_ctx() as conn:
-            conn.execute('UPDATE eco SET cash=0, bank=0 WHERE guild_id=?', (str(gid),))
+            conn.execute('UPDATE eco SET cash=cshort(0), bank=0 WHERE guild_id=?', (str(gid),))
             conn.execute('DELETE FROM bounties WHERE guild_id=?', (str(gid),))
         await ctx.reply(t(gid, 'eco.reset_done'))
 

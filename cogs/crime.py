@@ -8,6 +8,7 @@ import discord
 from discord.ext import commands
 
 import database as db
+from utils.cards import short as cshort
 from lang import t
 from utils.embeds import ok
 
@@ -41,7 +42,7 @@ class Crime(commands.Cog):
         stake = TARGETS[target]['stake']
         b = bal(gid, ctx.author.id)
         if b['cash'] < stake:
-            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
         set_cash(gid, ctx.author.id, b['cash'] - stake)
         ends = int(time.time()) + JOIN_WINDOW
         with db.conn_ctx() as conn:
@@ -67,7 +68,7 @@ class Crime(commands.Cog):
             return await ctx.reply(t(gid, 'crime.full'), ephemeral=True)
         b = bal(gid, ctx.author.id)
         if b['cash'] < cur['stake']:
-            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
         set_cash(gid, ctx.author.id, b['cash'] - cur['stake'])
         crew.append(str(ctx.author.id))
         with db.conn_ctx() as conn:
@@ -124,12 +125,12 @@ class Crime(commands.Cog):
             return await ctx.reply(t(gid, 'crime.bounty_min'), ephemeral=True)
         b = bal(gid, ctx.author.id)
         if amount > b['cash']:
-            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
         set_cash(gid, ctx.author.id, b['cash'] - amount)
         with db.conn_ctx() as conn:
             conn.execute('INSERT INTO bounties (guild_id, target_id, amount, by_id) VALUES (?,?,?,?)',
                          (str(gid), str(member.id), amount, str(ctx.author.id)))
-        await ctx.reply(t(gid, 'crime.bounty_set', user=member.display_name, amount=amount))
+        await ctx.reply(t(gid, 'crime.bounty_set', user=member.display_name, amount=cshort(amount)))
 
     @commands.command(name='bounties', description='Lista nagród')
     async def bounties(self, ctx):

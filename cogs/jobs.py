@@ -6,6 +6,7 @@ import discord
 from discord.ext import commands
 
 import database as db
+from utils.cards import short as cshort
 from lang import t
 from utils.embeds import ok
 from utils.checks import staff_or
@@ -491,14 +492,14 @@ class Jobs(commands.Cog):
                 await sync_job_role(ctx.guild, ctx.author, key, title)
             except Exception:
                 pass
-            msg = t(gid, 'eco.work_done', job=f"{job['label']}: {flavor}", pay=pay)
+            msg = t(gid, 'eco.work_done', job=f"{job['label']}: {flavor}", pay=cshort(pay))
             if extra.strip():
                 msg += '\n' + extra.strip()
             if senior:
                 msg += '\n' + t(gid, 'job.senior', pct=int(senior * 100))
             try:
                 from cogs.gamble import bal as _bal, _game_layout
-                msg += '\n' + t(gid, 'eco.balance_line', cash=_bal(gid, ctx.author.id)['cash'])
+                msg += '\n' + t(gid, 'eco.balance_line', cash=cshort(_bal(gid, ctx.author.id)['cash']))
                 return await ctx.reply(view=_game_layout(t(gid, 'eco.work_title', job=job['label']), msg))
             except Exception:
                 pass
@@ -513,14 +514,14 @@ class Jobs(commands.Cog):
                          (now, str(gid), str(ctx.author.id)))
         try:
             from cogs.gamble import bal as _bal2, _game_layout as _gl2
-            extra2 = '\n' + t(gid, 'eco.balance_line', cash=_bal2(gid, ctx.author.id)['cash'])
+            extra2 = '\n' + t(gid, 'eco.balance_line', cash=cshort(_bal2(gid, ctx.author.id)['cash']))
         except Exception:
             extra2 = ''
             _gl2 = None
         if _gl2:
             return await ctx.reply(view=_gl2(t(gid, 'eco.work_title', job=t(gid, 'job.none')),
-                                             t(gid, 'eco.work_done', job=job, pay=pay) + extra2))
-        await ctx.reply(t(gid, 'eco.work_done', job=job, pay=pay) + extra2)
+                                             t(gid, 'eco.work_done', job=job, pay=cshort(pay)) + extra2))
+        await ctx.reply(t(gid, 'eco.work_done', job=job, pay=cshort(pay)) + extra2)
 
 
 async def setup(bot):
