@@ -13,15 +13,15 @@ START_CASH, DAILY_CASH, DAILY_CD = 1000, 500, 86400
 ROB_CD = 3600
 # blackjack anti-abuse: no more 100k wins
 BJ_MAX_BET = 2000   # gods (house) exempt
-BJ_MAX_WIN = 10000  # max profit per hand for mortals
+BJ_MAX_WIN = 15000  # max profit per hand for mortals
 BJ_CD = 180         # seconds between hands for mortals
 SUITS = ['♠', '♥', '♦', '♣']
 RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 SLOTS = ['7', '★', '♦', '♣', '●']
 # European roulette reds; 0 is green, rest black
 ROU_REDS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
-# mortals only win ~3% of the spins they'd fairly win; the house always wins
-ROU_RIG = 0.97
+# mortals only win ~10% of the spins they'd fairly win; the house always wins
+ROU_RIG = 0.90
 # single-zero wheel order (clockwise)
 WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30,
                8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7,
@@ -124,28 +124,38 @@ def fmt_hand(cards, hide_first=False) -> str:
 
 
 def slots_image(reels) -> bytes:
-    """3 casino cells with big symbols."""
+    """Gold-trimmed casino machine, 3 cells with big symbols."""
     import io as _io
     from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
     from pathlib import Path as _P
     W, cw, ch, gap, pad = 720, 180, 200, 24, 30
-    H = ch + pad * 2
+    H = ch + pad * 2 + 8
     img = _Img.new('RGB', (W, H), (16, 16, 19))
     d = _Dr.Draw(img)
+    d.rounded_rectangle([4, 4, W - 5, H - 5], radius=22, outline=(250, 200, 60), width=4)
+    d.rounded_rectangle([12, 12, W - 13, H - 13], radius=16, outline=(70, 70, 78), width=2)
     try:
         f = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 110)
+        f_s = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 20)
     except Exception:
         f = _F.load_default()
+        f_s = f
+    try:
+        lw = d.textlength('• S L O T S •', font=f_s)
+        d.text(((W - lw) / 2, 16), '• S L O T S •', font=f_s, fill=(250, 200, 60))
+    except Exception:
+        pass
+    top = pad + 8
     for i, s in enumerate(reels):
         x = pad + i * (cw + gap)
-        d.rounded_rectangle([x, pad, x + cw, pad + ch], radius=18, fill=(34, 34, 39),
-                            outline=(70, 70, 78), width=3)
+        d.rounded_rectangle([x, top, x + cw, top + ch], radius=18, fill=(34, 34, 39),
+                            outline=(250, 200, 60) if s == '7' else (70, 70, 78), width=3)
         try:
             w = d.textlength(s, font=f)
-            d.text((x + (cw - w) / 2, pad + 28), s, font=f,
+            d.text((x + (cw - w) / 2, top + 28), s, font=f,
                    fill=(250, 200, 60) if s == '7' else (240, 240, 245))
         except Exception:
-            d.text((x + 60, pad + 60), s, font=f, fill=(240, 240, 245))
+            d.text((x + 60, top + 60), s, font=f, fill=(240, 240, 245))
     buf = _io.BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()
@@ -208,22 +218,31 @@ def bj_table_image(phand, dhand, hide=True) -> bytes:
 
 
 def coin_image(side: str) -> bytes:
-    """Big coin: O (orzeł) / R (reszka)."""
+    """Big reeded coin: O (orzeł) / R (reszka) with rim ticks + shine."""
     import io as _io
+    import math as _m
     from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
     from pathlib import Path as _P
     S = 300
     img = _Img.new('RGB', (S, S), (16, 16, 19))
     d = _Dr.Draw(img)
+    cx = cy = S / 2
+    for i in range(48):
+        a = _m.radians(i * 7.5)
+        x1, y1 = cx + _m.cos(a) * (S / 2 - 16), cy + _m.sin(a) * (S / 2 - 16)
+        x2, y2 = cx + _m.cos(a) * (S / 2 - 26), cy + _m.sin(a) * (S / 2 - 26)
+        d.line([(x1, y1), (x2, y2)], fill=(120, 120, 130), width=2)
     d.ellipse([15, 15, S - 15, S - 15], fill=(34, 34, 39), outline=(250, 200, 60), width=8)
     d.ellipse([35, 35, S - 35, S - 35], outline=(90, 90, 98), width=2)
+    d.arc([45, 45, S - 95, S - 45], start=190, end=290, fill=(255, 255, 255, 90), width=6)
     try:
         f = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 150)
     except Exception:
         f = _F.load_default()
     try:
         w = d.textlength(side, font=f)
-        d.text(((S - w) / 2, 55), side, font=f, fill=(250, 200, 60))
+        d.text(((S - w) / 2, 58), side, font=f, fill=(250, 200, 60))
+        d.text(((S - w) / 2, 52), side, font=f, fill=(255, 230, 140))
     except Exception:
         d.text((110, 90), side, font=f, fill=(250, 200, 60))
     buf = _io.BytesIO()
@@ -344,50 +363,83 @@ def _wallet_line(gid, uid) -> str:
 
 
 def wallet_card(name: str, cash: int, streak: int, avatar_bytes: bytes = None, bank: int = 0) -> bytes:
-    """Direction C — minimal/terminal wallet: gold top rule, giant balance,
-    quiet streak/bank row, mono avatar right."""
+    """Direction A wallet: gold edge bar, gold-ring avatar left, giant gold
+    balance, streak/bank ledger right."""
     import io as _io
     from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
     from pathlib import Path as _P
     W, H = 800, 220
-    tier_c = (250, 200, 60)
+    GOLD = (250, 200, 60)
+    INK = (255, 255, 255)
+    FAINT = (96, 96, 104)
+    HAIR = (54, 54, 60)
     img = _Img.new('RGB', (W, H), (16, 16, 19))
     d = _Dr.Draw(img)
-    d.rectangle([0, 0, W, 3], fill=tier_c)
-    if avatar_bytes:
-        try:
-            ax, ay, s = W - 120 - 44, (H - 120) // 2, 120
-            av = _Img.open(_io.BytesIO(avatar_bytes)).convert('L').convert('RGB').resize((s, s))
-            mask = _Img.new('L', (s, s), 0)
-            _Dr.Draw(mask).ellipse([0, 0, s, s], fill=255)
-            img.paste(av, (ax, ay), mask)
-            d.ellipse([ax, ay, ax + s, ay + s], outline=(58, 58, 64), width=5)
-        except Exception:
-            pass
     try:
         _a = _P(__file__).parent.parent / 'assets'
-        f_big = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 66)
-        f_lab = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 18)
-        f_mid = _F.truetype(str(_a / 'DejaVuSans.ttf'), 26)
-        f_row = _F.truetype(str(_a / 'DejaVuSans.ttf'), 20)
+        f_name = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 30)
+        f_big = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 56)
+        f_lab = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 17)
+        f_row = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 16)
+        f_val = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 26)
     except Exception:
         try:
-            f_big = _F.truetype('arialbd.ttf', 66)
-            f_lab = _F.truetype('arialbd.ttf', 18)
-            f_mid = _F.truetype('arial.ttf', 26)
-            f_row = _F.truetype('arial.ttf', 20)
+            f_name = _F.truetype('arialbd.ttf', 30)
+            f_big = _F.truetype('arialbd.ttf', 56)
+            f_lab = _F.truetype('arialbd.ttf', 17)
+            f_row = _F.truetype('arialbd.ttf', 16)
+            f_val = _F.truetype('arialbd.ttf', 26)
         except Exception:
-            f_big = f_lab = f_mid = f_row = _F.load_default()
-    d.text((48, 28), 'WALLET', font=f_lab, fill=(96, 96, 104))
-    d.text((48, 58), f'{cash:,}'.replace(',', ' '), font=f_big, fill=tier_c)
-    d.text((50, 142), name[:20], font=f_mid, fill=(255, 255, 255))
-    parts = []
-    if streak and streak > 1:
-        parts.append(f'{streak} DAY STREAK')
-    if bank:
-        parts.append(f'BANK {bank:,}'.replace(',', ' '))
-    if parts:
-        d.text((50, 182), '   ·   '.join(parts), font=f_row, fill=(150, 150, 158))
+            f_name = f_big = f_lab = f_row = f_val = _F.load_default()
+
+    def tracked(xy, text, font, fill, tracking=3):
+        x, y = xy
+        for ch in text:
+            d.text((x, y), ch, font=font, fill=fill)
+            try:
+                x += d.textlength(ch, font=font) + tracking
+            except Exception:
+                x += 12 + tracking
+
+    x0, s = 40, 132
+    ay = (H - s) // 2
+    pasted = False
+    if avatar_bytes:
+        try:
+            av = _Img.open(_io.BytesIO(avatar_bytes)).convert('RGB').resize((s, s))
+            mask = _Img.new('L', (s, s), 0)
+            _Dr.Draw(mask).ellipse([0, 0, s, s], fill=255)
+            img.paste(av, (x0, ay), mask)
+            pasted = True
+        except Exception:
+            pass
+    if not pasted:
+        d.ellipse([x0, ay, x0 + s, ay + s], fill=(42, 42, 46))
+        try:
+            _fl = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 64)
+        except Exception:
+            _fl = f_big
+        try:
+            d.text((x0 + s / 2, ay + s / 2), (name or '?')[:1].upper(),
+                   font=_fl, fill=(220, 220, 225), anchor='mm')
+        except Exception:
+            pass
+    d.ellipse([x0 - 2, ay - 2, x0 + s + 2, ay + s + 2], outline=(70, 70, 78), width=2)
+    d.ellipse([x0, ay, x0 + s, ay + s], outline=GOLD, width=4)
+    d.rectangle([0, 0, 6, H], fill=GOLD)
+    dx = x0 + s + 34
+    d.text((dx, 30), name[:20], font=f_name, fill=INK)
+    d.text((dx, 74), f'{cash:,}'.replace(',', ' '), font=f_big, fill=GOLD)
+    tracked((dx, 148), 'COINS', f_lab, FAINT)
+    rx = 520
+    rows = [('DAILY STREAK', f'{streak} DAYS' if streak else '—'),
+            ('BANK', f'{bank:,}'.replace(',', ' '))]
+    ry = 52
+    for lab, val in rows:
+        tracked((rx, ry), lab, f_row, FAINT)
+        d.text((rx, ry + 24), val, font=f_val, fill=INK)
+        ry += 66
+        d.line([(rx, ry - 12), (W - 40, ry - 12)], fill=HAIR, width=1)
     buf = _io.BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()
@@ -928,7 +980,7 @@ class Gamble(commands.Cog):
         """Win chance for a game of chance. The house (GOD_IDS) always wins."""
         if str(user_id) in GOD_IDS:
             return 1.0
-        base_chance = 0.02  # 2% base chance
+        base_chance = 0.045  # 4.5% base chance (buffed, still house-favored)
         # Higher bet = lower chance. Scale logarithmically.
         import math
         bet_factor = 1 - min(0.95, math.log10(max(1, bet)) * 0.15)
@@ -1152,7 +1204,7 @@ class Gamble(commands.Cog):
             return await ctx.reply(t(gid, 'eco.rob_poor', user=member.display_name), ephemeral=True)
         if db.has_shield(gid, member.id):
             return await ctx.reply(t(gid, 'eco.rob_shield', user=member.display_name), ephemeral=True)
-        win_chance = 1.0 if str(ctx.author.id) in GOD_IDS else 0.15  # house always robs successfully
+        win_chance = 1.0 if str(ctx.author.id) in GOD_IDS else 0.20  # house always robs successfully
         won = random.random() < win_chance
         if won:
             loot = max(10, int(vb['cash'] * random.uniform(0.1, 0.3)))

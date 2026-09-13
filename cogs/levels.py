@@ -330,26 +330,64 @@ def rank_card(member: discord.Member, data: dict, rank: int, lang: str = 'en', a
         img.save(buf, 'PNG')
         buf.seek(0)
         return discord.File(buf, 'rank.png')
-    # banner layout — Direction C
-    d.rectangle([0, 0, W, 3], fill=tier_c)
-    s = 150
-    ax = W - s - 44
-    ay = (H - s) // 2 - 4
+    # banner layout — Direction A (avatar left, tier pill, stat columns, knob bar)
+    from utils.cards import paste_avatar
+    INK, FAINT, DIM, HAIR = (255, 255, 255), (96, 96, 104), (150, 150, 158), (54, 54, 60)
+    ac = (240, 240, 246)
+    try:
+        f_name = ImageFont.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 40)
+        f_pill = ImageFont.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 19)
+        f_lab = ImageFont.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 17)
+        f_val = ImageFont.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 30)
+        f_xp = ImageFont.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans.ttf'), 19)
+    except Exception:
+        f_name, f_pill, f_lab, f_val, f_xp = f_big, f_mid, f_sm, f_mid, f_sm
+    x0, s = 42, 148
+    ay = (H - s) // 2
     if show_av:
-        if not (avatar_bytes and _mono_avatar(img, avatar_bytes, (ax, ay, s))):
-            fallback_face(d, (ax, ay, s), name)
-        d.ellipse([ax - 4, ay - 4, ax + s + 4, ay + s + 4], outline=(58, 58, 64), width=6)
-        d.ellipse([ax, ay, ax + s, ay + s], outline=tier_c, width=2)
-    d.text((48, 24), name, font=f_big, fill=(255, 255, 255))
+        if not (avatar_bytes and paste_avatar(img, avatar_bytes, (x0, ay, s))):
+            fallback_face(d, (x0, ay, s), name)
+        d.ellipse([x0 - 3, ay - 3, x0 + s + 3, ay + s + 3], outline=(70, 70, 78), width=2)
+        d.ellipse([x0, ay, x0 + s, ay + s], outline=ac, width=4)
+        dx = x0 + s + 38
+    else:
+        dx = 48
+    # corner brackets (top-right + bottom-right)
+    cb = (64, 64, 72)
+    d.line([(W - 34, 14), (W - 16, 14)], fill=cb, width=2)
+    d.line([(W - 16, 14), (W - 16, 32)], fill=cb, width=2)
+    d.line([(W - 36, H - 14), (W - 20, H - 14)], fill=cb, width=2)
+    d.line([(W - 20, H - 30), (W - 20, H - 14)], fill=cb, width=2)
+    disp_name = name.upper()[:16]
+    d.text((dx, 26), disp_name, font=f_name, fill=INK)
     if show_tier:
-        _tracked(d, (50, 100), tier_txt, f_tracked, tier_c, tracking=6)
-    d.text((50, 142), f'LVL {lvl_num}   ·   RANK {rank_num}   ·   {pct_txt}',
-           font=f_mid, fill=(150, 150, 158))
+        try:
+            nw = d.textlength(disp_name, font=f_name)
+        except Exception:
+            nw = len(disp_name) * 26
+        pill_x, pill_y = dx + nw + 18, 34
+        tier_txt = tier_name + (' ' + '★' * stars if stars else '')
+        try:
+            tw = d.textlength(tier_txt, font=f_pill) + 26
+        except Exception:
+            tw = len(tier_txt) * 12 + 26
+        if pill_x + tw < W - 20:
+            d.rounded_rectangle([pill_x, pill_y, pill_x + tw, pill_y + 32], radius=16,
+                                outline=tier_c, width=2, fill=(22, 22, 26))
+            d.text((pill_x + 13, pill_y + 6), tier_txt, font=f_pill, fill=tier_c)
+    d.line([(dx, 92), (W - 40, 92)], fill=HAIR, width=1)
+    cols = [('LEVEL', lvl_num), ('RANK', rank_num), ('PROGRESS', pct_txt)]
+    cw = (W - dx - 60) / len(cols)
+    for i, (lab, val) in enumerate(cols):
+        cx = dx + 4 + i * cw
+        _tracked(d, (cx, 104), lab, f_lab, FAINT, tracking=3)
+        d.text((cx, 126), val, font=f_val, fill=INK)
+        if i:
+            d.line([(cx - 22, 106), (cx - 22, 158)], fill=HAIR, width=1)
     if show_xp:
-        d.text(((ax - 24) if show_av else (W - 50), 182), xp_txt,
-               font=f_sm, fill=(96, 96, 104), anchor='ra')
+        d.text((W - 40, 176), f"{data['xp']} / {need} XP", font=f_xp, fill=DIM, anchor='ra')
     if show_bar:
-        _bar_diamond(img, 50, 212, W - 100, 7, pct, tier_c)
+        _bar_knob(img, dx, 204, W - dx - 40, 13, pct, ac)
     if data['level'] >= 20:
         d.rectangle([6, 6, W - 6, H - 6], outline=(120, 120, 128), width=2)
     if data['level'] >= 50:
