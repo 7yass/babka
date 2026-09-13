@@ -1172,7 +1172,7 @@
     ],
     "shop": [
       "economy",
-      "Spend cash on power: `.shop` lists prices, `.shop buy <item>` buys — nick tokens, shields, bail scrolls, lootboxes.",
+      "Spend money on power: nick tokens, scrolls, XP boosts, shields, lootboxes, VIP.",
       [],
       "buy",
       "Everyone"
@@ -1186,7 +1186,7 @@
     ],
     "bail": [
       "economy",
-      "Buy your way out of jail for 500 coins with `.bail`. Fails if you're free or broke.",
+      "Buy your way out of jail for 5000 coins with `.bail`. Fails if you're free or broke.",
       [],
       "",
       "Everyone"
