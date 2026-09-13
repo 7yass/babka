@@ -1848,6 +1848,6 @@
     "hc_d_selfroles": "Panel ról do samodzielnego brania.",
     "hc_d_sr-add": "Dodaj rolę do panelu.",
     "hc_d_suggest": "Propozycje: skrzynki serwer/bot.",
-    "hc_d_poker": "Video poker: trzymaj karty, dobierz raz."
+    "hc_d_poker": "Video poker (Jacks or better). JAK GRAĆ: 1) stawka — np. `.poker 100`. 2) Dostajesz 5 kart. 3) Guzikami 1-5 TRZYMASZ karty (kliknij znowu żeby puścić). 4) DOBIERZ — trzymane zostają, reszta się wymienia, tylko raz. WYPŁATY (zysk x stawka): para waletów lub lepsza 1x, dwie pary 2x, trójka 3x, strit 4x, kolor 6x, full 9x, kareta 25x, poker 50x, poker królewski 250x. Mniej = strata stawki. Wspólny limit 10 gier/h z innymi grami."
   }
 }

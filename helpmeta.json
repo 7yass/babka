@@ -1316,9 +1316,9 @@
     ],
     "poker": [
       "economy",
-      "Video poker: hold cards, draw once.",
+      "Video poker (Jacks or better). HOW TO PLAY: 1) bet — e.g. `.poker 100`. 2) You get 5 cards. 3) Press buttons 1-5 to HOLD the cards you keep (press again to unhold). 4) Press DRAW — held cards stay, the rest are swapped, once only. PAYS (profit x bet): pair of jacks or better 1x, two pair 2x, three of a kind 3x, straight 4x, flush 6x, full house 9x, four of a kind 25x, straight flush 50x, royal flush 250x. Anything less = bet lost. Shares the 10 plays/hour limit with other games.",
       [],
-      "<bet>",
+      "100",
       "Everyone"
     ]
   },
