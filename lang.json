@@ -1827,7 +1827,7 @@
     "hc.c_economy_d": "Gry o kasę, portfele i napady.",
     "hc.c_fun_t": "Zabawa",
     "hc.c_fun_d": "Shipy, ściany hańby, gry i chaos.",
-    "hc_d_job": "JAK: `.job list` oferty z guzikami (płaca, top tytuł, progi). `.job join <nazwa>` zatrudnia, `.job show [@user]` podgląd kariery, `.job leave` rzuca, `.job my` fame. Wyższy level = lepsze tytuły i kasa. `.work` zmiana co godzinę.",
+    "hc_d_job": "JAK: `.job list` oferty z guzikami (płaca, top tytuł, progi). `.job join <nazwa>` zatrudnia, `.job show [@user]` podgląd kariery, `.job leave` rzuca, `.job my` fame. Wyższy level = lepsze tytuły i kasa. `.work` zmiana co godzinę. Każda ewolucja daje rolę na Discordzie, która awansuje razem z tobą.",
     "hc_d_shop": "Wydaj kasę na moc: `.shop` cennik, `.shop buy <rzecz>` kupuje — tokeny, tarcze, zwoje, lootboxy.",
     "hc_d_inv": "Twoje graty: tokeny nicków, tarcze, zwoje. `.inv` podgląd, `.shop buy` zakupy.",
     "hc_d_bail": "Wykup się z pudła za 500 monet: `.bail`. Nie działa jak jesteś wolny albo biedny.",

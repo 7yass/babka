@@ -1165,7 +1165,7 @@
     ],
     "job": [
       "economy",
-      "HOW TO: `.job list` shows offers with click-to-join buttons (pay range, top title, level locks). `.job join <name>` hires you, `.job show [@user]` inspects a career, `.job leave` quits, `.job my` shows fame. Higher level = better titles and bigger pay. `.work` runs a paid shift every hour.",
+      "HOW TO: `.job list` shows offers with click-to-join buttons (pay range, top title, level locks). `.job join <name>` hires you, `.job show [@user]` inspects a career, `.job leave` quits, `.job my` shows fame. Higher level = better titles and bigger pay. `.work` runs a paid shift every hour. Each evolution grants a matching Discord role that upgrades as you rank up.",
       [],
       "list / join / show / leave / my",
       "Everyone"

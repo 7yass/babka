@@ -185,6 +185,71 @@ async def ensure_job_role(guild: discord.Guild, key: str):
     return role
 
 
+def job_role_name(key: str, title: str) -> str:
+    """Role name follows evolutions: `Label • Title`."""
+    return f"{JOBS[key]['label']} • {title}"[:100]
+
+
+def _all_job_role_names() -> set:
+    names = set()
+    for k, j in JOBS.items():
+        names.add(j['label'])
+        for t in (j.get('track') or []):
+            names.add(job_role_name(k, t))
+        if j.get('house_title'):
+            names.add(job_role_name(k, j['house_title']))
+    return names
+
+
+async def sync_job_role(guild: discord.Guild, member: discord.Member, key: str, title: str):
+    """Give the member the role matching their current evolution, strip every
+    other job role, and delete job roles left with zero holders."""
+    if not isinstance(member, discord.Member):
+        return
+    wanted = job_role_name(key, title)
+    managed = _all_job_role_names()
+    try:
+        role = discord.utils.find(lambda r: r.name == wanted, guild.roles)
+        if not role:
+            role = await guild.create_role(name=wanted, reason='job evolution role')
+        if role not in member.roles:
+            await member.add_roles(role, reason='job role')
+        for r in [r for r in member.roles if r.name in managed and r.name != wanted]:
+            try:
+                await member.remove_roles(r, reason='job evolution')
+            except Exception:
+                continue
+        for r in [r for r in guild.roles if r.name in managed and r.name != wanted]:
+            try:
+                if not r.members:
+                    await r.delete(reason='empty job role cleanup')
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
+async def strip_job_roles(guild: discord.Guild, member: discord.Member):
+    """Remove every job role from the member (quit/fired)."""
+    if not isinstance(member, discord.Member):
+        return
+    managed = _all_job_role_names()
+    try:
+        for r in [r for r in member.roles if r.name in managed]:
+            try:
+                await member.remove_roles(r, reason='left job')
+            except Exception:
+                continue
+        for r in [r for r in guild.roles if r.name in managed]:
+            try:
+                if not r.members:
+                    await r.delete(reason='empty job role cleanup')
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
 class _JobBoard(discord.ui.LayoutView):
     """Click-to-join job board. Only the invoker's clicks count."""
     def __init__(self, cog, invoker_id: int, gid):
@@ -243,7 +308,7 @@ class Jobs(commands.Cog):
 
     async def _hire(self, guild: discord.Guild, member: discord.Member, key: str):
         """Shared hire logic for /job join + board buttons. Returns (ok, msg)."""
-        from cogs.levels import get_user
+        from cogs.levels import get_user, ladder_of
         gid = guild.id
         key = JOB_ALIAS.get((key or '').lower().strip(), (key or '').lower().strip())
         if key in JOBS and JOBS[key].get('hidden') and not db.is_house(member.id):
@@ -259,12 +324,9 @@ class Jobs(commands.Cog):
                          (str(gid), str(member.id), key, 0))
         try:
             if old and old != key and old in JOBS:
-                r = discord.utils.find(lambda x: x.name == JOBS[old]['label'], guild.roles)
-                if r:
-                    await member.remove_roles(r, reason='job change')
-            role = await ensure_job_role(guild, key)
-            if role and role not in member.roles:
-                await member.add_roles(role, reason='new job')
+                await strip_job_roles(guild, member)
+            _idx, _, _, _ = ladder_of(get_user(gid, member.id).get('level', 0))
+            await sync_job_role(guild, member, key, job_title(key, _idx, member.id))
         except Exception:
             pass
         return True, t(gid, 'job.hired', job=JOBS[key]['label'])
@@ -326,6 +388,7 @@ class Jobs(commands.Cog):
         with db.conn_ctx() as conn:
             conn.execute('DELETE FROM jobs WHERE guild_id=? AND user_id=?',
                          (str(ctx.guild.id), str(ctx.author.id)))
+        await strip_job_roles(ctx.guild, ctx.author)
         await ctx.reply(t(ctx.guild.id, 'job.left'), ephemeral=True)
 
     @job.command(name='my', description='Twoja kariera i fame')
@@ -425,9 +488,7 @@ class Jobs(commands.Cog):
                 conn.execute('UPDATE jobs SET shifts=shifts+1 WHERE guild_id=? AND user_id=?',
                              (str(gid), str(ctx.author.id)))
             try:
-                role = await ensure_job_role(ctx.guild, key)
-                if role and isinstance(ctx.author, discord.Member) and role not in ctx.author.roles:
-                    await ctx.author.add_roles(role, reason='job role')
+                await sync_job_role(ctx.guild, ctx.author, key, title)
             except Exception:
                 pass
             msg = t(gid, 'eco.work_done', job=f"{job['label']}: {flavor}", pay=pay)
