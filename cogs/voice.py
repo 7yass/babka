@@ -182,8 +182,17 @@ class TrustModal(discord.ui.Modal, title='Trust'):
             return await interaction.response.send_message(t(gid, 'vm.vc_gone2'), ephemeral=True)
         if not _owns_channel(interaction.guild, interaction.user.id, self.channel_id):
             return await interaction.response.send_message(t(gid, 'vm.no_owner'), ephemeral=True)
-        raw = self.uid.value.strip().strip('<@!>')
-        target = interaction.guild.get_member(int(raw)) if raw.isdigit() else None
+        raw = self.uid.value.strip()
+        target = None
+        digits = ''.join(c for c in raw if c.isdigit())
+        if digits:
+            target = interaction.guild.get_member(int(digits))
+        if not target:
+            low = raw.lstrip('@').lower()
+            for m in interaction.guild.members:
+                if m.display_name.lower() == low or m.name.lower() == low:
+                    target = m
+                    break
         if not target:
             return await interaction.response.send_message(t(gid, 'mod.no_member'), ephemeral=True)
         try:
