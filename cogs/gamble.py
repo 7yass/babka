@@ -703,6 +703,18 @@ class Gamble(commands.Cog):
         msg += _wallet_line(gid, ctx.author.id)
         await ctx.reply(view=_game_layout(t(gid, 'eco.rob_title'), msg))
 
+    @commands.command(name='ecoreset')
+    async def ecoreset(self, ctx, confirm: str = ''):
+        gid = ctx.guild.id
+        if not db.is_house(ctx.author.id):
+            return await ctx.reply(t(gid, 'eco.no_owner'), ephemeral=True)
+        if confirm.lower() != 'yes':
+            return await ctx.reply(t(gid, 'eco.reset_warn'), ephemeral=True)
+        with db.conn_ctx() as conn:
+            conn.execute('UPDATE eco SET cash=0, bank=0 WHERE guild_id=?', (str(gid),))
+            conn.execute('DELETE FROM bounties WHERE guild_id=?', (str(gid),))
+        await ctx.reply(t(gid, 'eco.reset_done'))
+
     @commands.hybrid_command(name='rich', description='Najbogatsi', aliases=['baltop'])
     async def rich(self, ctx):
         gid = ctx.guild.id

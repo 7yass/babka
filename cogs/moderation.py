@@ -1,4 +1,4 @@
-"""Moderation: warns, timeouts, kick/ban family, purge suite, slowmode, lock. Hybrid."""
+﻿"""Moderation: warns, timeouts, kick/ban family, purge suite, slowmode, lock. Hybrid."""
 import asyncio
 import re
 import time
@@ -97,7 +97,7 @@ class Moderation(commands.Cog):
         self.bot = bot
 
     # ---------- mod group ----------
-    @commands.hybrid_group(name='mod', description='Narzędzia modów')
+    @commands.hybrid_group(name='mod', description='NarzÄ™dzia modÃ³w')
     async def mod(self, ctx):
         await ctx.reply('mod warn / warnings / timeout / kick / ban / unban / softban / tempban / nick / clear / slowmode / lock / unlock / set-log',
                         ephemeral=True)
@@ -133,10 +133,10 @@ class Moderation(commands.Cog):
                                 (str(gid), str(member.id))).fetchall()
         if not rows:
             return await ctx.reply(t(gid, 'mod.no_warns'), ephemeral=True)
-        lines = [f"**{i + 1}.** {r['reason']} — <@{r['mod_id']}> <t:{r['created_at']}:R>" for i, r in enumerate(rows)]
+        lines = [f"**{i + 1}.** {r['reason']} â€” <@{r['mod_id']}> <t:{r['created_at']}:R>" for i, r in enumerate(rows)]
         await ctx.reply('\n'.join(lines), ephemeral=True)
 
-    @mod.command(name='clear-warns', description='Wyczyść warny')
+    @mod.command(name='clear-warns', description='WyczyÅ›Ä‡ warny')
     @staff_or('manage_guild')
     async def clear_warns(self, ctx, member: discord.Member):
         gid = ctx.guild.id
@@ -184,7 +184,7 @@ class Moderation(commands.Cog):
         gid = ctx.guild.id
         await try_dm(member, t(gid, 'mod.dm_ban', server=ctx.guild.name, reason=reason))
         try:
-            await ctx.guild.ban(member, reason=f'{ctx.author} — {reason}', delete_message_days=1)
+            await ctx.guild.ban(member, reason=f'{ctx.author} â€” {reason}', delete_message_days=1)
         except Exception:
             return await ctx.reply(t(gid, 'mod.fail_ban'), ephemeral=True)
         await log_to_mod(ctx.guild, build(f'User: {member} ({member.id})\nReason: {reason}\nBy: {ctx.author}',
@@ -197,7 +197,7 @@ class Moderation(commands.Cog):
         gid = ctx.guild.id
         try:
             user = await self.bot.fetch_user(int(user_id))
-            await ctx.guild.unban(user, reason=f'{ctx.author} — {reason}')
+            await ctx.guild.unban(user, reason=f'{ctx.author} â€” {reason}')
         except Exception:
             return await ctx.reply(t(gid, 'mod.fail_unban'), ephemeral=True)
         await ctx.reply(t(gid, 'mod.unbanned', user=str(user), reason=reason), ephemeral=True)
@@ -208,7 +208,7 @@ class Moderation(commands.Cog):
         gid = ctx.guild.id
         await try_dm(member, t(gid, 'mod.dm_soft', server=ctx.guild.name, reason=reason))
         try:
-            await ctx.guild.ban(member, reason=f'[Softban] {ctx.author} — {reason}', delete_message_days=7)
+            await ctx.guild.ban(member, reason=f'[Softban] {ctx.author} â€” {reason}', delete_message_days=7)
             await asyncio.sleep(0.5)
             await ctx.guild.unban(member, reason='[Softban] automatic unban')
         except Exception:
@@ -226,7 +226,7 @@ class Moderation(commands.Cog):
             return await ctx.reply(t(gid, 'mod.temp_use'), ephemeral=True)
         await try_dm(member, t(gid, 'mod.dm_temp', server=ctx.guild.name, dur=fmt_duration(secs), reason=reason))
         try:
-            await ctx.guild.ban(member, reason=f'[Tempban {fmt_duration(secs)}] {ctx.author} — {reason}', delete_message_days=1)
+            await ctx.guild.ban(member, reason=f'[Tempban {fmt_duration(secs)}] {ctx.author} â€” {reason}', delete_message_days=1)
         except Exception:
             return await ctx.reply(t(gid, 'mod.fail_ban'), ephemeral=True)
         await log_to_mod(ctx.guild, build(f'User: {member} ({member.id}) for **{fmt_duration(secs)}**\nReason: {reason}\nBy: {ctx.author}',
@@ -238,7 +238,7 @@ class Moderation(commands.Cog):
         except Exception:
             pass
 
-    @mod.command(name='nick', description='Zmień / zresetuj nick')
+    @mod.command(name='nick', description='ZmieÅ„ / zresetuj nick')
     @staff_or('manage_nicknames')
     async def nick(self, ctx, member: discord.Member, *, nickname: str = None):
         gid = ctx.guild.id
@@ -260,19 +260,19 @@ class Moderation(commands.Cog):
         await ctx.channel.edit(slowmode_delay=max(0, min(seconds, 21600)))
         await ctx.reply(t(ctx.guild.id, 'mod.slow_set', s=max(0, min(seconds, 21600))), ephemeral=True)
 
-    @mod.command(name='lock', description='Zamknij kanał')
+    @mod.command(name='lock', description='Zamknij kanaÅ‚')
     @staff_or('manage_channels')
     async def lock(self, ctx):
         await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=False)
         await ctx.reply(embed=ok(t(ctx.guild.id, 'mod.locked')))
 
-    @mod.command(name='unlock', description='Otwórz kanał')
+    @mod.command(name='unlock', description='OtwÃ³rz kanaÅ‚')
     @staff_or('manage_channels')
     async def unlock(self, ctx):
         await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=None)
         await ctx.reply(embed=ok(t(ctx.guild.id, 'mod.unlocked')))
 
-    @mod.command(name='set-log', description='Kanał logów')
+    @mod.command(name='set-log', description='KanaÅ‚ logÃ³w')
     @staff_or('manage_guild')
     async def set_log(self, ctx, channel: discord.TextChannel = None):
         db.get_settings(ctx.guild.id)
@@ -376,7 +376,7 @@ class Moderation(commands.Cog):
         await _purge_log(ctx.guild, ctx.channel, deleted, ctx.author)
         await ctx.reply(t(gid, 'pg.deleted', n=deleted), ephemeral=True)
 
-    @purge.command(name='nuke', description='Wyczyść CAŁY kanał')
+    @purge.command(name='nuke', description='WyczyÅ›Ä‡ CAÅY kanaÅ‚')
     @staff_or('manage_messages')
     async def purge_nuke(self, ctx):
         deleted = 0
@@ -392,7 +392,7 @@ class Moderation(commands.Cog):
         await _purge_log(ctx.guild, ctx.channel, deleted, ctx.author)
         await ctx.reply(embed=ok(t(ctx.guild.id, 'pg.nuked', n=deleted)))
 
-    @purge.command(name='after', description='Usuń N po wiadomości')
+    @purge.command(name='after', description='UsuÅ„ N po wiadomoÅ›ci')
     @staff_or('manage_messages')
     async def purge_after(self, ctx, message: str, amount: int):
         ref = await _find_msg(ctx, message)
@@ -403,7 +403,7 @@ class Moderation(commands.Cog):
         await _purge_log(ctx.guild, ctx.channel, deleted, ctx.author)
         await ctx.reply(t(ctx.guild.id, 'pg.deleted', n=deleted), ephemeral=True)
 
-    @purge.command(name='before', description='Usuń N przed wiadomością')
+    @purge.command(name='before', description='UsuÅ„ N przed wiadomoÅ›ciÄ…')
     @staff_or('manage_messages')
     async def purge_before(self, ctx, message: str, amount: int):
         ref = await _find_msg(ctx, message)
@@ -414,7 +414,7 @@ class Moderation(commands.Cog):
         await _purge_log(ctx.guild, ctx.channel, deleted, ctx.author)
         await ctx.reply(t(ctx.guild.id, 'pg.deleted', n=deleted), ephemeral=True)
 
-    @purge.command(name='between', description='Usuń między wiadomościami')
+    @purge.command(name='between', description='UsuÅ„ miÄ™dzy wiadomoÅ›ciami')
     @staff_or('manage_messages')
     async def purge_between(self, ctx, start: str, end: str):
         a, b = await _find_msg(ctx, start), await _find_msg(ctx, end)
@@ -427,62 +427,62 @@ class Moderation(commands.Cog):
         await _purge_log(ctx.guild, ctx.channel, deleted, ctx.author)
         await ctx.reply(t(ctx.guild.id, 'pg.deleted', n=deleted), ephemeral=True)
 
-    @purge.command(name='bots', description='Usuń od botów')
+    @purge.command(name='bots', description='UsuÅ„ od botÃ³w')
     @staff_or('manage_messages')
     async def purge_bots(self, ctx, amount: int = 50):
         await self._purge_filtered(ctx, lambda m: m.author.bot, amount)
 
-    @purge.command(name='humans', description='Usuń od ludzi')
+    @purge.command(name='humans', description='UsuÅ„ od ludzi')
     @staff_or('manage_messages')
     async def purge_humans(self, ctx, amount: int = 50):
         await self._purge_filtered(ctx, lambda m: not m.author.bot and m.webhook_id is None, amount)
 
-    @purge.command(name='contains', description='Usuń z tekstem')
+    @purge.command(name='contains', description='UsuÅ„ z tekstem')
     @staff_or('manage_messages')
     async def purge_contains(self, ctx, amount: int, *, text: str):
         q = text.lower()
         await self._purge_filtered(ctx, lambda m: q in (m.content or '').lower(), amount)
 
-    @purge.command(name='emojis', description='Usuń z emoji')
+    @purge.command(name='emojis', description='UsuÅ„ z emoji')
     @staff_or('manage_messages')
     async def purge_emojis(self, ctx, amount: int = 50):
         await self._purge_filtered(
             ctx, lambda m: bool(CUSTOM_EMOJI_RE.search(m.content or '') or UNICODE_EMOJI_RE.search(m.content or '')), amount)
 
-    @purge.command(name='files', description='Usuń z plikami')
+    @purge.command(name='files', description='UsuÅ„ z plikami')
     @staff_or('manage_messages')
     async def purge_files(self, ctx, amount: int = 50):
         await self._purge_filtered(ctx, lambda m: len(m.attachments) > 0, amount)
 
-    @purge.command(name='invites', description='Usuń z invite')
+    @purge.command(name='invites', description='UsuÅ„ z invite')
     @staff_or('manage_messages')
     async def purge_invites(self, ctx, amount: int = 50):
         from cogs.automod import INVITE_RE
         await self._purge_filtered(ctx, lambda m: bool(INVITE_RE.search(m.content or '')), amount)
 
-    @purge.command(name='links', description='Usuń z linkami')
+    @purge.command(name='links', description='UsuÅ„ z linkami')
     @staff_or('manage_messages')
     async def purge_links(self, ctx, amount: int = 50):
         from cogs.automod import LINK_RE
         await self._purge_filtered(ctx, lambda m: bool(LINK_RE.search(m.content or '')), amount)
 
-    @purge.command(name='mentions', description='Usuń z oznaczeniami')
+    @purge.command(name='mentions', description='UsuÅ„ z oznaczeniami')
     @staff_or('manage_messages')
     async def purge_mentions(self, ctx, amount: int = 50):
         await self._purge_filtered(
             ctx, lambda m: len(m.mentions) + len(m.role_mentions) > 0 or m.mention_everyone, amount)
 
-    @purge.command(name='stickers', description='Usuń z naklejkami')
+    @purge.command(name='stickers', description='UsuÅ„ z naklejkami')
     @staff_or('manage_messages')
     async def purge_stickers(self, ctx, amount: int = 50):
         await self._purge_filtered(ctx, lambda m: len(m.stickers) > 0, amount)
 
-    @purge.command(name='user', description='Usuń od typa')
+    @purge.command(name='user', description='UsuÅ„ od typa')
     @staff_or('manage_messages')
     async def purge_user(self, ctx, member: discord.Member, amount: int = 50):
         await self._purge_filtered(ctx, lambda m: m.author.id == member.id, amount)
 
-    @purge.command(name='voice', description='Usuń głosówki')
+    @purge.command(name='voice', description='UsuÅ„ gÅ‚osÃ³wki')
     @staff_or('manage_messages')
     async def purge_voice(self, ctx, amount: int = 50):
         def is_voice(m):
@@ -493,7 +493,7 @@ class Moderation(commands.Cog):
             return False
         await self._purge_filtered(ctx, is_voice, amount)
 
-    @purge.command(name='webhooks', description='Usuń z webhooków')
+    @purge.command(name='webhooks', description='UsuÅ„ z webhookÃ³w')
     @staff_or('manage_messages')
     async def purge_webhooks(self, ctx, amount: int = 50):
         await self._purge_filtered(ctx, lambda m: m.webhook_id is not None, amount)
@@ -511,14 +511,14 @@ class Moderation(commands.Cog):
                          (str(ctx.guild.id), str(channel.id)))
         await ctx.reply(t(ctx.guild.id, 'pg.logs_set', ch=channel.mention), ephemeral=True)
 
-    @purge_logs.command(name='remove', description='Wyłącz logi')
+    @purge_logs.command(name='remove', description='WyÅ‚Ä…cz logi')
     @staff_or('manage_guild')
     async def pl_remove(self, ctx, channel: discord.TextChannel = None):
         with db.conn_ctx() as conn:
             conn.execute('DELETE FROM purgelogs WHERE guild_id=?', (str(ctx.guild.id),))
         await ctx.reply(t(ctx.guild.id, 'pg.logs_off'), ephemeral=True)
 
-    @purge_logs.command(name='ignore', description='Pomiń kanał')
+    @purge_logs.command(name='ignore', description='PomiÅ„ kanaÅ‚')
     @staff_or('manage_guild')
     async def pl_ignore(self, ctx, channel: discord.TextChannel = None):
         channel = channel or ctx.channel
@@ -536,7 +536,7 @@ class Moderation(commands.Cog):
                          (str(ctx.guild.id), str(channel.id)))
         await ctx.reply(t(ctx.guild.id, 'pg.unignored', ch=channel.mention), ephemeral=True)
 
-    @purge_logs.command(name='list', description='Pomijane kanały')
+    @purge_logs.command(name='list', description='Pomijane kanaÅ‚y')
     @staff_or('manage_guild')
     async def pl_list(self, ctx):
         with db.conn_ctx() as conn:
@@ -559,7 +559,7 @@ class Moderation(commands.Cog):
             conn.execute('INSERT OR REPLACE INTO permabans (guild_id, user_id, reason) VALUES (?,?,?)',
                          (str(gid), user_id, reason))
         try:
-            await ctx.guild.ban(discord.Object(id=int(user_id)), reason=f'[Permaban] {ctx.author} — {reason}',
+            await ctx.guild.ban(discord.Object(id=int(user_id)), reason=f'[Permaban] {ctx.author} â€” {reason}',
                                 delete_message_days=7)
         except Exception:
             pass
@@ -577,7 +577,7 @@ class Moderation(commands.Cog):
             pass
         await ctx.reply(embed=ok(t(gid, 'bl.removed', id=user_id)))
 
-    @banlist.command(name='list', description='Lista permów')
+    @banlist.command(name='list', description='Lista permÃ³w')
     @staff_or('ban_members')
     async def bl_list(self, ctx):
         gid = ctx.guild.id
@@ -585,7 +585,7 @@ class Moderation(commands.Cog):
             rows = conn.execute('SELECT * FROM permabans WHERE guild_id=?', (str(gid),)).fetchall()
         if not rows:
             return await ctx.reply(t(gid, 'bl.empty'), ephemeral=True)
-        await ctx.reply(embed=ok('\n'.join(f"• <@{r['user_id']}> (`{r['user_id']}`) — {r['reason']}" for r in rows)),
+        await ctx.reply(embed=ok('\n'.join(f"â€¢ <@{r['user_id']}> (`{r['user_id']}`) â€” {r['reason']}" for r in rows)),
                         ephemeral=True)
 
 

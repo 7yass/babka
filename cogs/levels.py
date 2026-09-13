@@ -17,6 +17,8 @@ TEXT_MIN, TEXT_MAX, COOLDOWN = 15, 25, 60
 VOICE_PER_MIN = 8
 STREAM_MULT = 1.5
 MIN_GIF_LEVEL = 10
+GIF_CD = 20  # seconds between GIFs per user
+_GIF_LAST: dict = {}
 # house rule: this one always earns a little extra
 HOUSE_BOOST_ID = '1270782781605154922'
 HOUSE_BOOST_MULT = 2.0
@@ -316,6 +318,22 @@ class Levels(commands.Cog):
                     except Exception:
                         pass
                     return
+                import time as _t
+                key = (message.guild.id, member.id)
+                last = _GIF_LAST.get(key, 0)
+                if _t.time() - last < GIF_CD:
+                    try:
+                        await message.delete()
+                    except Exception:
+                        pass
+                    try:
+                        note = await say(message.channel,
+                            t(message.guild.id, 'lvl.gif_cd', user=member.mention, s=int(GIF_CD - (_t.time() - last))))
+                        await note.delete(delay=6)
+                    except Exception:
+                        pass
+                    return
+                _GIF_LAST[key] = _t.time()
         settings = db.get_settings(message.guild.id)
         try:
             import json

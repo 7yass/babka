@@ -1,4 +1,4 @@
-"""Extended moderation pack: mutes, image/reaction mutes, permkicks, jail,
+﻿"""Extended moderation pack: mutes, image/reaction mutes, permkicks, jail,
 history, roles, cleanup, forcenick, blind, drag, lists. All hybrid."""
 import time
 
@@ -51,7 +51,7 @@ class ExtraMod(commands.Cog):
                 pass
 
     # ---------- mute family ----------
-    @commands.hybrid_command(name='mute', description='Knebel z domyślnym czasem')
+    @commands.hybrid_command(name='mute', description='Knebel z domyÅ›lnym czasem')
     @staff_or('moderate_members')
     async def mute(self, ctx, member: discord.Member, duration: str = None, *, reason: str = 'No reason'):
         gid = ctx.guild.id
@@ -65,7 +65,7 @@ class ExtraMod(commands.Cog):
         await ctx.reply(t(gid, 'xm.mute_dur', name=member.display_name, dur=fmt_duration(secs), reason=reason),
                         ephemeral=True)
 
-    @commands.hybrid_command(name='muteduration', description='Domyślna długość knebla')
+    @commands.hybrid_command(name='muteduration', description='DomyÅ›lna dÅ‚ugoÅ›Ä‡ knebla')
     @staff_or('manage_guild')
     async def muteduration(self, ctx, duration: str):
         gid = ctx.guild.id
@@ -96,14 +96,14 @@ class ExtraMod(commands.Cog):
     async def mutelist(self, ctx):
         gid = ctx.guild.id
         now = discord.utils.utcnow()
-        rows = [f'• {m.mention} — <t:{int(m.timed_out_until.timestamp())}:R>'
+        rows = [f'â€¢ {m.mention} â€” <t:{int(m.timed_out_until.timestamp())}:R>'
                 for m in ctx.guild.members if m.timed_out_until and m.timed_out_until > now]
         if not rows:
             return await ctx.reply(t(gid, 'xm.mutelist_empty'), ephemeral=True)
         await ctx.reply(t(gid, 'xm.mutelist_title') + '\n' + '\n'.join(rows[:25]), ephemeral=True)
 
     # ---------- image / reaction mutes (current channel) ----------
-    @commands.hybrid_command(name='imute', description='Blokada obrazków dla typa')
+    @commands.hybrid_command(name='imute', description='Blokada obrazkÃ³w dla typa')
     @staff_or('manage_messages')
     async def imute(self, ctx, member: discord.Member, *, reason: str = 'No reason'):
         try:
@@ -121,7 +121,7 @@ class ExtraMod(commands.Cog):
             pass
         await ctx.reply(t(ctx.guild.id, 'xm.iunmuted', user=member.mention, ch=ctx.channel.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='imutelist', description='Kto bez obrazków')
+    @commands.hybrid_command(name='imutelist', description='Kto bez obrazkÃ³w')
     @staff_or('manage_messages')
     async def imutelist(self, ctx):
         found = set()
@@ -175,7 +175,7 @@ class ExtraMod(commands.Cog):
             pass
         await ctx.reply(t(gid, 'xm.pkicked', user=member.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='permkicked', description='Lista permkicków')
+    @commands.hybrid_command(name='permkicked', description='Lista permkickÃ³w')
     @staff_or('kick_members')
     async def permkicked(self, ctx):
         gid = ctx.guild.id
@@ -184,7 +184,7 @@ class ExtraMod(commands.Cog):
         if not rows:
             return await ctx.reply(t(gid, 'xm.imutelist_empty'), ephemeral=True)
         await ctx.reply(t(gid, 'xm.pkicked_list') + '\n' +
-                        '\n'.join(f"• <@{r['user_id']}> — {r['reason']}" for r in rows[:25]), ephemeral=True)
+                        '\n'.join(f"â€¢ <@{r['user_id']}> â€” {r['reason']}" for r in rows[:25]), ephemeral=True)
 
     @commands.hybrid_command(name='unpermkick', description='Zdejmij permkicka (albo "all")')
     @staff_or('kick_members')
@@ -211,14 +211,14 @@ class ExtraMod(commands.Cog):
         if not entries:
             return await ctx.reply(t(gid, 'xm.bans_empty'), ephemeral=True)
         await ctx.reply(t(gid, 'xm.bans_title') + '\n' +
-                        '\n'.join(f'• {e.user} (`{e.user.id}`)' for e in entries[:25]), ephemeral=True)
+                        '\n'.join(f'â€¢ {e.user} (`{e.user.id}`)' for e in entries[:25]), ephemeral=True)
 
     @commands.hybrid_command(name='hackban', description='Ban po samym ID')
     @staff_or('ban_members')
     async def hackban(self, ctx, user_id: str, *, reason: str = 'No reason'):
         gid = ctx.guild.id
         try:
-            await ctx.guild.ban(discord.Object(id=int(user_id)), reason=f'{ctx.author} — {reason}',
+            await ctx.guild.ban(discord.Object(id=int(user_id)), reason=f'{ctx.author} â€” {reason}',
                                 delete_message_days=1)
         except Exception:
             return await ctx.reply(t(gid, 'mod.fail_ban'), ephemeral=True)
@@ -254,7 +254,7 @@ class ExtraMod(commands.Cog):
             conn.execute('DELETE FROM warns WHERE id=?', (row['id'],))
         await ctx.reply(t(gid, 'xm.unwarned', user=member.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='reason', description='Popraw powód warna')
+    @commands.hybrid_command(name='reason', description='Popraw powÃ³d warna')
     @staff_or('manage_messages')
     async def reason(self, ctx, member: discord.Member, *, text: str):
         gid = ctx.guild.id
@@ -273,7 +273,7 @@ class ExtraMod(commands.Cog):
         with db.conn_ctx() as conn:
             rows = conn.execute('SELECT * FROM warns WHERE guild_id=? AND user_id=? ORDER BY id DESC LIMIT 10',
                                 (str(gid), str(member.id))).fetchall()
-        lines = [f"**{i + 1}.** {r['reason']} — <t:{r['created_at']}:R>" for i, r in enumerate(rows)]
+        lines = [f"**{i + 1}.** {r['reason']} â€” <t:{r['created_at']}:R>" for i, r in enumerate(rows)]
         if member.timed_out_until and member.timed_out_until > discord.utils.utcnow():
             lines.append(t(gid, 'xm.hist_timeout', until=f'<t:{int(member.timed_out_until.timestamp())}:R>'))
         if not lines:
@@ -290,7 +290,7 @@ class ExtraMod(commands.Cog):
         if not rows:
             return await ctx.reply(t(gid, 'xm.stats_empty'), ephemeral=True)
         await ctx.reply(t(gid, 'xm.stats_title') + '\n' +
-                        '\n'.join(f"• <@{r['mod_id']}> — **{r['c']}**" for r in rows), ephemeral=True)
+                        '\n'.join(f"â€¢ <@{r['mod_id']}> â€” **{r['c']}**" for r in rows), ephemeral=True)
 
     @commands.hybrid_command(name='naughty', description='Najbardziej niegrzeczni')
     @staff_or('manage_messages')
@@ -302,11 +302,11 @@ class ExtraMod(commands.Cog):
         if not rows:
             return await ctx.reply(t(gid, 'xm.stats_empty'), ephemeral=True)
         await ctx.reply(t(gid, 'xm.naughty_title') + '\n' +
-                        '\n'.join(f"**{i + 1}.** <@{r['user_id']}> — **{r['c']}**" for i, r in enumerate(rows)),
+                        '\n'.join(f"**{i + 1}.** <@{r['user_id']}> â€” **{r['c']}**" for i, r in enumerate(rows)),
                         ephemeral=True)
 
     # ---------- channel visibility ----------
-    @commands.hybrid_command(name='hide', description='Schowaj kanał')
+    @commands.hybrid_command(name='hide', description='Schowaj kanaÅ‚')
     @staff_or('manage_channels')
     async def hide(self, ctx):
         try:
@@ -315,7 +315,7 @@ class ExtraMod(commands.Cog):
             pass
         await ctx.reply(embed=ok(t(ctx.guild.id, 'xm.hidden')))
 
-    @commands.hybrid_command(name='reveal', description='Pokaż kanał')
+    @commands.hybrid_command(name='reveal', description='PokaÅ¼ kanaÅ‚')
     @staff_or('manage_channels')
     async def reveal(self, ctx):
         try:
@@ -324,7 +324,7 @@ class ExtraMod(commands.Cog):
             pass
         await ctx.reply(embed=ok(t(ctx.guild.id, 'xm.visible')))
 
-    @commands.hybrid_command(name='blind', description='Schowaj kanał przed typem')
+    @commands.hybrid_command(name='blind', description='Schowaj kanaÅ‚ przed typem')
     @staff_or('manage_channels')
     async def blind(self, ctx, member: discord.Member):
         try:
@@ -333,7 +333,7 @@ class ExtraMod(commands.Cog):
             pass
         await ctx.reply(embed=ok(t(ctx.guild.id, 'xm.blinded', user=member.mention)))
 
-    @commands.hybrid_command(name='unblind', description='Pokaż kanał z powrotem')
+    @commands.hybrid_command(name='unblind', description='PokaÅ¼ kanaÅ‚ z powrotem')
     @staff_or('manage_channels')
     async def unblind(self, ctx, member: discord.Member):
         try:
@@ -343,7 +343,7 @@ class ExtraMod(commands.Cog):
         await ctx.reply(embed=ok(t(ctx.guild.id, 'xm.unblinded', user=member.mention)))
 
     # ---------- roles ----------
-    @commands.hybrid_command(name='role', description='Daj rolę')
+    @commands.hybrid_command(name='role', description='Daj rolÄ™')
     @staff_or('manage_roles')
     async def role(self, ctx, member: discord.Member, role: discord.Role):
         try:
@@ -352,7 +352,7 @@ class ExtraMod(commands.Cog):
             pass
         await ctx.reply(t(ctx.guild.id, 'xm.roled', user=member.mention, role=role.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='unrole', description='Zabierz rolę')
+    @commands.hybrid_command(name='unrole', description='Zabierz rolÄ™')
     @staff_or('manage_roles')
     async def unrole(self, ctx, member: discord.Member, role: discord.Role):
         try:
@@ -361,14 +361,14 @@ class ExtraMod(commands.Cog):
             pass
         await ctx.reply(t(ctx.guild.id, 'xm.unroled', user=member.mention, role=role.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='inrole', description='Kto ma rolę')
+    @commands.hybrid_command(name='inrole', description='Kto ma rolÄ™')
     @staff_or('manage_roles')
     async def inrole(self, ctx, *, role: discord.Role):
         members = [m.display_name for m in role.members[:30]]
         await ctx.reply(t(ctx.guild.id, 'xm.inrole_title', role=role.name, n=len(role.members)) +
                         ('\n' + '\n'.join(members) if members else ''), ephemeral=True)
 
-    @commands.hybrid_command(name='stripstaff', description='Zdejmij wszystkie role')
+    @commands.command(name='stripstaff', description='Zdejmij wszystkie role')
     @staff_or('administrator')
     async def stripstaff(self, ctx, member: discord.Member):
         kept = []
@@ -381,7 +381,7 @@ class ExtraMod(commands.Cog):
                         (f" (kept: {', '.join(kept)})" if kept else ''), ephemeral=True)
 
     # ---------- cleanup / nick / jail / misc ----------
-    @commands.hybrid_command(name='cleanup', description="Wywal moje wiadomości")
+    @commands.command(name='cleanup', description="Wywal moje wiadomoÅ›ci")
     @staff_or('manage_messages')
     async def cleanup(self, ctx, amount: int = 20):
         me = ctx.guild.me or self.bot.user
@@ -434,7 +434,7 @@ class ExtraMod(commands.Cog):
                     pass
             return role
 
-    @commands.hybrid_command(name='jail', description='Wsadź typa')
+    @commands.hybrid_command(name='jail', description='WsadÅº typa')
     @staff_or('moderate_members')
     async def jail(self, ctx, member: discord.Member, *, reason: str = 'No reason'):
         role = await self._jail_role(ctx.guild)
@@ -444,7 +444,7 @@ class ExtraMod(commands.Cog):
             pass
         await ctx.reply(t(ctx.guild.id, 'xm.jailed', user=member.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='unjail', description='Wypuść typa')
+    @commands.hybrid_command(name='unjail', description='WypuÅ›Ä‡ typa')
     @staff_or('moderate_members')
     async def unjail(self, ctx, member: discord.Member):
         role = await self._jail_role(ctx.guild)
@@ -462,7 +462,7 @@ class ExtraMod(commands.Cog):
         await ctx.reply((t(ctx.guild.id, 'xm.jailed_list') + '\n' + '\n'.join(names)) if names
                         else t(ctx.guild.id, 'xm.jailed_empty'), ephemeral=True)
 
-    @commands.hybrid_command(name='drag', description='Zaciągnij na głosówkę')
+    @commands.command(name='drag', description='ZaciÄ…gnij na gÅ‚osÃ³wkÄ™')
     @staff_or('move_members')
     async def drag(self, ctx, member: discord.Member):
         gid = ctx.guild.id
@@ -477,7 +477,7 @@ class ExtraMod(commands.Cog):
         await ctx.reply(t(gid, 'xm.dragged', user=member.mention, ch=ctx.author.voice.channel.mention),
                         ephemeral=True)
 
-    @commands.hybrid_command(name='newusers', description='Najświeżsi na serwerze')
+    @commands.hybrid_command(name='newusers', description='NajÅ›wieÅ¼si na serwerze')
     @staff_or('manage_guild')
     async def newusers(self, ctx, count: int = 10):
         members = sorted([m for m in ctx.guild.members if m.joined_at],
@@ -485,7 +485,7 @@ class ExtraMod(commands.Cog):
         lines = []
         for m in members:
             age = (discord.utils.utcnow() - m.created_at).days
-            lines.append(f'• {m.mention} — joined <t:{int(m.joined_at.timestamp())}:R>, account **{age}d**')
+            lines.append(f'â€¢ {m.mention} â€” joined <t:{int(m.joined_at.timestamp())}:R>, account **{age}d**')
         await ctx.reply(t(ctx.guild.id, 'xm.newusers_title') + '\n' + '\n'.join(lines), ephemeral=True)
 
 

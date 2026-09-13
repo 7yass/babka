@@ -1225,6 +1225,76 @@
       [],
       "<amount>",
       "Everyone"
+    ],
+    "bankshare": [
+      "economy",
+      "Joint vault for two.",
+      [],
+      "<member>",
+      "Everyone"
+    ],
+    "ecoreset": [
+      "economy",
+      "Wipe all money. OWNER ONLY.",
+      [],
+      "yes",
+      "Owner"
+    ],
+    "fitlink": [
+      "fun",
+      "Merge two accounts fits.",
+      [],
+      "<member>",
+      "Everyone"
+    ],
+    "fitunlink": [
+      "fun",
+      "Split linked fits.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "language": [
+      "setup",
+      "Switch bot language.",
+      [],
+      "",
+      "Manage Server"
+    ],
+    "levels": [
+      "levels",
+      "Level settings.",
+      [],
+      "",
+      "Manage Server"
+    ],
+    "nickbomb": [
+      "economy",
+      "Rename someone for 1h (scroll).",
+      [],
+      "<member> <name>",
+      "Everyone"
+    ],
+    "selfroles": [
+      "setup",
+      "Self-assignable roles panel.",
+      [],
+      "",
+      "Manage Server"
+    ],
+    "sr-add": [
+      "setup",
+      "Add a self role.",
+      [],
+      "<role>",
+      "Manage Server"
+    ],
+    "suggest": [
+      "info",
+      "Suggest things: server/bot boxes.",
+      [],
+      "setup / off",
+      "Everyone"
     ]
   },
   "cats": {
