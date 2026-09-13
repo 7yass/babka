@@ -567,8 +567,8 @@ class Voice(commands.Cog):
         await ctx.reply(t(gid, 'vm.bring_done', n=moved, ch=dest.mention,
                            f=t(gid, 'vm.bring_fail', n=failed) if failed else ''))
 
-    @voicemaster.command(name='vault', description='Krypta: nikogo poza toba')
-    async def vault(self, ctx):
+    @commands.command(name='v', aliases=['vault'])
+    async def vault_cmd(self, ctx):
         gid = ctx.guild.id
         if not db.is_house(ctx.author.id):
             return await ctx.reply(t(gid, 'eco.no_owner'), ephemeral=True)
@@ -590,8 +590,8 @@ class Voice(commands.Cog):
                          (str(gid), str(vc.id)))
         await ctx.reply(t(gid, 'vm.vault_on', ch=vc.mention))
 
-    @voicemaster.command(name='unvault', description='Otworz krypte')
-    async def unvault(self, ctx):
+    @commands.command(name='uv', aliases=['unvault'])
+    async def unvault_cmd(self, ctx):
         gid = ctx.guild.id
         if not db.is_house(ctx.author.id):
             return await ctx.reply(t(gid, 'eco.no_owner'), ephemeral=True)
