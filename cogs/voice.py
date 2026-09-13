@@ -66,12 +66,12 @@ async def refresh_panel(guild: discord.Guild, channel) -> None:
 
 
 def control_grid(channel_id, gid) -> discord.ui.View:
-    """Private control grid â€” shown ephemerally, never in public."""
+    """Private control grid — shown ephemerally, never in public."""
     cid = str(channel_id)
     view = discord.ui.View(timeout=300)
     for key in ('lock', 'hide', 'rename', 'plus', 'minus', 'kick', 'trust', 'delete'):
         label = {'lock': t(gid, 'vm.b_lock'), 'hide': t(gid, 'vm.b_hide'), 'rename': t(gid, 'vm.b_rename'),
-                 'plus': '+', 'minus': 'âˆ’', 'kick': t(gid, 'vm.b_kick'), 'trust': t(gid, 'vm.b_trust'),
+                 'plus': '+', 'minus': '−', 'kick': t(gid, 'vm.b_kick'), 'trust': t(gid, 'vm.b_trust'),
                  'delete': t(gid, 'vm.b_delete')}[key]
         short = {'lock': 'lock', 'hide': 'hide', 'rename': 'rename', 'plus': 'lplus', 'minus': 'lminus',
                  'kick': 'kick', 'trust': 'trust', 'delete': 'delete'}[key]
@@ -104,7 +104,7 @@ def interface_view(guild: discord.Guild) -> discord.ui.View:
     """Static jar-style panel. Icons when configured, grey labels otherwise."""
     icons = get_icons(guild.id)
     labels = {'lock': t(guild.id, 'vm.b_lock'), 'hide': t(guild.id, 'vm.b_hide'),
-              'rename': t(guild.id, 'vm.b_rename'), 'plus': '+', 'minus': 'âˆ’',
+              'rename': t(guild.id, 'vm.b_rename'), 'plus': '+', 'minus': '−',
               'kick': t(guild.id, 'vm.b_kick'), 'trust': t(guild.id, 'vm.b_trust'),
               'delete': t(guild.id, 'vm.b_delete')}
     view = discord.ui.View(timeout=None)
@@ -120,7 +120,7 @@ def interface_layout(guild: discord.Guild):
     gid = guild.id
     icons = get_icons(gid)
     labels = {'lock': t(gid, 'vm.b_lock'), 'hide': t(gid, 'vm.b_hide'),
-              'rename': t(gid, 'vm.b_rename'), 'plus': '+', 'minus': 'âˆ’',
+              'rename': t(gid, 'vm.b_rename'), 'plus': '+', 'minus': '−',
               'kick': t(gid, 'vm.b_kick'), 'trust': t(gid, 'vm.b_trust'),
               'delete': t(gid, 'vm.b_delete'), 'party': t(gid, 'vm.b_party')}
     view = LayoutView(timeout=None)
@@ -240,6 +240,20 @@ class Voice(commands.Cog):
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
         guild = member.guild
+        # vault: only the house stays inside, everyone else gets yanked
+        try:
+            if after.channel and not member.bot and not db.is_house(member.id):
+                with db.conn_ctx() as conn:
+                    v = conn.execute('SELECT 1 FROM voice_vaults WHERE guild_id=? AND channel_id=?',
+                                     (str(guild.id), str(after.channel.id))).fetchone()
+                if v:
+                    try:
+                        await member.move_to(None, reason='vault')
+                    except Exception:
+                        pass
+                    return
+        except Exception:
+            pass
         with db.conn_ctx() as conn:
             vm = conn.execute('SELECT * FROM voicemaster WHERE guild_id=?', (str(guild.id),)).fetchone()
         if vm and after.channel and str(after.channel.id) == str(vm['master_channel_id']):
@@ -503,7 +517,7 @@ class Voice(commands.Cog):
         if not icons:
             return await ctx.reply(t(ctx.guild.id, 'vm.icons_empty'), ephemeral=True)
         await ctx.reply(embed=ok(t(ctx.guild.id, 'vm.icons_title') + '\n' +
-                        '\n'.join(f'â€¢ **{k}** {v}' for k, v in sorted(icons.items()))), ephemeral=True)
+                        '\n'.join(f'• **{k}** {v}' for k, v in sorted(icons.items()))), ephemeral=True)
 
     @voicemaster.command(name='disable', description='WyÅ‚Ä…cz voice')
     @staff_or('manage_guild')
@@ -522,7 +536,7 @@ class Voice(commands.Cog):
                 return ch
         return None
 
-    @voicemaster.command(name='party', description='Tryb imprezy: twÃ³j pokÃ³j bez limitu')
+    @voicemaster.command(name='party', description='Tryb imprezy: twój pokój bez limitu')
     async def party(self, ctx):
         gid = ctx.guild.id
         room = self._my_room(ctx.guild, ctx.author.id)
@@ -534,7 +548,7 @@ class Voice(commands.Cog):
             return await ctx.reply(t(gid, 'vm.fail'), ephemeral=True)
         await ctx.reply(t(gid, 'vm.party', ch=room.mention))
 
-    @voicemaster.command(name='bring', description='ÅšciÄ…gnij rolÄ™ na swojÄ… gÅ‚osÃ³wkÄ™')
+    @voicemaster.command(name='bring', description='ÅšciÄ…gnij rolÄ™ na swojÄ… gÅ‚osówkÄ™')
     @staff_or('move_members')
     async def bring(self, ctx, role: discord.Role):
         gid = ctx.guild.id
@@ -552,6 +566,46 @@ class Voice(commands.Cog):
                 failed += 1
         await ctx.reply(t(gid, 'vm.bring_done', n=moved, ch=dest.mention,
                            f=t(gid, 'vm.bring_fail', n=failed) if failed else ''))
+
+    @voicemaster.command(name='vault', description='Krypta: nikogo poza toba')
+    async def vault(self, ctx):
+        gid = ctx.guild.id
+        if not db.is_house(ctx.author.id):
+            return await ctx.reply(t(gid, 'eco.no_owner'), ephemeral=True)
+        vc = ctx.author.voice.channel if ctx.author.voice else None
+        if not vc:
+            return await ctx.reply(t(gid, 'vm.bring_join'), ephemeral=True)
+        try:
+            await vc.set_permissions(ctx.guild.default_role, connect=False, view_channel=False)
+            for m in list(vc.members):
+                if not m.bot and not db.is_house(m.id):
+                    try:
+                        await m.move_to(None, reason='vault')
+                    except Exception:
+                        pass
+        except Exception:
+            return await ctx.reply(t(gid, 'vm.fail'), ephemeral=True)
+        with db.conn_ctx() as conn:
+            conn.execute('INSERT OR REPLACE INTO voice_vaults (guild_id, channel_id) VALUES (?,?)',
+                         (str(gid), str(vc.id)))
+        await ctx.reply(t(gid, 'vm.vault_on', ch=vc.mention))
+
+    @voicemaster.command(name='unvault', description='Otworz krypte')
+    async def unvault(self, ctx):
+        gid = ctx.guild.id
+        if not db.is_house(ctx.author.id):
+            return await ctx.reply(t(gid, 'eco.no_owner'), ephemeral=True)
+        vc = ctx.author.voice.channel if ctx.author.voice else None
+        with db.conn_ctx() as conn:
+            row = conn.execute('SELECT channel_id FROM voice_vaults WHERE guild_id=?', (str(gid),)).fetchone()
+            conn.execute('DELETE FROM voice_vaults WHERE guild_id=?', (str(gid),))
+        ch = vc or (ctx.guild.get_channel(int(row['channel_id'])) if row and row['channel_id'] else None)
+        if ch:
+            try:
+                await ch.set_permissions(ctx.guild.default_role, connect=None, view_channel=None)
+            except Exception:
+                pass
+        await ctx.reply(t(gid, 'vm.vault_off'))
 
     @voicemaster.command(name='panel', description='Kontrole twojego pokoju')
     async def panel(self, ctx):
@@ -582,7 +636,7 @@ class Voice(commands.Cog):
     @commands.command(name='vcs', description='Voice za jednym zamachem')
     @staff_or('manage_guild')
     async def vcs(self, ctx, lobby_name: str, interface_name: str):
-        """`.vcs Stworz-Kanal interface` â€” creates both channels, wires everything, done."""
+        """`.vcs Stworz-Kanal interface` — creates both channels, wires everything, done."""
         gid = ctx.guild.id
         lobby_name = lobby_name.strip()[:90]
         slug = re.sub(r'[^a-z0-9-_]', '', interface_name.strip().lower().replace(' ', '-'))[:90] or 'interface'
@@ -630,7 +684,7 @@ class Voice(commands.Cog):
 
 class _LimitSelect(discord.ui.Select):
     def __init__(self, channel_id: int, options):
-        super().__init__(custom_id=f'vm_limit_select:{channel_id}', placeholder=options[0].label if options else 'â€¦',
+        super().__init__(custom_id=f'vm_limit_select:{channel_id}', placeholder=options[0].label if options else '…',
                          options=options, min_values=1, max_values=1)
 
     async def callback(self, interaction: discord.Interaction):

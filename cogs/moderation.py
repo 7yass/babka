@@ -97,7 +97,7 @@ class Moderation(commands.Cog):
         self.bot = bot
 
     # ---------- mod group ----------
-    @commands.hybrid_group(name='mod', description='NarzÄ™dzia modÃ³w')
+    @commands.hybrid_group(name='mod', description='NarzÄ™dzia modów')
     async def mod(self, ctx):
         await ctx.reply('mod warn / warnings / timeout / kick / ban / unban / softban / tempban / nick / clear / slowmode / lock / unlock / set-log',
                         ephemeral=True)
@@ -133,7 +133,7 @@ class Moderation(commands.Cog):
                                 (str(gid), str(member.id))).fetchall()
         if not rows:
             return await ctx.reply(t(gid, 'mod.no_warns'), ephemeral=True)
-        lines = [f"**{i + 1}.** {r['reason']} â€” <@{r['mod_id']}> <t:{r['created_at']}:R>" for i, r in enumerate(rows)]
+        lines = [f"**{i + 1}.** {r['reason']} — <@{r['mod_id']}> <t:{r['created_at']}:R>" for i, r in enumerate(rows)]
         await ctx.reply('\n'.join(lines), ephemeral=True)
 
     @mod.command(name='clear-warns', description='WyczyÅ›Ä‡ warny')
@@ -184,7 +184,7 @@ class Moderation(commands.Cog):
         gid = ctx.guild.id
         await try_dm(member, t(gid, 'mod.dm_ban', server=ctx.guild.name, reason=reason))
         try:
-            await ctx.guild.ban(member, reason=f'{ctx.author} â€” {reason}', delete_message_days=1)
+            await ctx.guild.ban(member, reason=f'{ctx.author} — {reason}', delete_message_days=1)
         except Exception:
             return await ctx.reply(t(gid, 'mod.fail_ban'), ephemeral=True)
         await log_to_mod(ctx.guild, build(f'User: {member} ({member.id})\nReason: {reason}\nBy: {ctx.author}',
@@ -197,7 +197,7 @@ class Moderation(commands.Cog):
         gid = ctx.guild.id
         try:
             user = await self.bot.fetch_user(int(user_id))
-            await ctx.guild.unban(user, reason=f'{ctx.author} â€” {reason}')
+            await ctx.guild.unban(user, reason=f'{ctx.author} — {reason}')
         except Exception:
             return await ctx.reply(t(gid, 'mod.fail_unban'), ephemeral=True)
         await ctx.reply(t(gid, 'mod.unbanned', user=str(user), reason=reason), ephemeral=True)
@@ -208,7 +208,7 @@ class Moderation(commands.Cog):
         gid = ctx.guild.id
         await try_dm(member, t(gid, 'mod.dm_soft', server=ctx.guild.name, reason=reason))
         try:
-            await ctx.guild.ban(member, reason=f'[Softban] {ctx.author} â€” {reason}', delete_message_days=7)
+            await ctx.guild.ban(member, reason=f'[Softban] {ctx.author} — {reason}', delete_message_days=7)
             await asyncio.sleep(0.5)
             await ctx.guild.unban(member, reason='[Softban] automatic unban')
         except Exception:
@@ -226,7 +226,7 @@ class Moderation(commands.Cog):
             return await ctx.reply(t(gid, 'mod.temp_use'), ephemeral=True)
         await try_dm(member, t(gid, 'mod.dm_temp', server=ctx.guild.name, dur=fmt_duration(secs), reason=reason))
         try:
-            await ctx.guild.ban(member, reason=f'[Tempban {fmt_duration(secs)}] {ctx.author} â€” {reason}', delete_message_days=1)
+            await ctx.guild.ban(member, reason=f'[Tempban {fmt_duration(secs)}] {ctx.author} — {reason}', delete_message_days=1)
         except Exception:
             return await ctx.reply(t(gid, 'mod.fail_ban'), ephemeral=True)
         await log_to_mod(ctx.guild, build(f'User: {member} ({member.id}) for **{fmt_duration(secs)}**\nReason: {reason}\nBy: {ctx.author}',
@@ -266,13 +266,13 @@ class Moderation(commands.Cog):
         await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=False)
         await ctx.reply(embed=ok(t(ctx.guild.id, 'mod.locked')))
 
-    @mod.command(name='unlock', description='OtwÃ³rz kanaÅ‚')
+    @mod.command(name='unlock', description='Otwórz kanaÅ‚')
     @staff_or('manage_channels')
     async def unlock(self, ctx):
         await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=None)
         await ctx.reply(embed=ok(t(ctx.guild.id, 'mod.unlocked')))
 
-    @mod.command(name='set-log', description='KanaÅ‚ logÃ³w')
+    @mod.command(name='set-log', description='KanaÅ‚ logów')
     @staff_or('manage_guild')
     async def set_log(self, ctx, channel: discord.TextChannel = None):
         db.get_settings(ctx.guild.id)
@@ -427,7 +427,7 @@ class Moderation(commands.Cog):
         await _purge_log(ctx.guild, ctx.channel, deleted, ctx.author)
         await ctx.reply(t(ctx.guild.id, 'pg.deleted', n=deleted), ephemeral=True)
 
-    @purge.command(name='bots', description='UsuÅ„ od botÃ³w')
+    @purge.command(name='bots', description='UsuÅ„ od botów')
     @staff_or('manage_messages')
     async def purge_bots(self, ctx, amount: int = 50):
         await self._purge_filtered(ctx, lambda m: m.author.bot, amount)
@@ -482,7 +482,7 @@ class Moderation(commands.Cog):
     async def purge_user(self, ctx, member: discord.Member, amount: int = 50):
         await self._purge_filtered(ctx, lambda m: m.author.id == member.id, amount)
 
-    @purge.command(name='voice', description='UsuÅ„ gÅ‚osÃ³wki')
+    @purge.command(name='voice', description='UsuÅ„ gÅ‚osówki')
     @staff_or('manage_messages')
     async def purge_voice(self, ctx, amount: int = 50):
         def is_voice(m):
@@ -493,7 +493,7 @@ class Moderation(commands.Cog):
             return False
         await self._purge_filtered(ctx, is_voice, amount)
 
-    @purge.command(name='webhooks', description='UsuÅ„ z webhookÃ³w')
+    @purge.command(name='webhooks', description='UsuÅ„ z webhooków')
     @staff_or('manage_messages')
     async def purge_webhooks(self, ctx, amount: int = 50):
         await self._purge_filtered(ctx, lambda m: m.webhook_id is not None, amount)
@@ -559,7 +559,7 @@ class Moderation(commands.Cog):
             conn.execute('INSERT OR REPLACE INTO permabans (guild_id, user_id, reason) VALUES (?,?,?)',
                          (str(gid), user_id, reason))
         try:
-            await ctx.guild.ban(discord.Object(id=int(user_id)), reason=f'[Permaban] {ctx.author} â€” {reason}',
+            await ctx.guild.ban(discord.Object(id=int(user_id)), reason=f'[Permaban] {ctx.author} — {reason}',
                                 delete_message_days=7)
         except Exception:
             pass
@@ -577,7 +577,7 @@ class Moderation(commands.Cog):
             pass
         await ctx.reply(embed=ok(t(gid, 'bl.removed', id=user_id)))
 
-    @banlist.command(name='list', description='Lista permÃ³w')
+    @banlist.command(name='list', description='Lista permów')
     @staff_or('ban_members')
     async def bl_list(self, ctx):
         gid = ctx.guild.id
@@ -585,7 +585,7 @@ class Moderation(commands.Cog):
             rows = conn.execute('SELECT * FROM permabans WHERE guild_id=?', (str(gid),)).fetchall()
         if not rows:
             return await ctx.reply(t(gid, 'bl.empty'), ephemeral=True)
-        await ctx.reply(embed=ok('\n'.join(f"â€¢ <@{r['user_id']}> (`{r['user_id']}`) â€” {r['reason']}" for r in rows)),
+        await ctx.reply(embed=ok('\n'.join(f"• <@{r['user_id']}> (`{r['user_id']}`) — {r['reason']}" for r in rows)),
                         ephemeral=True)
 
 

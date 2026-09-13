@@ -163,7 +163,7 @@ class AntiRaid(commands.Cog):
             conn.execute('UPDATE antiraid SET action=? WHERE guild_id=?', (action, str(gid)))
         await ctx.reply(t(gid, 'ar.action_set', a=action), ephemeral=True)
 
-    @antiraid.command(name='set-burst', description='PrÃ³g nawaÅ‚nicy')
+    @antiraid.command(name='set-burst', description='Próg nawaÅ‚nicy')
     @staff_or('administrator')
     async def set_burst(self, ctx, count: int, seconds: int):
         gid = ctx.guild.id

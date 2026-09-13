@@ -476,7 +476,7 @@ class Tickets(commands.Cog):
             conn.execute('DELETE FROM ticket_types WHERE guild_id=? AND label=?', (str(gid), label))
         await ctx.reply(t(gid, 'tix.type_removed', label=label), ephemeral=True)
 
-    @tickets.command(name='types', description='Lista typÃ³w')
+    @tickets.command(name='types', description='Lista typów')
     async def types(self, ctx):
         gid = ctx.guild.id
         with db.conn_ctx() as conn:
@@ -527,7 +527,7 @@ class Tickets(commands.Cog):
             pass
         await ctx.reply(t(gid, 'tix.rename_ok', name=clean_name(name)), ephemeral=True)
 
-    @tickets.command(name='reopen', description='OtwÃ³rz z powrotem')
+    @tickets.command(name='reopen', description='Otwórz z powrotem')
     @staff_or('manage_guild')
     async def reopen(self, ctx):
         gid = ctx.guild.id
@@ -551,7 +551,7 @@ class Tickets(commands.Cog):
                          (int(time.time()), str(ctx.channel.id)))
         await ctx.reply(embed=ok(t(gid, 'tix.reopened')))
 
-    @tickets.command(name='stats', description='Staty ticketÃ³w')
+    @tickets.command(name='stats', description='Staty ticketów')
     async def stats(self, ctx):
         gid = ctx.guild.id
         with db.conn_ctx() as conn:

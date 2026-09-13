@@ -130,7 +130,7 @@ class Crime(commands.Cog):
                          (str(gid), str(member.id), amount, str(ctx.author.id)))
         await ctx.reply(t(gid, 'crime.bounty_set', user=member.display_name, amount=amount))
 
-    @commands.command(name='bounties', description='Lista nagrÃ³d')
+    @commands.command(name='bounties', description='Lista nagród')
     async def bounties(self, ctx):
         gid = ctx.guild.id
         with db.conn_ctx() as conn:
@@ -141,7 +141,7 @@ class Crime(commands.Cog):
         lines = []
         for r in rows:
             m = ctx.guild.get_member(int(r['target_id']))
-            lines.append(f"â€¢ {(m.display_name if m else '?')} â€” **{r['a']}**")
+            lines.append(f"• {(m.display_name if m else '?')} — **{r['a']}**")
         await ctx.reply(embed=ok('\n'.join(lines)), ephemeral=True)
 
 

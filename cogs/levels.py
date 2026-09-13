@@ -680,7 +680,7 @@ class Levels(commands.Cog):
         from lang import t as _t
         await ctx.reply(_t(ctx.guild.id, 'lvl.reward_del', level=level), ephemeral=True)
 
-    @levels_grp.command(name='reward-list', description='Lista nagrÃ³d')
+    @levels_grp.command(name='reward-list', description='Lista nagród')
     async def reward_list(self, ctx):
         from lang import t as _t
         with db.conn_ctx() as conn:
@@ -716,7 +716,7 @@ class Levels(commands.Cog):
             conn.execute('UPDATE guild_settings SET noxp_channels=? WHERE guild_id=?', (json.dumps(sorted(arr)), str(ctx.guild.id)))
         await ctx.reply(_t(ctx.guild.id, 'lvl.noxp_on' if off else 'lvl.noxp_off', ch=channel.mention), ephemeral=True)
 
-    @levels_grp.command(name='levelup-channel', description='OgÅ‚oszenia level-upÃ³w')
+    @levels_grp.command(name='levelup-channel', description='OgÅ‚oszenia level-upów')
     @staff_or('manage_guild')
     async def levelup_channel(self, ctx, channel: discord.TextChannel = None):
         from lang import t as _t
@@ -735,7 +735,7 @@ class Levels(commands.Cog):
         await ctx.reply(_t(ctx.guild.id, 'lvl.addxp', n=amount, user=member.mention, level=res['level'], xp=res['xp']),
                         ephemeral=True)
 
-    @levels_grp.command(name='stack', description='Kumulacja rÃ³l wÅ‚./wyÅ‚.')
+    @levels_grp.command(name='stack', description='Kumulacja ról wÅ‚./wyÅ‚.')
     @staff_or('manage_guild')
     async def stack(self, ctx):
         from lang import t as _t
@@ -745,7 +745,7 @@ class Levels(commands.Cog):
             conn.execute('UPDATE guild_settings SET stack_rewards=? WHERE guild_id=?', (nxt, str(ctx.guild.id)))
         await ctx.reply(_t(ctx.guild.id, 'lvl.stack_on' if nxt else 'lvl.stack_off'), ephemeral=True)
 
-    @levels_grp.command(name='voice-state', description='Kto teraz zbiera XP z gÅ‚osÃ³wki')
+    @levels_grp.command(name='voice-state', description='Kto teraz zbiera XP z gÅ‚osówki')
     @staff_or('manage_guild')
     async def voice_state(self, ctx):
         import json

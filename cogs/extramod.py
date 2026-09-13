@@ -96,14 +96,14 @@ class ExtraMod(commands.Cog):
     async def mutelist(self, ctx):
         gid = ctx.guild.id
         now = discord.utils.utcnow()
-        rows = [f'â€¢ {m.mention} â€” <t:{int(m.timed_out_until.timestamp())}:R>'
+        rows = [f'• {m.mention} — <t:{int(m.timed_out_until.timestamp())}:R>'
                 for m in ctx.guild.members if m.timed_out_until and m.timed_out_until > now]
         if not rows:
             return await ctx.reply(t(gid, 'xm.mutelist_empty'), ephemeral=True)
         await ctx.reply(t(gid, 'xm.mutelist_title') + '\n' + '\n'.join(rows[:25]), ephemeral=True)
 
     # ---------- image / reaction mutes (current channel) ----------
-    @commands.hybrid_command(name='imute', description='Blokada obrazkÃ³w dla typa')
+    @commands.hybrid_command(name='imute', description='Blokada obrazków dla typa')
     @staff_or('manage_messages')
     async def imute(self, ctx, member: discord.Member, *, reason: str = 'No reason'):
         try:
@@ -121,7 +121,7 @@ class ExtraMod(commands.Cog):
             pass
         await ctx.reply(t(ctx.guild.id, 'xm.iunmuted', user=member.mention, ch=ctx.channel.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='imutelist', description='Kto bez obrazkÃ³w')
+    @commands.hybrid_command(name='imutelist', description='Kto bez obrazków')
     @staff_or('manage_messages')
     async def imutelist(self, ctx):
         found = set()
@@ -175,7 +175,7 @@ class ExtraMod(commands.Cog):
             pass
         await ctx.reply(t(gid, 'xm.pkicked', user=member.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='permkicked', description='Lista permkickÃ³w')
+    @commands.hybrid_command(name='permkicked', description='Lista permkicków')
     @staff_or('kick_members')
     async def permkicked(self, ctx):
         gid = ctx.guild.id
@@ -184,7 +184,7 @@ class ExtraMod(commands.Cog):
         if not rows:
             return await ctx.reply(t(gid, 'xm.imutelist_empty'), ephemeral=True)
         await ctx.reply(t(gid, 'xm.pkicked_list') + '\n' +
-                        '\n'.join(f"â€¢ <@{r['user_id']}> â€” {r['reason']}" for r in rows[:25]), ephemeral=True)
+                        '\n'.join(f"• <@{r['user_id']}> — {r['reason']}" for r in rows[:25]), ephemeral=True)
 
     @commands.hybrid_command(name='unpermkick', description='Zdejmij permkicka (albo "all")')
     @staff_or('kick_members')
@@ -211,14 +211,14 @@ class ExtraMod(commands.Cog):
         if not entries:
             return await ctx.reply(t(gid, 'xm.bans_empty'), ephemeral=True)
         await ctx.reply(t(gid, 'xm.bans_title') + '\n' +
-                        '\n'.join(f'â€¢ {e.user} (`{e.user.id}`)' for e in entries[:25]), ephemeral=True)
+                        '\n'.join(f'• {e.user} (`{e.user.id}`)' for e in entries[:25]), ephemeral=True)
 
     @commands.hybrid_command(name='hackban', description='Ban po samym ID')
     @staff_or('ban_members')
     async def hackban(self, ctx, user_id: str, *, reason: str = 'No reason'):
         gid = ctx.guild.id
         try:
-            await ctx.guild.ban(discord.Object(id=int(user_id)), reason=f'{ctx.author} â€” {reason}',
+            await ctx.guild.ban(discord.Object(id=int(user_id)), reason=f'{ctx.author} — {reason}',
                                 delete_message_days=1)
         except Exception:
             return await ctx.reply(t(gid, 'mod.fail_ban'), ephemeral=True)
@@ -254,7 +254,7 @@ class ExtraMod(commands.Cog):
             conn.execute('DELETE FROM warns WHERE id=?', (row['id'],))
         await ctx.reply(t(gid, 'xm.unwarned', user=member.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='reason', description='Popraw powÃ³d warna')
+    @commands.hybrid_command(name='reason', description='Popraw powód warna')
     @staff_or('manage_messages')
     async def reason(self, ctx, member: discord.Member, *, text: str):
         gid = ctx.guild.id
@@ -273,7 +273,7 @@ class ExtraMod(commands.Cog):
         with db.conn_ctx() as conn:
             rows = conn.execute('SELECT * FROM warns WHERE guild_id=? AND user_id=? ORDER BY id DESC LIMIT 10',
                                 (str(gid), str(member.id))).fetchall()
-        lines = [f"**{i + 1}.** {r['reason']} â€” <t:{r['created_at']}:R>" for i, r in enumerate(rows)]
+        lines = [f"**{i + 1}.** {r['reason']} — <t:{r['created_at']}:R>" for i, r in enumerate(rows)]
         if member.timed_out_until and member.timed_out_until > discord.utils.utcnow():
             lines.append(t(gid, 'xm.hist_timeout', until=f'<t:{int(member.timed_out_until.timestamp())}:R>'))
         if not lines:
@@ -290,7 +290,7 @@ class ExtraMod(commands.Cog):
         if not rows:
             return await ctx.reply(t(gid, 'xm.stats_empty'), ephemeral=True)
         await ctx.reply(t(gid, 'xm.stats_title') + '\n' +
-                        '\n'.join(f"â€¢ <@{r['mod_id']}> â€” **{r['c']}**" for r in rows), ephemeral=True)
+                        '\n'.join(f"• <@{r['mod_id']}> — **{r['c']}**" for r in rows), ephemeral=True)
 
     @commands.hybrid_command(name='naughty', description='Najbardziej niegrzeczni')
     @staff_or('manage_messages')
@@ -302,7 +302,7 @@ class ExtraMod(commands.Cog):
         if not rows:
             return await ctx.reply(t(gid, 'xm.stats_empty'), ephemeral=True)
         await ctx.reply(t(gid, 'xm.naughty_title') + '\n' +
-                        '\n'.join(f"**{i + 1}.** <@{r['user_id']}> â€” **{r['c']}**" for i, r in enumerate(rows)),
+                        '\n'.join(f"**{i + 1}.** <@{r['user_id']}> — **{r['c']}**" for i, r in enumerate(rows)),
                         ephemeral=True)
 
     # ---------- channel visibility ----------
@@ -462,7 +462,7 @@ class ExtraMod(commands.Cog):
         await ctx.reply((t(ctx.guild.id, 'xm.jailed_list') + '\n' + '\n'.join(names)) if names
                         else t(ctx.guild.id, 'xm.jailed_empty'), ephemeral=True)
 
-    @commands.command(name='drag', description='ZaciÄ…gnij na gÅ‚osÃ³wkÄ™')
+    @commands.command(name='drag', description='ZaciÄ…gnij na gÅ‚osówkÄ™')
     @staff_or('move_members')
     async def drag(self, ctx, member: discord.Member):
         gid = ctx.guild.id
@@ -485,7 +485,7 @@ class ExtraMod(commands.Cog):
         lines = []
         for m in members:
             age = (discord.utils.utcnow() - m.created_at).days
-            lines.append(f'â€¢ {m.mention} â€” joined <t:{int(m.joined_at.timestamp())}:R>, account **{age}d**')
+            lines.append(f'• {m.mention} — joined <t:{int(m.joined_at.timestamp())}:R>, account **{age}d**')
         await ctx.reply(t(ctx.guild.id, 'xm.newusers_title') + '\n' + '\n'.join(lines), ephemeral=True)
 
 

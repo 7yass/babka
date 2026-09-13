@@ -348,6 +348,8 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS bank_links (
             guild_id TEXT NOT NULL, u1 TEXT NOT NULL, u2 TEXT NOT NULL,
             PRIMARY KEY (guild_id, u1))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS voice_vaults (
+            guild_id TEXT PRIMARY KEY, channel_id TEXT)''')
         try:
             c.execute('ALTER TABLE eco ADD COLUMN daily_streak INTEGER DEFAULT 0')
         except Exception:

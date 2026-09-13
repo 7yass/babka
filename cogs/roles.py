@@ -87,7 +87,7 @@ class Roles(commands.Cog):
                 pass
             await interaction.response.send_message(t(gid, 'sr.added', role=role.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='selfroles', description='Panel rÃ³l')
+    @commands.hybrid_command(name='selfroles', description='Panel ról')
     @staff_or('manage_roles')
     async def selfroles(self, ctx, role1: discord.Role, role2: discord.Role = None, role3: discord.Role = None,
                         role4: discord.Role = None, role5: discord.Role = None, title: str = None):
