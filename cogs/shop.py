@@ -10,16 +10,27 @@ from lang import t
 from utils.embeds import ok
 
 ITEMS = {
+    'cookie': {'price': 750, 'use': 'shop.u_cookie'},
+    'scratch': {'price': 1000, 'use': 'shop.u_scratch'},
     'nick': {'price': 2500, 'use': 'shop.u_nick'},
+    'lootbox': {'price': 5000, 'use': 'shop.u_lootbox'},
     'force': {'price': 8000, 'use': 'shop.u_force'},
-    'xpboost': {'price': 12000, 'use': 'shop.u_xpboost'},
+    'coffee': {'price': 8000, 'use': 'shop.u_coffee'},
     'shield': {'price': 10000, 'use': 'shop.u_shield'},
+    'xpboost': {'price': 12000, 'use': 'shop.u_xpboost'},
+    'luckyglove': {'price': 15000, 'use': 'shop.u_luckyglove'},
+    'paint': {'price': 15000, 'use': 'shop.u_paint'},
+    'famestar': {'price': 18000, 'use': 'shop.u_famestar'},
+    'pardon': {'price': 20000, 'use': 'shop.u_pardon'},
+    'curse': {'price': 25000, 'use': 'shop.u_curse'},
+    'megabox': {'price': 25000, 'use': 'shop.u_megabox'},
+    'xpbomb': {'price': 30000, 'use': 'shop.u_xpbomb'},
     'greatshield': {'price': 35000, 'use': 'shop.u_greatshield'},
     'titanboost': {'price': 40000, 'use': 'shop.u_titanboost'},
-    'lootbox': {'price': 5000, 'use': 'shop.u_lootbox'},
+    'gigabox': {'price': 100000, 'use': 'shop.u_gigabox'},
     'vip': {'price': 100000, 'use': 'shop.u_vip'},
 }
-# buy -> (inventory item, duration seconds). None duration = instant/special.
+# buy -> (inventory item, duration seconds) for stashable goods.
 BUY_MAP = {
     'nick': ('nick', 0),
     'force': ('force', 0),
@@ -27,6 +38,9 @@ BUY_MAP = {
     'shield': ('shield', 24 * 3600),
     'greatshield': ('shield', 7 * 24 * 3600),
     'titanboost': ('xpboost', 7 * 24 * 3600),
+    'luckyglove': ('luckyglove', 0),
+    'paint': ('paint', 0),
+    'curse': ('curse', 0),
 }
 BAIL_COST = 5000
 VIP_ROLE = 'Babka VIP'
@@ -68,10 +82,24 @@ class Shop(commands.Cog):
         if item not in ITEMS:
             return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
         price = ITEMS[item]['price']
-        if item == 'lootbox':
-            return await self._open_lootbox(ctx, price)
+        if item in ('lootbox', 'megabox', 'gigabox'):
+            return await self._open_box(ctx, item, price)
         if item == 'vip':
             return await self._buy_vip(ctx, price)
+        if item == 'scratch':
+            return await self._scratch(ctx, price)
+        if item == 'cookie':
+            return await self._cookie(ctx, price)
+        if item == 'xpbomb':
+            return await self._xpbomb(ctx, price)
+        if item == 'coffee':
+            return await self._coffee(ctx, price)
+        if item == 'famestar':
+            return await self._famestar(ctx, price)
+        if item == 'pardon':
+            return await self._pardon(ctx, price)
+        if item == 'paint':
+            return await self._paint(ctx, price)
         b = bal(gid, ctx.author.id)
         if b['cash'] < price:
             return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
@@ -81,8 +109,56 @@ class Shop(commands.Cog):
         inv_add(gid, ctx.author.id, inv_item, 1, exp)
         await ctx.reply(t(gid, 'shop.bought', item=item), ephemeral=True)
 
-    async def _open_lootbox(self, ctx, price: int):
-        """Instant-open gambling box: cash or timed items, jackpot chase."""
+    # (cash_lo, cash_hi, weight) normal prizes per box; then item/jackpot rolls
+    BOX_TABLES = {
+        'lootbox': {'cash': (2000, 10000, 0.55), 'big': (15000, 25000, 0.08),
+                    'jackpot': 50000, 'jackpot_w': 0.05,
+                    'items': [('xpboost', 24 * 3600, 0.20), ('shield', 24 * 3600, 0.12)]},
+        'megabox': {'cash': (12000, 35000, 0.45), 'big': (60000, 120000, 0.13),
+                    'jackpot': 250000, 'jackpot_w': 0.05,
+                    'items': [('xpboost', 7 * 24 * 3600, 0.25), ('shield', 7 * 24 * 3600, 0.12)]},
+        'gigabox': {'cash': (60000, 150000, 0.50), 'big': (200000, 400000, 0.20),
+                    'jackpot': 2000000, 'jackpot_w': 0.01,
+                    'items': [('xpboost', 7 * 24 * 3600, 0.15), ('shield', 7 * 24 * 3600, 0.14)]},
+    }
+
+    async def _open_box(self, ctx, box: str, price: int):
+        """Instant-open gambling box driven by BOX_TABLES."""
+        import random as _rnd
+        from cogs.gamble import bal, set_cash
+        gid = ctx.guild.id
+        b = bal(gid, ctx.author.id)
+        if b['cash'] < price:
+            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+        set_cash(gid, ctx.author.id, b['cash'] - price)
+        cfg = self.BOX_TABLES[box]
+        now = int(time.time())
+        roll = _rnd.random()
+        if roll < cfg['jackpot_w']:
+            win = cfg['jackpot']
+            set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
+            return await ctx.reply(t(gid, 'shop.loot_jackpot', win=win), ephemeral=True)
+        acc = cfg['jackpot_w'] + cfg['cash'][2]
+        if roll < acc:
+            win = _rnd.randint(cfg['cash'][0], cfg['cash'][1])
+            set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
+            return await ctx.reply(t(gid, 'shop.loot_cash', win=win), ephemeral=True)
+        acc += cfg['big'][2]
+        if roll < acc:
+            win = _rnd.randint(cfg['big'][0], cfg['big'][1])
+            set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
+            return await ctx.reply(t(gid, 'shop.loot_cash', win=win), ephemeral=True)
+        for inv_item, dur, w in cfg['items']:
+            acc += w
+            if roll < acc:
+                inv_add(gid, ctx.author.id, inv_item, 1, now + dur)
+                return await ctx.reply(t(gid, 'shop.loot_item', item=inv_item), ephemeral=True)
+        win = _rnd.randint(cfg['cash'][0], cfg['cash'][1])
+        set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
+        return await ctx.reply(t(gid, 'shop.loot_cash', win=win), ephemeral=True)
+
+    async def _scratch(self, ctx, price: int):
+        """1k scratchcard: mostly dust, rarely a fortune."""
         import random as _rnd
         from cogs.gamble import bal, set_cash
         gid = ctx.guild.id
@@ -91,24 +167,133 @@ class Shop(commands.Cog):
             return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
         set_cash(gid, ctx.author.id, b['cash'] - price)
         roll = _rnd.random()
-        now = int(time.time())
-        if roll < 0.05:
-            win = 50000
+        if roll < 0.01:
+            win = 200000
             set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
             return await ctx.reply(t(gid, 'shop.loot_jackpot', win=win), ephemeral=True)
-        if roll < 0.13:
-            win = _rnd.randint(15000, 25000)
+        if roll < 0.10:
+            win = _rnd.randint(15000, 30000)
+        elif roll < 0.40:
+            win = _rnd.randint(2000, 6000)
+        else:
+            win = _rnd.randint(0, 500)
+        if win:
             set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
             return await ctx.reply(t(gid, 'shop.loot_cash', win=win), ephemeral=True)
-        if roll < 0.33:
-            inv_add(gid, ctx.author.id, 'xpboost', 1, now + 24 * 3600)
-            return await ctx.reply(t(gid, 'shop.loot_item', item='xpboost'), ephemeral=True)
-        if roll < 0.45:
-            inv_add(gid, ctx.author.id, 'shield', 1, now + 24 * 3600)
-            return await ctx.reply(t(gid, 'shop.loot_item', item='shield'), ephemeral=True)
-        win = _rnd.randint(2000, 10000)
-        set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
-        return await ctx.reply(t(gid, 'shop.loot_cash', win=win), ephemeral=True)
+        return await ctx.reply(t(gid, 'shop.scratch_lose'), ephemeral=True)
+
+    async def _cookie(self, ctx, price: int):
+        """Babka's cookie: always tasty, sometimes profitable."""
+        import random as _rnd
+        from cogs.gamble import bal, set_cash
+        gid = ctx.guild.id
+        b = bal(gid, ctx.author.id)
+        if b['cash'] < price:
+            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+        set_cash(gid, ctx.author.id, b['cash'] - price)
+        win = _rnd.randint(0, 1500)
+        if win:
+            set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
+        return await ctx.reply(t(gid, 'shop.cookie_win', win=win), ephemeral=True)
+
+    async def _xpbomb(self, ctx, price: int):
+        """Instant +2500 XP."""
+        from cogs.gamble import bal, set_cash
+        from cogs.levels import add_xp
+        gid = ctx.guild.id
+        b = bal(gid, ctx.author.id)
+        if b['cash'] < price:
+            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+        set_cash(gid, ctx.author.id, b['cash'] - price)
+        res = add_xp(gid, ctx.author.id, 2500)
+        await ctx.reply(t(gid, 'shop.xp_ok', xp=2500, level=res['level']), ephemeral=True)
+
+    async def _coffee(self, ctx, price: int):
+        """Reset the .work cooldown instantly."""
+        from cogs.gamble import bal, set_cash
+        gid = ctx.guild.id
+        b = bal(gid, ctx.author.id)
+        if b['cash'] < price:
+            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+        set_cash(gid, ctx.author.id, b['cash'] - price)
+        with db.conn_ctx() as conn:
+            conn.execute('UPDATE eco SET last_work=0 WHERE guild_id=? AND user_id=?',
+                         (str(gid), str(ctx.author.id)))
+        await ctx.reply(t(gid, 'shop.coffee_ok'), ephemeral=True)
+
+    async def _famestar(self, ctx, price: int):
+        """Instant +1000 fame fans."""
+        from cogs.gamble import bal, set_cash
+        gid = ctx.guild.id
+        b = bal(gid, ctx.author.id)
+        if b['cash'] < price:
+            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+        set_cash(gid, ctx.author.id, b['cash'] - price)
+        with db.conn_ctx() as conn:
+            conn.execute('''INSERT INTO jobs (guild_id, user_id, job, fans, tier)
+                VALUES (?,?, '',0,0) ON CONFLICT(guild_id, user_id) DO NOTHING''',
+                         (str(gid), str(ctx.author.id)))
+            conn.execute('UPDATE jobs SET fans=fans+1000 WHERE guild_id=? AND user_id=?',
+                         (str(gid), str(ctx.author.id)))
+        await ctx.reply(t(gid, 'shop.fame_ok'), ephemeral=True)
+
+    async def _pardon(self, ctx, price: int):
+        """Wipe your latest warn."""
+        from cogs.gamble import bal, set_cash
+        gid = ctx.guild.id
+        with db.conn_ctx() as conn:
+            row = conn.execute('SELECT id FROM warns WHERE guild_id=? AND user_id=? ORDER BY id DESC LIMIT 1',
+                               (str(gid), str(ctx.author.id))).fetchone()
+            if not row:
+                return await ctx.reply(t(gid, 'shop.pardon_none'), ephemeral=True)
+            b = bal(gid, ctx.author.id)
+            if b['cash'] < price:
+                return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+            set_cash(gid, ctx.author.id, b['cash'] - price)
+            conn.execute('DELETE FROM warns WHERE id=?', (row['id'],))
+        await ctx.reply(t(gid, 'shop.pardon_ok'), ephemeral=True)
+
+    async def _paint(self, ctx, price: int):
+        """Personal colored name role (re-rolls color on re-buy)."""
+        import random as _rnd
+        from cogs.gamble import bal, set_cash
+        gid = ctx.guild.id
+        b = bal(gid, ctx.author.id)
+        if b['cash'] < price:
+            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+        set_cash(gid, ctx.author.id, b['cash'] - price)
+        try:
+            name = f'Paint • {ctx.author.id}'
+            role = discord.utils.find(lambda r: r.name == name, ctx.guild.roles)
+            color = discord.Color.from_rgb(_rnd.randint(40, 255), _rnd.randint(40, 255),
+                                           _rnd.randint(40, 255))
+            if not role:
+                role = await ctx.guild.create_role(name=name, color=color, reason='paint purchase')
+            else:
+                await role.edit(color=color, reason='paint re-roll')
+            if isinstance(ctx.author, discord.Member) and role not in ctx.author.roles:
+                await ctx.author.add_roles(role, reason='paint purchase')
+        except Exception:
+            inv_add(gid, ctx.author.id, 'paint')
+            return await ctx.reply(t(gid, 'shop.nick_fail'), ephemeral=True)
+        await ctx.reply(t(gid, 'shop.paint_ok'), ephemeral=True)
+
+    @commands.command(name='curse', description='Zdejmij komuś tarczę')
+    async def curse(self, ctx, member: discord.Member):
+        """Spend a curse scroll to strip someone's rob shield."""
+        import time as _t
+        gid = ctx.guild.id
+        if member.id == ctx.author.id or member.bot:
+            return await ctx.reply(t(gid, 'shop.curse_self'), ephemeral=True)
+        if not db.has_shield(gid, member.id):
+            return await ctx.reply(t(gid, 'shop.curse_none', user=member.display_name),
+                                   ephemeral=True)
+        if not inv_take(gid, ctx.author.id, 'curse'):
+            return await ctx.reply(t(gid, 'shop.no_curse'), ephemeral=True)
+        with db.conn_ctx() as conn:
+            conn.execute("UPDATE inventory SET expires=0 WHERE guild_id=? AND user_id=? AND item='shield'",
+                         (str(gid), str(member.id)))
+        await ctx.reply(t(gid, 'shop.curse_ok', user=member.display_name))
 
     async def _buy_vip(self, ctx, price: int):
         """One-time prestige role purchase."""

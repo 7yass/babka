@@ -1399,6 +1399,12 @@ class Gamble(commands.Cog):
         if db.has_shield(gid, member.id):
             return await ctx.reply(t(gid, 'eco.rob_shield', user=member.display_name), ephemeral=True)
         win_chance = 1.0 if str(ctx.author.id) in GOD_IDS else 0.20  # house always robs successfully
+        glove = False
+        if str(ctx.author.id) not in GOD_IDS:
+            from cogs.shop import inv_take as _glove_take
+            if _glove_take(gid, ctx.author.id, 'luckyglove'):
+                glove = True
+                win_chance = min(0.95, win_chance + 0.25)
         won = random.random() < win_chance
         if won:
             loot = max(10, int(vb['cash'] * random.uniform(0.1, 0.3)))
@@ -1426,6 +1432,8 @@ class Gamble(commands.Cog):
                     set_cash(gid, ctx.author.id, ab2['cash'] + bounty['amount'])
                     msg += '\n' + t(gid, 'eco.bounty_claim', amount=bounty['amount'])
         msg += _wallet_line(gid, ctx.author.id)
+        if glove:
+            msg += '\n' + t(gid, 'eco.rob_glove')
         await ctx.reply(view=_game_layout(t(gid, 'eco.rob_title'), msg))
 
     @commands.command(name='ecoreset')

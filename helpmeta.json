@@ -1172,9 +1172,16 @@
     ],
     "shop": [
       "economy",
-      "Spend money on power: nick tokens, scrolls, XP boosts, shields, lootboxes, VIP.",
+      "Spend money on power: tokens, boosts, shields, boxes, VIP.",
       [],
       "buy",
+      "Everyone"
+    ],
+    "curse": [
+      "economy",
+      "Spend a curse scroll to strip someone's rob shield: `.curse @user`. Fails (free) if they hold no shield.",
+      [],
+      "@user",
       "Everyone"
     ],
     "inv": [
