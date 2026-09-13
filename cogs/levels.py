@@ -212,97 +212,148 @@ def _ctext(d, cx, y, s, font, fill):
         d.text((cx - len(s) * 7, y), s, font=font, fill=fill)
 
 
+TIER_COLORS = {
+    'ROOKIE': (150, 150, 158), 'BRONZE': (205, 127, 50), 'SILVER': (184, 192, 204),
+    'GOLD': (250, 200, 60), 'DIAMOND': (120, 190, 255), 'LEGEND': (200, 120, 255),
+}
+
+
+def _tier_key(level: int) -> str:
+    from utils.cards import TIER_TABLE
+    for min_lv, key, *_ in TIER_TABLE:
+        if level >= min_lv:
+            return key
+    return 'ROOKIE'
+
+
+def _mono_avatar(img, avatar_bytes: bytes, box: tuple) -> bool:
+    """Paste a desaturated circular avatar. box = (x, y, size)."""
+    x, y, s = box
+    try:
+        av = Image.open(io.BytesIO(avatar_bytes)).convert('L').convert('RGB').resize((s, s))
+        mask = Image.new('L', (s, s), 0)
+        ImageDraw.Draw(mask).ellipse([0, 0, s, s], fill=255)
+        img.paste(av, (x, y), mask)
+        return True
+    except Exception:
+        return False
+
+
+def _tracked(d, xy, text, font, fill, tracking=0):
+    """Letter-spaced text (Direction C tier line)."""
+    x, y = xy
+    for c in text:
+        d.text((x, y), c, font=font, fill=fill)
+        try:
+            x += d.textlength(c, font=font) + tracking
+        except Exception:
+            x += 12 + tracking
+
+
+def _bar_diamond(img, bx, by, bw, bh, pct, fill):
+    """Ultra-slim progress bar with a diamond marker (Direction C)."""
+    d = ImageDraw.Draw(img, 'RGBA')
+    d.rounded_rectangle([bx, by, bx + bw, by + bh], radius=bh // 2, fill=(38, 38, 44))
+    fw = max(bh, int(bw * max(0.0, min(1.0, pct))))
+    bar = Image.new('RGB', (fw, bh), fill)
+    m = Image.new('L', (fw, bh), 0)
+    ImageDraw.Draw(m).rounded_rectangle([0, 0, fw, bh], radius=bh // 2, fill=255)
+    img.paste(bar, (bx, by), m)
+    kx = bx + fw - bh // 2
+    ky = by + bh // 2
+    r = max(3, int(bh * 0.9))
+    d.polygon([(kx, ky - r), (kx + r, ky), (kx, ky + r), (kx - r, ky)], fill=fill)
+
+
 def rank_card(member: discord.Member, data: dict, rank: int, lang: str = 'en', avatar_bytes: bytes = None,
               banner_bytes: bytes = None, accent: tuple = None, style: dict = None,
               custom_bg: bytes = None, tier_names: dict = None) -> discord.File:
+    """Direction C — minimal/terminal: top tier rule, mono avatar right, big name,
+    tracked tier line, quiet stat row, slim diamond-knob XP bar."""
     from lang import STR
-    from utils.cards import apply_bg, parse_hex, paste_avatar, fallback_face, tier_for
+    from utils.cards import apply_bg, parse_hex, fallback_face, tier_for
     L = lambda k, fb: (STR.get(lang) or {}).get(k, fb)
     W, H = 900, 260
     style = style or {'blur': 25, 'dim': 0.45, 'layout': 'banner', 'show_avatar': 1, 'accent': '',
                       'show_tier': 1, 'show_bar': 1, 'show_xptext': 1}
     layout = style.get('layout', 'banner')
-    show_av = style.get('show_avatar', 1)
-    show_tier = style.get('show_tier', 1)
-    show_bar = style.get('show_bar', 1)
-    show_xp = style.get('show_xptext', 1)
-    ring = parse_hex(style.get('accent') or '') or (255, 255, 255)
+    show_av = 1 if int(style.get('show_avatar', 1) or 0) else 0
+    show_tier = 1 if int(style.get('show_tier', 1) or 0) else 0
+    show_bar = 1 if int(style.get('show_bar', 1) or 0) else 0
+    show_xp = 1 if int(style.get('show_xptext', 1) or 0) else 0
     img, d = apply_bg(style, bg_bytes=custom_bg, banner_bytes=banner_bytes, accent=accent)
     d.rectangle([0, 0, W, H], outline=(40, 40, 44), width=2)
     try:
         from pathlib import Path as _P
         _a = _P(__file__).parent.parent / 'assets'
-        f_big, f_mid = ImageFont.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 40), ImageFont.truetype(str(_a / 'DejaVuSans.ttf'), 28)
-        try:
-            f_sm = ImageFont.truetype(str(_a / 'DejaVuSans.ttf'), 24)
-        except Exception:
-            f_sm = f_mid
+        f_big = ImageFont.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 54)
+        f_tracked = ImageFont.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 21)
+        f_mid = ImageFont.truetype(str(_a / 'DejaVuSans.ttf'), 24)
+        f_sm = ImageFont.truetype(str(_a / 'DejaVuSans.ttf'), 18)
     except Exception:
         try:
-            f_big, f_mid, f_sm = ImageFont.truetype('arialbd.ttf', 40), ImageFont.truetype('arial.ttf', 28), ImageFont.truetype('arial.ttf', 24)
+            f_big = ImageFont.truetype('arialbd.ttf', 54)
+            f_tracked = ImageFont.truetype('arialbd.ttf', 21)
+            f_mid = ImageFont.truetype('arial.ttf', 24)
+            f_sm = ImageFont.truetype('arial.ttf', 18)
         except Exception:
-            f_big = f_mid = f_sm = ImageFont.load_default()
-    pasted = False
-    if layout != 'center' and show_av and avatar_bytes:
-        pasted = paste_avatar(img, avatar_bytes, (45, 28, 140))
-    tier_name, ring_w, stars = tier_for(data['level'], tier_names)
-    if layout != 'center' and show_av and not pasted:
-        # fallback: initial letter instead of an empty ring
-        fallback_face(d, (45, 28, 140), member.display_name)
-    # spine + avatar rings
-    d.rectangle([0, 0, 10, H], fill=ring)
-    if layout != 'center' and show_av:
-        d.ellipse([45, 28, 185, 168], outline=ring, width=ring_w)
-        d.ellipse([40, 23, 190, 173], outline=(90, 90, 98), width=2)
-    if data['level'] >= 20:
-        d.rectangle([6, 6, W - 6, H - 6], outline=(120, 120, 128), width=2)
-    if data['level'] >= 50:
-        d.rectangle([12, 12, W - 12, H - 12], outline=(200, 200, 208), width=1)
+            f_big = f_tracked = f_mid = f_sm = ImageFont.load_default()
     need = xp_needed(data['level'])
     pct = min(1, data['xp'] / need if need else 0)
-    tier_txt = tier_name + (' ' + '★' * stars if stars else '')
+    tier_name, ring_w, stars = tier_for(data['level'], tier_names)
+    tier_c = parse_hex(style.get('accent') or '') or TIER_COLORS.get(_tier_key(data['level']), (240, 240, 246))
+    name = member.display_name[:18]
+    tier_txt = tier_name + ('   ' + '★' * stars if stars else '')
     lvl_num = str(data['level'])
     rank_num = f'#{rank}'
-    xp_txt = L('cv.xp', '{xp} / {need} XP • {pct}%').replace('{xp}', str(data['xp'])).replace('{need}', str(need)).replace('{pct}', str(round((data['xp'] / need * 100) if need else 0)))
+    pct_num = str(round((data['xp'] / need * 100) if need else 0))
+    pct_txt = f'{pct_num}%'
+    xp_txt = L('cv.xp', '{xp} / {need} XP • {pct}%').replace('{xp}', str(data['xp'])).replace('{need}', str(need)).replace('{pct}', pct_num)
     if layout == 'center':
         _ctext(d, W / 2, 20, member.display_name[:22], f_big, (255, 255, 255))
-        y = 72
+        y = 92
         if show_tier:
             try:
                 tw = d.textlength(tier_txt, font=f_mid)
             except Exception:
                 tw = len(tier_txt) * 13
-            _pill(d, (W - tw - 36) / 2, y, tier_txt, f_mid, ring, ring)
+            _pill(d, (W - tw - 36) / 2, y, tier_txt, f_mid, tier_c, tier_c)
             y += 50
-        _ctext(d, W / 2, y, f'LVL {lvl_num}  •  RANK {rank_num}', f_mid, (181, 181, 181))
+        _ctext(d, W / 2, y, f'LVL {lvl_num}  •  RANK {rank_num}  •  {pct_txt}', f_mid, (181, 181, 181))
         y += 40
         if show_bar:
-            _bar_knob(img, 150, y, 600, 24, pct, ring)
-            y += 34
+            _bar_diamond(img, 150, y, 600, 7, pct, tier_c)
+            y += 22
         if show_xp:
-            _ctext(d, W / 2, y, xp_txt, f_sm, (255, 255, 255))
+            _ctext(d, W / 2, y, xp_txt, f_sm, (150, 150, 158))
         buf = io.BytesIO()
         img.save(buf, 'PNG')
         buf.seek(0)
         return discord.File(buf, 'rank.png')
-    tx = 215
-    d.text((tx, 24), member.display_name[:18], font=f_big, fill=(255, 255, 255))
+    # banner layout — Direction C
+    d.rectangle([0, 0, W, 3], fill=tier_c)
+    s = 150
+    ax = W - s - 44
+    ay = (H - s) // 2 - 4
+    if show_av:
+        if not (avatar_bytes and _mono_avatar(img, avatar_bytes, (ax, ay, s))):
+            fallback_face(d, (ax, ay, s), name)
+        d.ellipse([ax - 4, ay - 4, ax + s + 4, ay + s + 4], outline=(58, 58, 64), width=6)
+        d.ellipse([ax, ay, ax + s, ay + s], outline=tier_c, width=2)
+    d.text((48, 24), name, font=f_big, fill=(255, 255, 255))
     if show_tier:
-        _pill(d, tx, 76, tier_txt, f_mid, ring, ring)
-    # stat columns
-    sy = 132
-    pct_txt = f"{round((data['xp'] / need * 100) if need else 0)}%"
-    for i, (lab, val) in enumerate((
-            (L('cv.level', 'Level {n}').replace('{n}', '').strip() or 'LEVEL', lvl_num),
-            (L('cv.rank', 'Rank #{n}').replace('{n}', '').replace('#', '').strip() or 'RANK', rank_num),
-            ('PROGRESS', pct_txt))):
-        cx = tx + i * 215
-        d.text((cx, sy), lab.upper()[:8], font=f_sm, fill=(130, 130, 138))
-        d.text((cx, sy + 24), val, font=f_mid, fill=(255, 255, 255))
+        _tracked(d, (50, 100), tier_txt, f_tracked, tier_c, tracking=6)
+    d.text((50, 142), f'LVL {lvl_num}   ·   RANK {rank_num}   ·   {pct_txt}',
+           font=f_mid, fill=(150, 150, 158))
+    if show_xp:
+        d.text(((ax - 24) if show_av else (W - 50), 182), xp_txt,
+               font=f_sm, fill=(96, 96, 104), anchor='ra')
     if show_bar:
-        _bar_knob(img, 45, 208, 810, 22, pct, ring)
-    if show_xp and not show_bar:
-        d.text((tx, 168), xp_txt, font=f_sm, fill=(255, 255, 255))
+        _bar_diamond(img, 50, 212, W - 100, 7, pct, tier_c)
+    if data['level'] >= 20:
+        d.rectangle([6, 6, W - 6, H - 6], outline=(120, 120, 128), width=2)
+    if data['level'] >= 50:
+        d.rectangle([12, 12, W - 12, H - 12], outline=(200, 200, 208), width=1)
     buf = io.BytesIO()
     img.save(buf, 'PNG')
     buf.seek(0)

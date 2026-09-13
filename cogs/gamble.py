@@ -275,27 +275,51 @@ def _wallet_line(gid, uid) -> str:
         return ''
 
 
-def wallet_card(name: str, cash: int, streak: int, avatar_bytes: bytes = None) -> bytes:
+def wallet_card(name: str, cash: int, streak: int, avatar_bytes: bytes = None, bank: int = 0) -> bytes:
+    """Direction C — minimal/terminal wallet: gold top rule, giant balance,
+    quiet streak/bank row, mono avatar right."""
     import io as _io
     from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
     from pathlib import Path as _P
-    from utils.cards import paste_avatar as _paste
-    W, H, AV = 800, 220, 150
+    W, H = 800, 220
+    tier_c = (250, 200, 60)
     img = _Img.new('RGB', (W, H), (16, 16, 19))
     d = _Dr.Draw(img)
-    d.rounded_rectangle([0, 0, W - 1, H - 1], radius=18, outline=(250, 200, 60), width=3)
+    d.rectangle([0, 0, W, 3], fill=tier_c)
     if avatar_bytes:
-        _paste(img, avatar_bytes, (35, 35, AV))
-        d.ellipse([35, 35, 35 + AV, 35 + AV], outline=(250, 200, 60), width=4)
+        try:
+            ax, ay, s = W - 120 - 44, (H - 120) // 2, 120
+            av = _Img.open(_io.BytesIO(avatar_bytes)).convert('L').convert('RGB').resize((s, s))
+            mask = _Img.new('L', (s, s), 0)
+            _Dr.Draw(mask).ellipse([0, 0, s, s], fill=255)
+            img.paste(av, (ax, ay), mask)
+            d.ellipse([ax, ay, ax + s, ay + s], outline=(58, 58, 64), width=5)
+        except Exception:
+            pass
     try:
-        f_big = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 64)
-        f_mid = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans.ttf'), 32)
+        _a = _P(__file__).parent.parent / 'assets'
+        f_big = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 66)
+        f_lab = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 18)
+        f_mid = _F.truetype(str(_a / 'DejaVuSans.ttf'), 26)
+        f_row = _F.truetype(str(_a / 'DejaVuSans.ttf'), 20)
     except Exception:
-        f_big = f_mid = _F.load_default()
-    d.text((220, 35), f'{cash:,}'.replace(',', ' '), font=f_big, fill=(250, 200, 60))
-    d.text((220, 115), name[:20], font=f_mid, fill=(255, 255, 255))
+        try:
+            f_big = _F.truetype('arialbd.ttf', 66)
+            f_lab = _F.truetype('arialbd.ttf', 18)
+            f_mid = _F.truetype('arial.ttf', 26)
+            f_row = _F.truetype('arial.ttf', 20)
+        except Exception:
+            f_big = f_lab = f_mid = f_row = _F.load_default()
+    d.text((48, 28), 'WALLET', font=f_lab, fill=(96, 96, 104))
+    d.text((48, 58), f'{cash:,}'.replace(',', ' '), font=f_big, fill=tier_c)
+    d.text((50, 142), name[:20], font=f_mid, fill=(255, 255, 255))
+    parts = []
     if streak and streak > 1:
-        d.text((220, 155), f'{streak}-day streak', font=f_mid, fill=(150, 150, 158))
+        parts.append(f'{streak} DAY STREAK')
+    if bank:
+        parts.append(f'BANK {bank:,}'.replace(',', ' '))
+    if parts:
+        d.text((50, 182), '   ·   '.join(parts), font=f_row, fill=(150, 150, 158))
     buf = _io.BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()
@@ -511,7 +535,8 @@ class Gamble(commands.Cog):
         except Exception:
             av = None
         png = await self.bot.loop.run_in_executor(
-            None, wallet_card, member.display_name, b['cash'], b.get('daily_streak') or 0, av)
+            None, wallet_card, member.display_name, b['cash'], b.get('daily_streak') or 0, av,
+            b.get('bank') or 0)
         await ctx.reply(view=_game_layout(t(ctx.guild.id, 'eco.bal_title', user=member.display_name),
                                           t(ctx.guild.id, 'eco.bal', user=member.display_name, cash=b['cash']),
                                           'attachment://wallet.png'),
@@ -748,12 +773,15 @@ class Gamble(commands.Cog):
         
         win_chance = self._win_chance(gid, bet)
         won = random.random() < win_chance
-        
+
         if won:
-            mult = 12 if random.random() < 0.1 else 5
+            sym = '7' if random.random() < 0.1 else random.choice([s for s in SLOTS if s != '7'])
+            reels = [sym, sym, sym]
+            mult = 12 if sym == '7' else 5
             win = bet * mult
             msg = t(gid, 'eco.slots_jackpot', mult=mult, win=win)
         else:
+            reels = random.sample(SLOTS, 3)  # guaranteed no pair — matches the loss
             win = 0
             msg = t(gid, 'eco.slots_lose', bet=bet)
         msg += _wallet_line(gid, ctx.author.id)
@@ -799,6 +827,7 @@ class Gamble(commands.Cog):
             return await ctx.reply(err_msg, ephemeral=True)
         win_chance = self._win_chance(gid, bet)
         won = random.random() < win_chance
+        result = pick if won else ('R' if pick == 'O' else 'O')
         if won:
             nb = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, nb['cash'] + bet * 2)
