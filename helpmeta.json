@@ -144,7 +144,7 @@
     ],
     "nick": [
       "economy",
-      "Spend a nick token to change your own nickname: `.nick <name>`. No token = no change.",
+      "Spend a 100k nick token to change your own nickname: `.nick <name>`. No token = no change.",
       [],
       "NowyNick",
       "Everyone"
@@ -1172,7 +1172,7 @@
     ],
     "shop": [
       "economy",
-      "Spend money on power: tokens, boosts, shields, boxes, VIP.",
+      "Spend money on power: tokens, boosts, shields, boxes, curses, bail, VIP.",
       [],
       "buy",
       "Everyone"
@@ -1295,7 +1295,7 @@
     ],
     "nickbomb": [
       "economy",
-      "Spend a scroll to rename someone else for 1 hour: `.nickbomb @user <name>`. Peak comedy weapon.",
+      "Spend a scroll to rename someone else for 24 hours: `.nickbomb @user <name>`. Peak comedy weapon.",
       [],
       "@user Klown",
       "Everyone"
