@@ -173,12 +173,16 @@ class Shop(commands.Cog):
     @shop.command(name='buy', description='Kup przedmiot')
     async def buy(self, ctx, item: str):
         import random as _rnd
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, _gamble_gate
         gid = ctx.guild.id
         item = (item or '').lower()
         if item not in ITEMS:
             return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
         price = ITEMS[item]['price']
+        if item in self.GAMBLE_ITEMS:
+            wait = _gamble_gate(gid, ctx.author.id)
+            if wait is not None:
+                return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
         if item in ('lootbox', 'megabox'):
             return await self._open_box(ctx, item, price)
         if item == 'vip':
@@ -200,25 +204,29 @@ class Shop(commands.Cog):
         inv_add(gid, ctx.author.id, inv_item, 1, exp)
         await ctx.reply(t(gid, 'shop.bought', item=item), ephemeral=True)
 
-    # (cash_lo, cash_hi, weight) normal prizes per box; then item/jackpot rolls
+    # (cash_lo, cash_hi, weight) normal prizes per box; then item/jackpot rolls.
+    # Tuned so expected value stays well under the price (house edge).
     BOX_TABLES = {
-        'lootbox': {'cash': (30000, 150000, 0.55), 'big': (250000, 400000, 0.08),
-                    'jackpot': 800000, 'jackpot_w': 0.05,
-                    'items': [('xpboost', 24 * 3600, 0.20), ('shield', 24 * 3600, 0.12)]},
-        'megabox': {'cash': (200000, 550000, 0.45), 'big': (1000000, 2000000, 0.13),
-                    'jackpot': 4000000, 'jackpot_w': 0.05,
-                    'items': [('xpboost', 7 * 24 * 3600, 0.25), ('shield', 7 * 24 * 3600, 0.12)]},
+        'lootbox': {'cash': (10000, 40000, 0.60), 'big': (80000, 150000, 0.08),
+                    'jackpot': 400000, 'jackpot_w': 0.02,
+                    'items': [('xpboost', 24 * 3600, 0.10), ('shield', 24 * 3600, 0.07)]},
+        'megabox': {'cash': (100000, 300000, 0.45), 'big': (400000, 800000, 0.13),
+                    'jackpot': 2000000, 'jackpot_w': 0.02,
+                    'items': [('xpboost', 7 * 24 * 3600, 0.15), ('shield', 7 * 24 * 3600, 0.12)]},
     }
+    # instant shop gambles share the hourly play limit with casino games
+    GAMBLE_ITEMS = {'lootbox', 'megabox', 'scratch', 'cookie'}
 
     async def _open_box(self, ctx, box: str, price: int):
         """Instant-open gambling box driven by BOX_TABLES."""
         import random as _rnd
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, _gamble_use
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
         if b['cash'] < price:
-            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
         set_cash(gid, ctx.author.id, b['cash'] - price)
+        _gamble_use(gid, ctx.author.id)
         cfg = self.BOX_TABLES[box]
         now = int(time.time())
         roll = _rnd.random()
@@ -248,38 +256,40 @@ class Shop(commands.Cog):
     async def _scratch(self, ctx, price: int):
         """10k scratchcard: mostly dust, rarely a fortune."""
         import random as _rnd
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, _gamble_use
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
         if b['cash'] < price:
-            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
         set_cash(gid, ctx.author.id, b['cash'] - price)
+        _gamble_use(gid, ctx.author.id)
         roll = _rnd.random()
         if roll < 0.01:
-            win = 2000000
+            win = 300000
             set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
-            return await ctx.reply(t(gid, 'shop.loot_jackpot', win=cshort(win)), ephemeral=True)
+            return await ctx.reply(t(gid, 'shop.loot_jackpot', win=win), ephemeral=True)
         if roll < 0.10:
-            win = _rnd.randint(150000, 300000)
+            win = _rnd.randint(15000, 30000)
         elif roll < 0.40:
-            win = _rnd.randint(20000, 60000)
+            win = _rnd.randint(2000, 6000)
         else:
-            win = _rnd.randint(0, 5000)
+            win = _rnd.randint(0, 2000)
         if win:
             set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
             return await ctx.reply(t(gid, 'shop.loot_cash', win=cshort(win)), ephemeral=True)
         return await ctx.reply(t(gid, 'shop.scratch_lose'), ephemeral=True)
 
     async def _cookie(self, ctx, price: int):
-        """Babka's cookie: always tasty, sometimes profitable."""
+        """Babka's cookie: always tasty, usually a donation to Babka."""
         import random as _rnd
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, _gamble_use
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
         if b['cash'] < price:
-            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
         set_cash(gid, ctx.author.id, b['cash'] - price)
-        win = _rnd.randint(0, 15000)
+        _gamble_use(gid, ctx.author.id)
+        win = _rnd.randint(0, 2500)
         if win:
             set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
         return await ctx.reply(t(gid, 'shop.cookie_win', win=cshort(win)), ephemeral=True)
