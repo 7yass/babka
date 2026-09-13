@@ -11,6 +11,10 @@ from utils.embeds import foot
 
 START_CASH, DAILY_CASH, DAILY_CD = 1000, 500, 86400
 ROB_CD = 3600
+# blackjack anti-abuse: no more 100k wins
+BJ_MAX_BET = 2000   # gods (house) exempt
+BJ_MAX_WIN = 10000  # max profit per hand for mortals
+BJ_CD = 180         # seconds between hands for mortals
 SUITS = ['♠', '♥', '♦', '♣']
 RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 SLOTS = ['7', '★', '♦', '♣', '●']
@@ -462,6 +466,7 @@ class BJView(discord.ui.LayoutView):
 
     async def finish(self, interaction: discord.Interaction):
         self.done = True
+        god = str(self.player_id) in GOD_IDS
         pv = hand_value(self.phand)
         while hand_value(self.dhand) < 17:
             self.dhand.append(self.deck.pop())
@@ -470,12 +475,20 @@ class BJView(discord.ui.LayoutView):
         if pv > 21:
             msg = t(self.gid, 'eco.bj_bust', pv=pv)
         elif dv > 21 or pv > dv:
-            profit = int(self.bet * 1.5) if pv == 21 and len(self.phand) == 2 else self.bet
+            if pv == 21 and len(self.phand) == 2:
+                profit = int(self.bet * (1.5 if god else 1.2))  # mortals get 6:5
+            else:
+                profit = self.bet
+            if not god:
+                profit = min(profit, BJ_MAX_WIN)
             set_cash(self.gid, self.player_id, b['cash'] + self.bet + profit)
             msg = t(self.gid, 'eco.bj_win', pv=pv, dv=dv, win=profit)
         elif pv == dv:
-            set_cash(self.gid, self.player_id, b['cash'] + self.bet)  # push refunds stake
-            msg = t(self.gid, 'eco.bj_push', pv=pv)
+            if god:
+                set_cash(self.gid, self.player_id, b['cash'] + self.bet)  # push refunds stake
+                msg = t(self.gid, 'eco.bj_push', pv=pv)
+            else:
+                msg = t(self.gid, 'eco.bj_lose', pv=pv, dv=dv, bet=self.bet)  # house wins ties
         else:
             msg = t(self.gid, 'eco.bj_lose', pv=pv, dv=dv, bet=self.bet)
         self._build(hide=False, extra=msg)
@@ -527,6 +540,7 @@ class BJView(discord.ui.LayoutView):
 class Gamble(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._bj_cd = {}  # (gid, uid) -> timestamp of last hand (mortals only)
 
     @commands.hybrid_command(name='bal', description='Twoja kasa')
     async def balance(self, ctx, member: discord.Member = None):
@@ -724,15 +738,26 @@ class Gamble(commands.Cog):
         jm = _jailed(gid, ctx.author.id)
         if jm:
             return await ctx.reply(jm, ephemeral=True)
+        god = str(ctx.author.id) in GOD_IDS
         if bet <= 0:
             return await ctx.reply(t(gid, 'eco.bet_pos'), ephemeral=True)
+        if not god:
+            if bet > BJ_MAX_BET:
+                return await ctx.reply(t(gid, 'eco.bj_maxbet', max=BJ_MAX_BET), ephemeral=True)
+            last = self._bj_cd.get((str(gid), str(ctx.author.id)), 0)
+            wait = BJ_CD - (int(time.time()) - last)
+            if wait > 0:
+                m, s = divmod(wait, 60)
+                return await ctx.reply(t(gid, 'eco.bj_wait', m=m, s=s), ephemeral=True)
         b = bal(gid, ctx.author.id)
         if bet > b['cash']:
             return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
         set_cash(gid, ctx.author.id, b['cash'] - bet)
+        if not god:
+            self._bj_cd[(str(gid), str(ctx.author.id))] = int(time.time())
         deck = [(r, s) for s in SUITS for r in RANKS]
         random.shuffle(deck)
-        if str(ctx.author.id) in GOD_IDS:
+        if god:
             # house always opens with a natural
             phand = [('A', deck.pop()[1]), ('K', deck.pop()[1])]
             deck = [c for c in deck if c[0] not in ('A', 'K')] + phand
@@ -741,7 +766,9 @@ class Gamble(commands.Cog):
             phand = [deck.pop(), deck.pop()]
         dhand = [deck.pop(), deck.pop()]
         if hand_value(phand) == 21:
-            win = int(bet * 1.5)
+            win = int(bet * (1.5 if god else 1.2))
+            if not god:
+                win = min(win, BJ_MAX_WIN)
             nb = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, nb['cash'] + bet + win)
             view = BJView(self, ctx.author.id, bet, deck, phand, dhand, gid)

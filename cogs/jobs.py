@@ -41,7 +41,7 @@ JOBS = {
                  'house_title': 'Król Algorytmu',
                  'shifts': ['nagrywałeś tańce na parkingu', 'robiłeś live z lodówki',
                             'kręciłeś pranka na sąsiedzie', 'montowałeś vloga całą noc']},
-    'onlyfans': {'label': 'OnlyFans', 'base': (100, 220),
+    'onlyfans': {'label': 'OnlyFans', 'base': (100, 200),
                  'track': ['Nowy', 'Początkujący', 'Twórca', 'Regularny', 'Popularny',
                            'Top Twórca', 'Gwiazda', 'Supergwiazda', 'Ikona', 'Legenda OF'],
                  'house_title': 'Właściciel Platformy',
@@ -101,7 +101,7 @@ JOBS = {
                 'house_title': 'Właściciel Restauracji',
                 'shifts': ['ogarniałeś serwis na 200 osób', 'kroiłeś cebulę bez płaczu',
                            'wymyślałeś danie dnia', 'gasiłeś pożar na patelni']},
-    'fotograf': {'label': 'Fotograf', 'base': (180, 330), 'min_level': 12,
+    'fotograf': {'label': 'Fotograf', 'base': (280, 330), 'min_level': 12,
                  'track': ['Amator', 'Początkujący', 'Fotograf', 'Eventowy', 'Portrecista',
                            'Ślubny', 'Komercyjny', 'Modowy', 'Artysta', 'Legenda Obiektywu'],
                  'house_title': 'Właściciel Agencji',
@@ -125,16 +125,31 @@ JOBS = {
                'house_title': 'Właściciel Kliniki',
                'shifts': ['miałeś dyżur 24h na SORze', 'szyłeś łuk brwiowy po bójce',
                           'wypisywałeś recepty hurtowo', 'uspokajałeś spanikowanych rodziców']},
-    'entrepreneur': {'label': 'Entrepreneur', 'base': (600, 1000), 'hidden': True, 'min_level': 20,
+    'entrepreneur': {'label': 'Entrepreneur', 'base': (1000, 1500), 'hidden': True, 'min_level': 20,
                      'track': ['Marzyciel', 'Freelancer', 'Założyciel', 'Startupowiec', 'Biznesmen',
-                               'Inwestor', 'Rekin', 'Magnat', 'Miliarder', 'Legenda Biznesu'],
+                               'Inwestor', 'Rekin', 'Magnat', 'Miliarder', 'Overlord Biznesu'],
                      'house_title': 'Ten Jedyny',
                      'shifts': ['podpisywałeś kontrakty na jachcie', 'zwalniałeś zarząd przez telefon',
-                                'kupowałeś kolejną firmę z nudów', 'grałeś w golfa z inwestorami']},
+                                'kupowałeś kolejną firmę z nudów', 'grałeś w golfa z inwestorami',
+                                'przejmowałeś giełdę przed śniadaniem']},
+    # SECRET LINE — hidden + house-only = only 1270782781605154922 can join
+    'sperm_donor': {'label': 'Sperm Donor', 'base': (800, 1100), 'hidden': True, 'min_level': 0,
+                   'track': ['Sperm Donor', 'Sperm Manager', 'Sperm Devourer', 'Sperm Monster',
+                             'Sperm King', 'Sperm God', 'Sperm Titan', 'Sperm Emperor',
+                             'Sperm Overlord', 'Sperm Legend'],
+                   'house_title': 'Sperm Overlord',
+                   'shifts': ['robiłeś donację w klinice', 'zarządzałeś grafikiem dawców',
+                              'pochłaniałeś konkurencję na śniadanie', 'straszyłeś normę jak potwór',
+                              'rządziłeś królestwem dawców', 'błogosławiłeś śmiertelników',
+                              'wstrząsałeś ziemią jak tytan', 'zniewalałeś harmonogram']},
 }
 
 # old secret key -> new (keeps existing hires working)
-JOB_ALIAS = {'ceo': 'entrepreneur'}
+JOB_ALIAS = {'ceo': 'entrepreneur', 'sperm donor': 'sperm_donor', 'sperm': 'sperm_donor',
+             'sperm manager': 'sperm_donor', 'sperm devourer': 'sperm_donor',
+             'sperm monster': 'sperm_donor', 'sperm moster': 'sperm_donor',
+             'sperm king': 'sperm_donor', 'sperm god': 'sperm_donor',
+             'sperm titan': 'sperm_donor', 'sperm overlord': 'sperm_donor'}
 
 
 def job_title(key: str, idx: int, uid=None) -> str:
