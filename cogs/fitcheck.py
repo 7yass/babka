@@ -6,9 +6,9 @@ import database as db
 from lang import t
 
 FIT_CHANNEL = '1546599670074310716'
-POS = {'â¤', 'ðŸ”¥', 'ðŸ‘½'}
-NEG = {'ðŸ—‘'}
-ALLOWED = {'ðŸ”¥', 'ðŸ—‘'}
+POS = {'❤', '🔥', '👽'}
+NEG = {'🗑'}
+ALLOWED = {'🔥', '🗑'}
 TITLES = {1: 'FIRE', 2: 'HARDEST', 3: 'CLEAN'}
 
 
@@ -81,10 +81,10 @@ def board_image(rows) -> bytes:
             else:
                 parts = []
                 if f_emoji:
-                    parts += [('â¤', f_emoji)]
+                    parts += [('❤', f_emoji)]
                 parts += [(f' {pos}   ', f_mid)]
                 if f_emoji:
-                    parts += [('ðŸ—‘', f_emoji)]
+                    parts += [('🗑', f_emoji)]
                 parts += [(f' {neg}', f_mid)]
                 cx = x
                 for txt, font in parts:
@@ -112,7 +112,7 @@ class FitCheck(commands.Cog):
             return
         if str(message.channel.id) != FIT_CHANNEL or not _is_pic(message):
             return
-        for emoji in ('ðŸ”¥', 'ðŸ—‘ï¸'):
+        for emoji in ('🔥', '🗑️'):
             try:
                 await message.add_reaction(emoji)
             except Exception:
