@@ -364,7 +364,9 @@ def init_db():
                     'ALTER TABLE eco ADD COLUMN bank INTEGER DEFAULT 0',
                     'ALTER TABLE eco ADD COLUMN bank_at INTEGER DEFAULT 0',
                     'ALTER TABLE eco ADD COLUMN gamble_n INTEGER DEFAULT 0',
-                    'ALTER TABLE eco ADD COLUMN gamble_hr INTEGER DEFAULT 0'):
+                    'ALTER TABLE eco ADD COLUMN gamble_hr INTEGER DEFAULT 0',
+                    'ALTER TABLE eco ADD COLUMN cookie_n INTEGER DEFAULT 0',
+                    'ALTER TABLE eco ADD COLUMN cookie_day INTEGER DEFAULT 0'):
             try:
                 c.execute(col)
             except Exception:

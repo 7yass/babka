@@ -280,15 +280,33 @@ class Shop(commands.Cog):
         return await ctx.reply(t(gid, 'shop.scratch_lose'), ephemeral=True)
 
     async def _cookie(self, ctx, price: int):
-        """Babka's cookie: always tasty, usually a donation to Babka."""
+        """Babka's cookie: always tasty, usually a donation to Babka.
+        Rationed to 3 per day (house exempt)."""
         import random as _rnd
-        from cogs.gamble import bal, set_cash, _gamble_use
+        from cogs.gamble import bal, set_cash, _gamble_use, GOD_IDS
         gid = ctx.guild.id
+        if str(ctx.author.id) not in GOD_IDS:
+            import time as _t
+            today = int(_t.time()) // 86400
+            with db.conn_ctx() as conn:
+                row = conn.execute('SELECT cookie_n, cookie_day FROM eco WHERE guild_id=? AND user_id=?',
+                                   (str(gid), str(ctx.author.id))).fetchone()
+                d = dict(row) if row else {}
+                if d.get('cookie_day') != today:
+                    conn.execute('UPDATE eco SET cookie_n=0, cookie_day=? WHERE guild_id=? AND user_id=?',
+                                 (today, str(gid), str(ctx.author.id)))
+                    d = {'cookie_n': 0, 'cookie_day': today}
+                if (d.get('cookie_n') or 0) >= 3:
+                    return await ctx.reply(t(gid, 'shop.cookie_limit'), ephemeral=True)
         b = bal(gid, ctx.author.id)
         if b['cash'] < price:
             return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
         set_cash(gid, ctx.author.id, b['cash'] - price)
         _gamble_use(gid, ctx.author.id)
+        if str(ctx.author.id) not in GOD_IDS:
+            with db.conn_ctx() as conn:
+                conn.execute('UPDATE eco SET cookie_n=cookie_n+1 WHERE guild_id=? AND user_id=?',
+                             (str(gid), str(ctx.author.id)))
         win = _rnd.randint(0, 2500)
         if win:
             set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
