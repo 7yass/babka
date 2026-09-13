@@ -349,6 +349,20 @@ def _game_layout(title: str, desc: str, image_url: str = None):
     return layout
 
 
+def _attach_roulette_again(layout, button):
+    """Append a button row to a _game_layout container."""
+    from discord.ui import ActionRow
+    for child in layout.children:
+        if type(child).__name__ == 'Container':
+            row = ActionRow()
+            row.add_item(button)
+            child.add_item(row)
+            return
+    row = ActionRow()
+    row.add_item(button)
+    layout.add_item(row)
+
+
 def _jailed(gid, uid):
     jl = db.jail_left(gid, uid)
     if jl:
@@ -570,6 +584,25 @@ def _rou_ball(n: int) -> str:
     return f"{'🔴' if n in ROU_REDS else '⚫'} **{n}**"
 
 
+def roulette_spin_gif(idxs, get_png, size: int = 240) -> bytes:
+    """One looping spin GIF from cached wheel frames. Rendered once, reused."""
+    import io as _io
+    from PIL import Image as _Img
+    frames = []
+    for i in idxs:
+        try:
+            fr = _Img.open(_io.BytesIO(get_png(i))).convert('RGB').resize((size, size))
+            frames.append(fr)
+        except Exception:
+            continue
+    if not frames:
+        return b''
+    buf = _io.BytesIO()
+    frames[0].save(buf, 'GIF', save_all=True, append_images=frames[1:],
+                   duration=90, loop=1, optimize=True)
+    return buf.getvalue()
+
+
 class PokerView(discord.ui.LayoutView):
     def __init__(self, cog, player_id: int, bet: int, deck, hand, gid):
         super().__init__(timeout=120)
@@ -780,6 +813,33 @@ class Gamble(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self._rou_hist = {}  # gid -> last 8 winning numbers
+        self._rou_wheels = {}  # number -> pre-rendered wheel PNG (instant spins)
+        self._rou_gif = None  # pre-rendered spin GIF
+        self._rou_warming = False
+
+    async def _rou_warm_cache(self):
+        """Render all 37 wheels + spin GIF once, in background. Later spins
+        are instant cache lookups instead of mid-spin renders."""
+        if self._rou_wheels and self._rou_gif:
+            return True
+        if self._rou_warming:
+            return False
+        self._rou_warming = True
+        try:
+            def _build():
+                wheels = {n: roulette_image(n) for n in range(37)}
+                gif = roulette_spin_gif(
+                    [__import__('random').randint(0, 36) for _ in range(8)],
+                    wheels.get)
+                return wheels, gif
+            wheels, gif = await self.bot.loop.run_in_executor(None, _build)
+            self._rou_wheels = wheels
+            self._rou_gif = gif
+            return True
+        except Exception:
+            return False
+        finally:
+            self._rou_warming = False
 
     @commands.command(name='bal', description='Twoja kasa')
     async def balance(self, ctx, member: discord.Member = None):
@@ -1205,7 +1265,45 @@ class Gamble(commands.Cog):
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
         _gamble_use(gid, ctx.author.id)
-        god = str(ctx.author.id) in GOD_IDS
+        n, msg = self._roulette_round(gid, ctx.author.id, bet, kind, num)
+        title = t(gid, 'eco.rou_title', bet=bet)
+        layout = _game_layout(title, msg, 'attachment://rou.png')
+        _attach_roulette_again(
+            layout, self._roulette_again_button(gid, ctx.author.id, bet, kind, num))
+        import asyncio as _aio3
+        import io as _rou_io
+        final_png = self._rou_wheels.get(n)
+        if final_png and self._rou_gif:
+            # fast path: cached GIF plays instantly, one edit to the cached final
+            spin = await ctx.reply(
+                view=_game_layout(title, t(gid, 'eco.rou_spinning'),
+                                  'attachment://spin.gif'),
+                file=discord.File(_rou_io.BytesIO(self._rou_gif), 'spin.gif'))
+            await _aio3.sleep(1.0)
+            try:
+                await spin.edit(
+                    view=layout,
+                    attachments=[discord.File(_rou_io.BytesIO(final_png), 'rou.png')])
+            except Exception:
+                pass
+        else:
+            # first spin ever: instant ack, render on demand, warm cache behind
+            spin = await ctx.reply(view=_game_layout(title, t(gid, 'eco.rou_spinning')))
+            png = await self.bot.loop.run_in_executor(None, roulette_image, n)
+            try:
+                await spin.edit(
+                    view=layout,
+                    attachments=[discord.File(_rou_io.BytesIO(png), 'rou.png')])
+            except Exception:
+                await ctx.reply(
+                    view=layout,
+                    file=discord.File(_rou_io.BytesIO(png), 'rou.png'))
+            self.bot.loop.create_task(self._rou_warm_cache())
+
+    def _roulette_round(self, gid, uid, bet: int, kind: str, num: int):
+        """Spin + settle one round. Stake must already be taken.
+        Returns (winning_number, result_text)."""
+        god = str(uid) in GOD_IDS
         n = _roulette_spin(kind, num, god)
         hist = self._rou_hist.setdefault(str(gid), [])
         hist.append(n)
@@ -1216,37 +1314,47 @@ class Gamble(commands.Cog):
         mult = ROU_PAY.get(kind, 1)
         if _rou_wins(n, kind, num):
             profit = bet * mult
-            nb = bal(gid, ctx.author.id)
-            set_cash(gid, ctx.author.id, nb['cash'] + bet + profit)
+            nb = bal(gid, uid)
+            set_cash(gid, uid, nb['cash'] + bet + profit)
             msg = t(gid, 'eco.rou_win', ball=ball, choice=label, win=profit)
         else:
             msg = t(gid, 'eco.rou_lose', ball=ball, choice=label, bet=bet)
         msg += '\n' + t(gid, 'eco.rou_recent', nums=recent)
-        msg += _wallet_line(gid, ctx.author.id)
-        import asyncio as _aio3
-        spin = await ctx.reply(view=_game_layout(t(gid, 'eco.rou_title', bet=bet),
-                                                 t(gid, 'eco.rou_spinning')))
-        for _ in range(2):
-            await _aio3.sleep(0.7)
-            try:
-                fake = await self.bot.loop.run_in_executor(
-                    None, roulette_image, random.randint(0, 36))
-                await spin.edit(view=_game_layout(t(gid, 'eco.rou_title', bet=bet),
-                                                  t(gid, 'eco.rou_spinning'),
-                                                  'attachment://rou.png'),
-                                attachments=[discord.File(__import__('io').BytesIO(fake), 'rou.png')])
-            except Exception:
-                break
-        await _aio3.sleep(0.7)
-        png = await self.bot.loop.run_in_executor(None, roulette_image, n)
-        try:
-            await spin.edit(view=_game_layout(t(gid, 'eco.rou_title', bet=bet), msg,
-                                              'attachment://rou.png'),
-                            attachments=[discord.File(__import__('io').BytesIO(png), 'rou.png')])
-        except Exception:
-            await ctx.reply(view=_game_layout(t(gid, 'eco.rou_title', bet=bet), msg,
-                                              'attachment://rou.png'),
-                            file=discord.File(__import__('io').BytesIO(png), 'rou.png'))
+        msg += _wallet_line(gid, uid)
+        return n, msg
+
+    def _roulette_again_button(self, gid, uid, bet: int, kind: str, num: int):
+        """SPIN AGAIN button: same bet + choice in one click."""
+        cog = self
+
+        async def _cb(interaction: discord.Interaction):
+            if interaction.user.id != int(uid):
+                return await interaction.response.send_message(
+                    t(gid, 'eco.not_yours'), ephemeral=True)
+            wait = _gamble_gate(gid, uid)
+            if wait is not None:
+                return await interaction.response.send_message(
+                    t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
+            b = bal(gid, uid)
+            if bet <= 0 or bet > b['cash']:
+                return await interaction.response.send_message(
+                    t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
+            set_cash(gid, uid, b['cash'] - bet)
+            _gamble_use(gid, uid)
+            n, msg = cog._roulette_round(gid, uid, bet, kind, num)
+            png = cog._rou_wheels.get(n) or roulette_image(n)
+            layout = _game_layout(t(gid, 'eco.rou_title', bet=bet), msg,
+                                  'attachment://rou2.png')
+            _attach_roulette_again(
+                layout, cog._roulette_again_button(gid, uid, bet, kind, num))
+            await interaction.response.send_message(
+                view=layout,
+                file=discord.File(__import__('io').BytesIO(png), 'rou2.png'))
+
+        b = discord.ui.Button(label='SPIN AGAIN', style=discord.ButtonStyle.success,
+                              custom_id=f'roulette_again:{uid}:{bet}:{kind}:{num}')
+        b.callback = _cb
+        return b
 
     @commands.command(name='poker', description='Video poker: Jacks or better')
     async def poker(self, ctx, bet: int):
