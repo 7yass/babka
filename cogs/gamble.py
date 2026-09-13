@@ -14,7 +14,8 @@ ROB_CD = 3600
 # blackjack anti-abuse: no more 100k wins
 BJ_MAX_BET = 2000   # gods (house) exempt
 BJ_MAX_WIN = 15000  # max profit per hand for mortals
-BJ_CD = 180         # seconds between hands for mortals
+# gambling is limited to 10 plays per hour (shared across all games); gods exempt
+GAMBLES_PER_HOUR = 10
 SUITS = ['♠', '♥', '♦', '♣']
 RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 SLOTS = ['7', '★', '♦', '♣', '●']
@@ -355,6 +356,43 @@ def _jailed(gid, uid):
     return None
 
 
+def _gamble_gate(gid, uid):
+    """Hourly play limit shared by all games of chance.
+    Returns None if allowed, else minutes until the next hour. Gods exempt."""
+    import time
+    if str(uid) in GOD_IDS:
+        return None
+    hr = int(time.time()) // 3600
+    with db.conn_ctx() as conn:
+        row = conn.execute('SELECT gamble_n, gamble_hr FROM eco WHERE guild_id=? AND user_id=?',
+                           (str(gid), str(uid))).fetchone()
+    if row:
+        d = dict(row)
+        if (d.get('gamble_hr') or 0) == hr and (d.get('gamble_n') or 0) >= GAMBLES_PER_HOUR:
+            mins = 60 - (int(time.time()) // 60 % 60)
+            return max(1, mins)
+    return None
+
+
+def _gamble_use(gid, uid):
+    """Record one gamble towards the hourly limit. Gods exempt."""
+    import time
+    if str(uid) in GOD_IDS:
+        return
+    hr = int(time.time()) // 3600
+    bal(gid, uid)  # ensure row exists
+    with db.conn_ctx() as conn:
+        row = conn.execute('SELECT gamble_n, gamble_hr FROM eco WHERE guild_id=? AND user_id=?',
+                           (str(gid), str(uid))).fetchone()
+        d = dict(row) if row else {}
+        if d.get('gamble_hr') != hr:
+            conn.execute('UPDATE eco SET gamble_n=1, gamble_hr=? WHERE guild_id=? AND user_id=?',
+                         (hr, str(gid), str(uid)))
+        else:
+            conn.execute('UPDATE eco SET gamble_n=gamble_n+1 WHERE guild_id=? AND user_id=?',
+                         (str(gid), str(uid)))
+
+
 def _wallet_line(gid, uid) -> str:
     try:
         return '\n' + t(gid, 'eco.balance_line', cash=bal(gid, uid)['cash'])
@@ -362,18 +400,32 @@ def _wallet_line(gid, uid) -> str:
         return ''
 
 
-def wallet_card(name: str, cash: int, streak: int, avatar_bytes: bytes = None, bank: int = 0) -> bytes:
+def wallet_card(name: str, cash: int, streak: int, avatar_bytes: bytes = None, bank: int = 0,
+                bg_bytes: bytes = None) -> bytes:
     """Direction A wallet: gold edge bar, gold-ring avatar left, giant gold
-    balance, streak/bank ledger right."""
+    balance, streak/bank ledger right. Nitro banner becomes the background."""
     import io as _io
-    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
+    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F, ImageFilter as _Fl
     from pathlib import Path as _P
     W, H = 800, 220
     GOLD = (250, 200, 60)
     INK = (255, 255, 255)
     FAINT = (96, 96, 104)
     HAIR = (54, 54, 60)
-    img = _Img.new('RGB', (W, H), (16, 16, 19))
+    if bg_bytes:
+        try:
+            bg = _Img.open(_io.BytesIO(bg_bytes)).convert('RGB')
+            scale = max(W / max(bg.width, 1), H / max(bg.height, 1))
+            bg = bg.resize((int(bg.width * scale) + 1, int(bg.height * scale) + 1))
+            x = (bg.width - W) // 2
+            y = (bg.height - H) // 2
+            bg = bg.crop((x, y, x + W, y + H)).filter(_Fl.GaussianBlur(18))
+            dim = _Img.new('RGB', (W, H), (10, 10, 12))
+            img = _Img.blend(bg, dim, 0.62)
+        except Exception:
+            img = _Img.new('RGB', (W, H), (16, 16, 19))
+    else:
+        img = _Img.new('RGB', (W, H), (16, 16, 19))
     d = _Dr.Draw(img)
     try:
         _a = _P(__file__).parent.parent / 'assets'
@@ -727,20 +779,41 @@ class BJView(discord.ui.LayoutView):
 class Gamble(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self._bj_cd = {}   # (gid, uid) -> timestamp of last hand (mortals only)
         self._rou_hist = {}  # gid -> last 8 winning numbers
 
     @commands.hybrid_command(name='bal', description='Twoja kasa')
     async def balance(self, ctx, member: discord.Member = None):
+        import aiohttp
+        import asyncio as _aio
+        await ctx.defer(ephemeral=True)
         member = member or ctx.author
         b = bal(ctx.guild.id, member.id)
-        try:
-            av = await member.display_avatar.with_size(256).read()
-        except Exception:
-            av = None
+
+        async def grab(session, url):
+            try:
+                async with session.get(url, headers={'User-Agent': 'Mozilla/5.0'},
+                                       timeout=aiohttp.ClientTimeout(total=4)) as r:
+                    if r.status == 200:
+                        return await r.read()
+            except Exception:
+                return None
+            return None
+
+        async with aiohttp.ClientSession() as session:
+            avatar_task = _aio.ensure_future(
+                grab(session, str(member.display_avatar.with_size(256).url)))
+            try:
+                u = await self.bot.fetch_user(member.id)
+                banner_url = str(u.banner.with_size(512).url) if u and u.banner else None
+            except Exception:
+                banner_url = None
+            if banner_url:
+                banner, av = await _aio.gather(grab(session, banner_url), avatar_task)
+            else:
+                banner, av = None, await avatar_task
         png = await self.bot.loop.run_in_executor(
             None, wallet_card, member.display_name, b['cash'], b.get('daily_streak') or 0, av,
-            b.get('bank') or 0)
+            b.get('bank') or 0, banner)
         await ctx.reply(view=_game_layout(t(ctx.guild.id, 'eco.bal_title', user=member.display_name),
                                           t(ctx.guild.id, 'eco.bal', user=member.display_name, cash=b['cash']),
                                           'attachment://wallet.png'),
@@ -932,17 +1005,14 @@ class Gamble(commands.Cog):
         if not god:
             if bet > BJ_MAX_BET:
                 return await ctx.reply(t(gid, 'eco.bj_maxbet', max=BJ_MAX_BET), ephemeral=True)
-            last = self._bj_cd.get((str(gid), str(ctx.author.id)), 0)
-            wait = BJ_CD - (int(time.time()) - last)
-            if wait > 0:
-                m, s = divmod(wait, 60)
-                return await ctx.reply(t(gid, 'eco.bj_wait', m=m, s=s), ephemeral=True)
+            wait = _gamble_gate(gid, ctx.author.id)
+            if wait is not None:
+                return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
         b = bal(gid, ctx.author.id)
         if bet > b['cash']:
             return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
         set_cash(gid, ctx.author.id, b['cash'] - bet)
-        if not god:
-            self._bj_cd[(str(gid), str(ctx.author.id))] = int(time.time())
+        _gamble_use(gid, ctx.author.id)
         deck = [(r, s) for s in SUITS for r in RANKS]
         random.shuffle(deck)
         if god:
@@ -992,10 +1062,14 @@ class Gamble(commands.Cog):
         jm = _jailed(gid, ctx.author.id)
         if jm:
             return await ctx.reply(jm, ephemeral=True)
+        wait = _gamble_gate(gid, ctx.author.id)
+        if wait is not None:
+            return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
         b, err_msg = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
-        
+        _gamble_use(gid, ctx.author.id)
+
         win_chance = self._win_chance(gid, ctx.author.id, bet)
         won = random.random() < win_chance
 
@@ -1047,9 +1121,13 @@ class Gamble(commands.Cog):
         pick = 'O' if side.startswith(('o', 'e', 'h')) else ('R' if side.startswith(('r', 't')) else None)
         if pick is None:
             return await ctx.reply(t(gid, 'eco.cf_use'), ephemeral=True)
+        wait = _gamble_gate(gid, ctx.author.id)
+        if wait is not None:
+            return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
         b, err_msg = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
+        _gamble_use(gid, ctx.author.id)
         win_chance = self._win_chance(gid, ctx.author.id, bet)
         won = random.random() < win_chance
         result = pick if won else ('R' if pick == 'O' else 'O')
@@ -1120,9 +1198,13 @@ class Gamble(commands.Cog):
             kind = 'col3'
         if kind is None:
             return await ctx.reply(t(gid, 'eco.rou_use'), ephemeral=True)
+        wait = _gamble_gate(gid, ctx.author.id)
+        if wait is not None:
+            return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
         b, err_msg = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
+        _gamble_use(gid, ctx.author.id)
         god = str(ctx.author.id) in GOD_IDS
         n = _roulette_spin(kind, num, god)
         hist = self._rou_hist.setdefault(str(gid), [])
@@ -1172,9 +1254,13 @@ class Gamble(commands.Cog):
         jm = _jailed(gid, ctx.author.id)
         if jm:
             return await ctx.reply(jm, ephemeral=True)
+        wait = _gamble_gate(gid, ctx.author.id)
+        if wait is not None:
+            return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
         b, err_msg = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
+        _gamble_use(gid, ctx.author.id)
         deck = [(r, s) for s in SUITS for r in RANKS]
         random.shuffle(deck)
         hand = [deck.pop() for _ in range(5)]

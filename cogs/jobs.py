@@ -185,56 +185,141 @@ async def ensure_job_role(guild: discord.Guild, key: str):
     return role
 
 
+class _JobBoard(discord.ui.LayoutView):
+    """Click-to-join job board. Only the invoker's clicks count."""
+    def __init__(self, cog, invoker_id: int, gid):
+        super().__init__(timeout=180)
+        self.cog, self.invoker_id, self.gid = cog, invoker_id, gid
+        self._box = None
+
+    def add_board(self, title: str, desc: str):
+        from discord.ui import Container, TextDisplay
+        self._box = Container(accent_color=0xFFFFFF)
+        self._box.add_item(TextDisplay(f'## {title}\n{desc}'))
+        try:
+            from utils.embeds import foot
+            self._box.add_item(TextDisplay(f'-# {foot()}'))
+        except Exception:
+            pass
+        self.add_item(self._box)
+
+    def add_jobs(self, guild: discord.Guild, member: discord.Member, lv: int, cur: str):
+        from discord.ui import ActionRow
+        row = ActionRow()
+        for key, j in JOBS.items():
+            hidden = bool(j.get('hidden'))
+            if hidden and not db.is_house(member.id):
+                continue
+            need = j.get('min_level', 0)
+            locked = lv < need
+            if len(row.children) >= 5:
+                self._box.add_item(row)
+                row = ActionRow()
+            style = (discord.ButtonStyle.success if key == cur
+                     else discord.ButtonStyle.secondary if locked
+                     else discord.ButtonStyle.primary)
+            b = discord.ui.Button(
+                label=f"✓ {j['label']}"[:80] if key == cur else
+                      (f"🔒 {j['label']}"[:80] if hidden else j['label'][:80]),
+                style=style, custom_id=f'job_{key}',
+                disabled=(key == cur or locked))
+            b.callback = self._mk_join(key)
+            row.add_item(b)
+        if row.children:
+            self._box.add_item(row)
+        async def _cb(interaction: discord.Interaction):
+            if interaction.user.id != self.invoker_id:
+                from lang import t as _t
+                return await interaction.response.send_message(
+                    _t(self.gid, 'eco.not_yours'), ephemeral=True)
+            ok, msg = await self.cog._hire(interaction.guild, interaction.user, key)
+            await interaction.response.send_message(msg, ephemeral=True)
+        return _cb
+
+
 class Jobs(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_group(name='job', description='Twoja kariera')
-    async def job(self, ctx):
-        await ctx.reply('/job list / join / leave / my', ephemeral=True)
-
-    @job.command(name='list', description='Oferty pracy')
-    async def job_list(self, ctx):
-        from cogs.gamble import _game_layout
+    async def _hire(self, guild: discord.Guild, member: discord.Member, key: str):
+        """Shared hire logic for /job join + board buttons. Returns (ok, msg)."""
         from cogs.levels import get_user
-        lv = get_user(ctx.guild.id, ctx.author.id).get('level', 0)
-        lines = []
-        for key, j in JOBS.items():
-            if j.get('hidden'):
-                continue
-            lock = t(ctx.guild.id, 'job.need_level', level=j['min_level']) if lv < j.get('min_level', 0) else ''
-            lines.append(f"• **{j['label']}** — {j['base'][0]}–{j['base'][1]} / zmianę {lock}")
-        await ctx.reply(view=_game_layout(t(ctx.guild.id, 'job.list_title'), '\n'.join(lines)),
-                        ephemeral=True)
-
-    @job.command(name='join', description='Zatrudnij się')
-    async def job_join(self, ctx, name: str):
-        from cogs.levels import get_user
-        gid = ctx.guild.id
-        key = JOB_ALIAS.get((name or '').lower().strip(), (name or '').lower().strip())
-        if key in JOBS and JOBS[key].get('hidden') and not db.is_house(ctx.author.id):
-            return await ctx.reply(t(gid, 'job.nope'), ephemeral=True)
+        gid = guild.id
+        key = JOB_ALIAS.get((key or '').lower().strip(), (key or '').lower().strip())
+        if key in JOBS and JOBS[key].get('hidden') and not db.is_house(member.id):
+            return False, t(gid, 'job.nope')
         if key not in JOBS:
-            return await ctx.reply(t(gid, 'job.nope'), ephemeral=True)
+            return False, t(gid, 'job.nope')
         need = JOBS[key].get('min_level', 0)
-        if get_user(gid, ctx.author.id).get('level', 0) < need:
-            return await ctx.reply(t(gid, 'job.locked', level=need), ephemeral=True)
-        old = get_job(gid, ctx.author.id).get('job')
+        if get_user(gid, member.id).get('level', 0) < need:
+            return False, t(gid, 'job.locked', level=need)
+        old = get_job(gid, member.id).get('job')
         with db.conn_ctx() as conn:
             conn.execute('INSERT OR REPLACE INTO jobs (guild_id, user_id, job, fans, tier) VALUES (?,?,?,?,0)',
-                         (str(gid), str(ctx.author.id), key, 0))
-        member = ctx.author
+                         (str(gid), str(member.id), key, 0))
         try:
             if old and old != key and old in JOBS:
-                r = discord.utils.find(lambda x: x.name == JOBS[old]['label'], ctx.guild.roles)
+                r = discord.utils.find(lambda x: x.name == JOBS[old]['label'], guild.roles)
                 if r:
                     await member.remove_roles(r, reason='job change')
-            role = await ensure_job_role(ctx.guild, key)
+            role = await ensure_job_role(guild, key)
             if role and role not in member.roles:
                 await member.add_roles(role, reason='new job')
         except Exception:
             pass
-        await ctx.reply(t(gid, 'job.hired', job=JOBS[key]['label']), ephemeral=True)
+        return True, t(gid, 'job.hired', job=JOBS[key]['label'])
+
+    @commands.hybrid_group(name='job', description='Twoja kariera')
+    async def job(self, ctx):
+        await ctx.reply('/job list / join / show / leave / my', ephemeral=True)
+
+    @job.command(name='list', description='Oferty pracy')
+    async def job_list(self, ctx):
+        from cogs.levels import get_user
+        gid = ctx.guild.id
+        lv = get_user(gid, ctx.author.id).get('level', 0)
+        cur = get_job(gid, ctx.author.id).get('job')
+        cur = JOB_ALIAS.get(cur, cur)
+        lines = []
+        for key, j in JOBS.items():
+            if j.get('hidden') and not db.is_house(ctx.author.id):
+                continue
+            need = j.get('min_level', 0)
+            top = (j.get('track') or [j['label']])[-1]
+            mark = ' ✓' if key == cur else (' 🔒' if j.get('hidden') else '')
+            lock = f" — {t(gid, 'job.need_level', level=need)}" if lv < need else ''
+            lines.append(f"• **{j['label']}**{mark} — {j['base'][0]}–{j['base'][1]} / zmianę → *{top}*{lock}")
+        view = _JobBoard(self, ctx.author.id, gid)
+        view.add_board(t(gid, 'job.list_title'), '\n'.join(lines))
+        view.add_jobs(ctx.guild, ctx.author, lv, cur)
+        await ctx.reply(view=view, ephemeral=True)
+
+    @job.command(name='show', description="Czyjaś kariera")
+    async def job_show(self, ctx, member: discord.Member = None):
+        from cogs.levels import get_user
+        from cogs.gamble import _game_layout
+        member = member or ctx.author
+        gid = ctx.guild.id
+        j = get_job(gid, member.id)
+        jkey = JOB_ALIAS.get(j.get('job'), j.get('job'))
+        if jkey not in JOBS:
+            return await ctx.reply(view=_game_layout(member.display_name, t(gid, 'job.none')),
+                                   ephemeral=True)
+        lv = get_user(gid, member.id).get('level', 0)
+        idx, _, mult, _ = ladder_of(lv)
+        title = job_title(jkey, idx, member.id)
+        job = JOBS[jkey]
+        await ctx.reply(view=_game_layout(
+            t(gid, 'job.my_title', user=member.display_name),
+            t(gid, 'job.card', job=job['label'], fame=title, mult=mult,
+              fans=j.get('fans', 0), level=lv, shifts=j.get('shifts', 0),
+              nxt=t(gid, 'job.next', level=LADDER[idx + 1][0]) if idx + 1 < len(LADDER) else t(gid, 'job.top'))),
+            ephemeral=True)
+
+    @job.command(name='join', description='Zatrudnij się')
+    async def job_join(self, ctx, name: str):
+        ok, msg = await self._hire(ctx.guild, ctx.author, name)
+        await ctx.reply(msg, ephemeral=True)
 
     @job.command(name='leave', description='Rzuć robotę')
     async def job_leave(self, ctx):

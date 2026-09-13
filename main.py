@@ -63,6 +63,7 @@ COGS = [
     'cogs.suggest',
     'cogs.shop',
     'cogs.crime',
+    'cogs.profile',
 ]
 
 
