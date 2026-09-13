@@ -53,14 +53,129 @@ def inv_take(gid, uid, item: str) -> bool:
         return True
 
 
+def _coins(n: int) -> str:
+    if n >= 1_000_000:
+        return f'{n / 1_000_000:g}M'
+    if n >= 1_000:
+        return f'{n / 1_000:g}K'
+    return str(n)
+
+
+class _IxCtx:
+    """Minimal Context shim so purchase handlers work from button clicks."""
+    def __init__(self, interaction: discord.Interaction):
+        self._ix = interaction
+        self.guild = interaction.guild
+        self.author = interaction.user
+
+    async def reply(self, content=None, **kwargs):
+        kwargs.pop('mention_author', None)
+        try:
+            await self._ix.followup.send(content, ephemeral=True, **kwargs)
+        except Exception:
+            pass
+
+
 class Shop(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    # category -> item keys, in display order
+    SHOP_SECTIONS = [
+        ('Cheap thrills', ['cookie', 'scratch']),
+        ('Identity', ['nick', 'force', 'pardon']),
+        ('Protection', ['shield', 'curse']),
+        ('Power', ['xpboost']),
+        ('Boxes', ['lootbox', 'megabox']),
+        ('Freedom', ['bail']),
+        ('Prestige', ['vip']),
+    ]
+
+    def _shop_layout(self, gid, uid, cash: int):
+        from discord.ui import LayoutView, Container, TextDisplay, ActionRow, Separator
+        layout = LayoutView(timeout=180)
+        box = Container(accent_color=0xFAC43C)
+        box.add_item(TextDisplay(f'# 🛒 {t(gid, "shop.title")}\n'
+                                 f'-# {t(gid, "shop.wallet", cash=f"{cash:,}".replace(",", " "))}'))
+        for sec, keys in self.SHOP_SECTIONS:
+            box.add_item(Separator(visible=False))
+            lines = '\n'.join(
+                f"• **{k}** — {_coins(ITEMS[k]['price'])} — {t(gid, ITEMS[k]['use'])}"
+                for k in keys)
+            box.add_item(TextDisplay(f'**{sec}**\n{lines}'))
+        # buy buttons, 5 per row
+        row = ActionRow()
+        for sec, keys in self.SHOP_SECTIONS:
+            for k in keys:
+                if len(row.children) >= 5:
+                    box.add_item(row)
+                    row = ActionRow()
+                b = discord.ui.Button(label=f'{k} · {_coins(ITEMS[k]["price"])}',
+                                      style=discord.ButtonStyle.secondary,
+                                      custom_id=f'shopbuy:{uid}:{k}')
+                b.callback = self._mk_buy(gid, uid, k)
+                row.add_item(b)
+        if row.children:
+            box.add_item(row)
+        layout.add_item(box)
+        return layout
+
+    def _mk_buy(self, gid, uid, item: str):
+        async def _cb(interaction: discord.Interaction):
+            if interaction.user.id != int(uid):
+                return await interaction.response.send_message(
+                    t(gid, 'eco.not_yours'), ephemeral=True)
+            from cogs.gamble import bal
+            price = ITEMS[item]['price']
+            cash = bal(gid, uid)['cash']
+            layout = self._confirm_layout(gid, item, price, cash)
+            await interaction.response.send_message(view=layout, ephemeral=True)
+        return _cb
+
+    def _confirm_layout(self, gid, item: str, price: int, cash: int):
+        from discord.ui import LayoutView, Container, TextDisplay, ActionRow
+        layout = LayoutView(timeout=120)
+        box = Container(accent_color=0xFAC43C)
+        left = cash - price
+        box.add_item(TextDisplay(
+            f'## {item} — {_coins(price)}\n'
+            f'{t(gid, ITEMS[item]["use"])}\n'
+            f'-# {t(gid, "shop.confirm", cash=f"{cash:,}".replace(",", " "), left=f"{left:,}".replace(",", " "))}'))
+        row = ActionRow()
+        yes = discord.ui.Button(label=t(gid, 'shop.yes'), style=discord.ButtonStyle.success,
+                                custom_id='shop_yes')
+        no = discord.ui.Button(label=t(gid, 'shop.no'), style=discord.ButtonStyle.danger,
+                               custom_id='shop_no')
+
+        async def _yes(interaction: discord.Interaction):
+            await interaction.response.defer(ephemeral=True)
+            try:
+                await interaction.message.edit(view=None)
+            except Exception:
+                pass
+            await self.buy(_IxCtx(interaction), item)
+
+        async def _no(interaction: discord.Interaction):
+            try:
+                await interaction.response.edit_message(
+                    content=t(gid, 'shop.cancelled'), view=None)
+            except Exception:
+                pass
+
+        yes.callback = _yes
+        no.callback = _no
+        row.add_item(yes)
+        row.add_item(no)
+        box.add_item(row)
+        layout.add_item(box)
+        return layout
+
     @commands.group(name='shop', description='Sklep')
     async def shop(self, ctx):
-        lines = [f"• **{k}** — {v['price']}$ — {t(ctx.guild.id, v['use'])}" for k, v in ITEMS.items()]
-        await ctx.reply(embed=ok(t(ctx.guild.id, 'shop.title') + '\n' + '\n'.join(lines)), ephemeral=True)
+        from cogs.gamble import bal
+        gid = ctx.guild.id
+        layout = self._shop_layout(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'])
+        await ctx.reply(view=layout, ephemeral=True)
 
     @shop.command(name='buy', description='Kup przedmiot')
     async def buy(self, ctx, item: str):
