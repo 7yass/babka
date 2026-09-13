@@ -1295,6 +1295,13 @@
       [],
       "setup / off",
       "Everyone"
+    ],
+    "poker": [
+      "economy",
+      "Video poker: hold cards, draw once.",
+      [],
+      "<bet>",
+      "Everyone"
     ]
   },
   "cats": {

@@ -1,4 +1,4 @@
-"""Fit checks: auto-react fire/trash on pics + hardest-fit leaderboard."""
+﻿"""Fit checks: auto-react fire/trash on pics + hardest-fit leaderboard."""
 import discord
 from discord.ext import commands
 
@@ -6,9 +6,9 @@ import database as db
 from lang import t
 
 FIT_CHANNEL = '1546599670074310716'
-POS = {'❤', '🔥', '👽'}
-NEG = {'🗑'}
-ALLOWED = {'🔥', '🗑'}
+POS = {'â¤', 'ðŸ”¥', 'ðŸ‘½'}
+NEG = {'ðŸ—‘'}
+ALLOWED = {'ðŸ”¥', 'ðŸ—‘'}
 TITLES = {1: 'FIRE', 2: 'HARDEST', 3: 'CLEAN'}
 
 
@@ -57,23 +57,23 @@ def board_image(rows) -> bytes:
                 pass
         x, ty = PAD + 4 + AV + 14, y0 + 8
         rank_col = RANK_COLS.get(rank, (150, 150, 158))
-        head_parts = [(f'#{rank}', rank_col), (' • ', (110, 110, 116)), (name, (255, 255, 255))]
+        head_parts = [(f'#{rank}', rank_col), (' â€¢ ', (110, 110, 116)), (name, (255, 255, 255))]
         if title:
-            head_parts += [(' • ', (110, 110, 116)), (title, rank_col)]
+            head_parts += [(' â€¢ ', (110, 110, 116)), (title, rank_col)]
         try:
             maxw = W - x - PAD
             nm = name
-            while d.textlength(f'#{rank} • {nm}' + (f' • {title}' if title else ''), font=f_mid) > maxw and len(nm) > 4:
+            while d.textlength(f'#{rank} â€¢ {nm}' + (f' â€¢ {title}' if title else ''), font=f_mid) > maxw and len(nm) > 4:
                 nm = nm[:-2]
             if nm != name:
-                head_parts[2] = (nm + '…', (255, 255, 255))
+                head_parts[2] = (nm + 'â€¦', (255, 255, 255))
             cx = x
             for txt, col in head_parts:
                 d.text((cx, ty), txt, font=f_mid, fill=col)
                 cx += d.textlength(txt, font=f_mid)
         except Exception:
-            d.text((x, ty), f'#{rank} • {name[:14]}', font=f_mid, fill=(255, 255, 255))
-        # counts line: heart pos, trash neg — or plain text when neg is None
+            d.text((x, ty), f'#{rank} â€¢ {name[:14]}', font=f_mid, fill=(255, 255, 255))
+        # counts line: heart pos, trash neg â€” or plain text when neg is None
         cy = ty + 34
         try:
             if neg is None:
@@ -81,10 +81,10 @@ def board_image(rows) -> bytes:
             else:
                 parts = []
                 if f_emoji:
-                    parts += [('❤', f_emoji)]
+                    parts += [('â¤', f_emoji)]
                 parts += [(f' {pos}   ', f_mid)]
                 if f_emoji:
-                    parts += [('🗑', f_emoji)]
+                    parts += [('ðŸ—‘', f_emoji)]
                 parts += [(f' {neg}', f_mid)]
                 cx = x
                 for txt, font in parts:
@@ -112,7 +112,7 @@ class FitCheck(commands.Cog):
             return
         if str(message.channel.id) != FIT_CHANNEL or not _is_pic(message):
             return
-        for emoji in ('🔥', '🗑️'):
+        for emoji in ('ðŸ”¥', 'ðŸ—‘ï¸'):
             try:
                 await message.add_reaction(emoji)
             except Exception:
@@ -174,7 +174,7 @@ class FitCheck(commands.Cog):
                 pass  # keep first-seen member for name/avatar
         ranked = sorted(merged.values(), key=lambda t: (-t['pos'], t['neg']))[:10]
         if not ranked or ranked[0]['pos'] == 0:
-            return await ctx.reply('No voted fits yet — post pics and vote.', ephemeral=True)
+            return await ctx.reply('No voted fits yet â€” post pics and vote.', ephemeral=True)
         top = max(t['pos'] for t in ranked)
         rows = []
         for i, t in enumerate(ranked, start=1):
@@ -195,7 +195,7 @@ class FitCheck(commands.Cog):
                         mention_author=False)
 
 
-    @commands.hybrid_command(name='fitlink', description='Połącz dwa konta w jedne fity')
+    @commands.command(name='fitlink', description='PoÅ‚Ä…cz dwa konta w jedne fity')
     async def fitlink(self, ctx, other: discord.Member):
         gid, me = str(ctx.guild.id), str(ctx.author.id)
         if other.id == ctx.author.id or other.bot:
@@ -209,7 +209,7 @@ class FitCheck(commands.Cog):
             conn.execute('INSERT INTO fit_links (guild_id, u1, u2) VALUES (?,?,?)', (gid, a, b))
         await ctx.reply(t(ctx.guild.id, 'fit.linked', user=other.display_name), ephemeral=True)
 
-    @commands.hybrid_command(name='fitunlink', description='Rozłącz konta')
+    @commands.command(name='fitunlink', description='RozÅ‚Ä…cz konta')
     async def fitunlink(self, ctx):
         gid, me = str(ctx.guild.id), str(ctx.author.id)
         from utils.checks import is_staff

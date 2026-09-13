@@ -207,6 +207,10 @@
     "eco.rob_title": "Robbery",
     "eco.rich_empty": "Nobody has a cent yet.",
     "eco.rich_title": "Richest degenerates",
+    "eco.poker_title": "Video poker — {bet} in",
+    "eco.poker_draw": "DRAW",
+    "eco.poker_win": "**{hand}**! +{win}.",
+    "eco.poker_lose": "Nothing. -{bet}.",
     "eco.no_owner": "Owner only.",
     "eco.reset_warn": "This wipes EVERYONE's money. Repeat with 'yes' to confirm.",
     "eco.reset_done": "Economy wiped. Everyone broke. Beautiful.",
@@ -1030,6 +1034,10 @@
     "eco.rob_title": "Napad",
     "eco.rich_empty": "Nikt nie ma ani grosza.",
     "eco.rich_title": "Najbogatsze typy",
+    "eco.poker_title": "Video poker — {bet} w grze",
+    "eco.poker_draw": "DOBIERZ",
+    "eco.poker_win": "**{hand}**! +{win}.",
+    "eco.poker_lose": "Pusto. -{bet}.",
     "eco.no_owner": "Tylko właściciel.",
     "eco.reset_warn": "To czyści kasę WSZYSTKIM. Powtórz z 'yes' żeby potwierdzić.",
     "eco.reset_done": "Ekonomia wyczyszczona. Wszyscy biedni. Piękne.",
@@ -1817,6 +1825,7 @@
     "hc_d_nickbomb": "Zmień komuś nick na godzinę (zwój).",
     "hc_d_selfroles": "Panel ról do samodzielnego brania.",
     "hc_d_sr-add": "Dodaj rolę do panelu.",
-    "hc_d_suggest": "Propozycje: skrzynki serwer/bot."
+    "hc_d_suggest": "Propozycje: skrzynki serwer/bot.",
+    "hc_d_poker": "Video poker: trzymaj karty, dobierz raz."
   }
 }

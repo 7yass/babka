@@ -163,6 +163,88 @@ def coin_image(side: str) -> bytes:
     return buf.getvalue()
 
 
+POKER_PAY = {
+    'ROYAL': 250, 'STRAIGHT_FLUSH': 50, 'FOUR': 25, 'FULL_HOUSE': 9,
+    'FLUSH': 6, 'STRAIGHT': 4, 'THREE': 3, 'TWO_PAIR': 2, 'JACKS': 1,
+}
+
+
+def poker_eval(cards) -> tuple:
+    """cards = [(rank, suit)]. Returns (key, profit_mult)."""
+    def _v(r):
+        return {'J': 11, 'Q': 12, 'K': 13, 'A': 14}.get(r, int(r) if str(r).isdigit() else 0)
+    vals = sorted([_v(r) for r, _ in cards])
+    suits = [s for _, s in cards]
+    flush = len(set(suits)) == 1
+    straight = vals == list(range(vals[0], vals[0] + 5)) or vals == [2, 3, 4, 5, 14]
+    counts = {}
+    for v in vals:
+        counts[v] = counts.get(v, 0) + 1
+    groups = sorted(counts.values(), reverse=True)
+    if flush and vals == [10, 11, 12, 13, 14]:
+        return 'ROYAL', POKER_PAY['ROYAL']
+    if flush and straight:
+        return 'STRAIGHT_FLUSH', POKER_PAY['STRAIGHT_FLUSH']
+    if groups[0] == 4:
+        return 'FOUR', POKER_PAY['FOUR']
+    if groups == [3, 2]:
+        return 'FULL_HOUSE', POKER_PAY['FULL_HOUSE']
+    if flush:
+        return 'FLUSH', POKER_PAY['FLUSH']
+    if straight:
+        return 'STRAIGHT', POKER_PAY['STRAIGHT']
+    if groups[0] == 3:
+        return 'THREE', POKER_PAY['THREE']
+    if groups[:2] == [2, 2]:
+        return 'TWO_PAIR', POKER_PAY['TWO_PAIR']
+    if groups[0] == 2:
+        pair_val = max(v for v, c in counts.items() if c == 2)
+        if pair_val >= 11:
+            return 'JACKS', POKER_PAY['JACKS']
+    return 'NOTHING', 0
+
+
+def poker_image(hand, held) -> bytes:
+    import io as _io
+    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
+    from pathlib import Path as _P
+    CW, CHH = 110, 154
+    try:
+        f_r = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 32)
+        f_s = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans.ttf'), 48)
+        f_h = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 26)
+    except Exception:
+        f_r = f_s = f_h = _F.load_default()
+    W = 5 * (CW + 12) + 40
+    H = CHH + 90
+    img = _Img.new('RGB', (W, H), (22, 22, 26))
+    d = _Dr.Draw(img)
+    for i, (r, s) in enumerate(hand):
+        x = 20 + i * (CW + 12)
+        col = (180, 40, 40) if s in ('♥', '♦') else (25, 25, 30)
+        card = _Img.new('RGB', (CW, CHH), (232, 232, 236))
+        cd = _Dr.Draw(card)
+        cd.rounded_rectangle([0, 0, CW - 1, CHH - 1], radius=12,
+                             outline=(250, 200, 60) if i in held else (120, 120, 128), width=4)
+        cd.text((10, 6), r, font=f_r, fill=col)
+        try:
+            w = cd.textlength(s, font=f_s)
+            cd.text(((CW - w) / 2, 50), s, font=f_s, fill=col)
+        except Exception:
+            cd.text((38, 58), s, font=f_r, fill=col)
+        img.paste(card, (x, 10))
+        tag = f'HOLD {i + 1}' if i in held else f'{i + 1}'
+        try:
+            tw = d.textlength(tag, font=f_h)
+            d.text((x + (CW - tw) / 2, 10 + CHH + 8), tag, font=f_h,
+                   fill=(250, 200, 60) if i in held else (120, 120, 128))
+        except Exception:
+            pass
+    buf = _io.BytesIO()
+    img.save(buf, 'PNG')
+    return buf.getvalue()
+
+
 def _game_layout(title: str, desc: str, image_url: str = None):
     from discord.ui import LayoutView, Container, TextDisplay, ActionRow, MediaGallery
     from discord.ui.media_gallery import MediaGalleryItem
@@ -217,6 +299,93 @@ def wallet_card(name: str, cash: int, streak: int, avatar_bytes: bytes = None) -
     buf = _io.BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()
+
+
+class PokerView(discord.ui.LayoutView):
+    def __init__(self, cog, player_id: int, bet: int, deck, hand, gid):
+        super().__init__(timeout=120)
+        self.cog, self.player_id, self.bet = cog, player_id, bet
+        self.deck, self.hand, self.held, self.gid = deck, hand, set(), gid
+        self.done = False
+        self._build()
+
+    def _build(self, result: str = None):
+        from discord.ui import Container, TextDisplay, ActionRow, MediaGallery
+        from discord.ui.media_gallery import MediaGalleryItem
+        self.clear_items()
+        box = Container(accent_color=0xFFFFFF)
+        txt = f'## {t(self.gid, "eco.poker_title", bet=self.bet)}'
+        if result:
+            txt += f'\n{result}'
+        box.add_item(TextDisplay(txt))
+        box.add_item(MediaGallery(MediaGalleryItem(media='attachment://poker.png')))
+        row = ActionRow()
+        for i in range(5):
+            b = discord.ui.Button(label=f'{i + 1}' + ('*' if i in self.held else ''),
+                                  style=discord.ButtonStyle.grey, custom_id=f'pk_{i}',
+                                  disabled=self.done)
+            b.callback = self._mk_hold(i)
+            row.add_item(b)
+        box.add_item(row)
+        row2 = ActionRow()
+        draw = discord.ui.Button(label=t(self.gid, 'eco.poker_draw'), style=discord.ButtonStyle.grey,
+                                 custom_id='pk_draw', disabled=self.done)
+        draw.callback = self._cb_draw
+        row2.add_item(draw)
+        box.add_item(row2)
+        self.add_item(box)
+
+    def _mk_hold(self, i: int):
+        async def _cb(interaction: discord.Interaction):
+            if interaction.user.id != self.player_id:
+                return await interaction.response.send_message(
+                    t(self.gid, 'eco.not_yours'), ephemeral=True)
+            if self.done:
+                return
+            if i in self.held:
+                self.held.discard(i)
+            else:
+                self.held.add(i)
+            self._build()
+            await interaction.response.edit_message(
+                view=self, attachments=[await self._img()])
+        return _cb
+
+    async def _img(self):
+        import asyncio
+        loop = asyncio.get_running_loop()
+        png = await loop.run_in_executor(None, poker_image, list(self.hand), set(self.held))
+        return discord.File(__import__('io').BytesIO(png), 'poker.png')
+
+    async def _cb_draw(self, interaction: discord.Interaction):
+        if interaction.user.id != self.player_id:
+            return await interaction.response.send_message(
+                t(self.gid, 'eco.not_yours'), ephemeral=True)
+        if self.done:
+            return
+        self.done = True
+        for i in range(5):
+            if i not in self.held:
+                self.hand[i] = self.deck.pop()
+        key, mult = poker_eval(self.hand)
+        b = bal(self.gid, self.player_id)
+        if mult:
+            profit = self.bet * mult
+            set_cash(self.gid, self.player_id, b['cash'] + self.bet + profit)
+            msg = t(self.gid, 'eco.poker_win', hand=key.replace('_', ' '), win=profit)
+        else:
+            msg = t(self.gid, 'eco.poker_lose', bet=self.bet)
+        msg += _wallet_line(self.gid, self.player_id)
+        self._build(msg)
+        await interaction.response.edit_message(
+            view=self, attachments=[await self._img()])
+        self.stop()
+
+    async def on_timeout(self):
+        if not self.done:
+            self.done = True
+            b = bal(self.gid, self.player_id)
+            set_cash(self.gid, self.player_id, b['cash'] + self.bet)  # refund
 
 
 class BJView(discord.ui.LayoutView):
@@ -649,6 +818,21 @@ class Gamble(commands.Cog):
             await ctx.reply(view=_game_layout(t(gid, 'eco.cf_title', bet=bet), msg,
                                               'attachment://coin.png'),
                             file=discord.File(__import__('io').BytesIO(png), 'coin.png'))
+
+    @commands.hybrid_command(name='poker', description='Video poker: Jacks or better')
+    async def poker(self, ctx, bet: int):
+        gid = ctx.guild.id
+        jm = _jailed(gid, ctx.author.id)
+        if jm:
+            return await ctx.reply(jm, ephemeral=True)
+        b, err_msg = self._take_bet(ctx, bet)
+        if err_msg:
+            return await ctx.reply(err_msg, ephemeral=True)
+        deck = [(r, s) for s in SUITS for r in RANKS]
+        random.shuffle(deck)
+        hand = [deck.pop() for _ in range(5)]
+        view = PokerView(self, ctx.author.id, bet, deck, hand, gid)
+        await ctx.reply(view=view, files=[await view._img()])
 
     @commands.hybrid_command(name='rob', description='Okradnij typa')
     async def rob(self, ctx, member: discord.Member):
