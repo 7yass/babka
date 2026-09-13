@@ -2,7 +2,7 @@
   "meta": {
     "rank": [
       "levels",
-      "View your rank card.",
+      "HOW TO: `.rank [@user]` renders your Direction A player card — avatar, tier pill (ROOKIE→LEGEND with stars), LEVEL/RANK/PROGRESS, XP bar with exact numbers, on your nitro banner if you have one. No argument = your card.",
       [
         "level",
         "xp"
@@ -12,63 +12,63 @@
     ],
     "rewards": [
       "levels",
-      "List level → role rewards.",
+      "List every level → role reward on this server: `.rewards`.",
       [],
-      null,
+      "",
       "Everyone"
     ],
     "rewardadd": [
       "levels",
-      "Give a role at a level.",
+      "Grant a role at a level: `.rewardadd <level> <@role>`. Members auto-receive it on level-up. Stacks unless `.stack` is off.",
       [],
       "<level> <@role>",
       "Manage Server"
     ],
     "rewarddel": [
       "levels",
-      "Remove a level reward.",
+      "Remove a level reward: `.rewarddel <level>`. Already-granted roles stay.",
       [],
       "<level>",
       "Manage Server"
     ],
     "xpmult": [
       "levels",
-      "Set the XP multiplier.",
+      "Set the server XP multiplier: `.xpmult <0-10>`. Events go brrr at 2x.",
       [],
-      "<0-10>",
+      "2",
       "Manage Server"
     ],
     "addxp": [
       "levels",
-      "Give XP to a user.",
+      "Give XP straight to a user: `.addxp @user <amount>`. Staff only. Useful for events and bribes.",
       [],
-      "<member> <amount>",
+      "@user 500",
       "Manage Server"
     ],
     "noxp": [
       "levels",
-      "Toggle XP on/off for a channel.",
+      "Toggle XP gains on/off for a channel: `.noxp #channel`. Spam pits earn nothing.",
       [],
       "#channel",
       "Manage Server"
     ],
     "lvlchannel": [
       "levels",
-      "Where level-ups get announced.",
+      "Pin where level-up announcements go: `.lvlchannel [#channel]`. No argument = current channel.",
       [],
       "[#channel]",
       "Manage Server"
     ],
     "stack": [
       "levels",
-      "Toggle stacking of reward roles.",
+      "Toggle whether level reward roles stack or replace each other: `.stack`.",
       [],
-      null,
+      "",
       "Manage Server"
     ],
     "vcsetup": [
       "voice",
-      "Voice lobby setup and configuration.",
+      "Voice lobby setup and configuration: `.vcsetup [#channel|off]`.",
       [
         "vc"
       ],
@@ -77,14 +77,14 @@
     ],
     "vcpanel": [
       "voice",
-      "Drop your room control panel in the room chat.",
+      "Drop your room control panel into the room chat: `.vcpanel`. Lock, rename, kick from buttons.",
       [],
-      null,
+      "",
       "Everyone"
     ],
     "voicemaster": [
       "voice",
-      "Full voice setup (slash).",
+      "Voice rooms system: temp rooms, control panel, limits. `.voicemaster setup/interface/...`.",
       [],
       "<subcommand>",
       "Manage Server",
@@ -92,123 +92,123 @@
     ],
     "ban": [
       "moderation",
-      "Ban a user from the server.",
+      "Ban a user from the server: `.ban @user [reason]`. Logged with reason; appeal in DMs (there is none).",
       [],
-      "<member> [reason]",
+      "@user [reason]",
       "Ban Members"
     ],
     "unban": [
       "moderation",
-      "Unban a user by ID.",
+      "Unban a user by ID: `.unban <id>`. Check `.bans` for IDs.",
       [],
-      "<user_id>",
+      "<id>",
       "Ban Members"
     ],
     "kick": [
       "moderation",
-      "Kick a user from the server.",
+      "Kick a user off the server (can rejoin): `.kick @user [reason]`. For bans see `.ban`, for timed see `.tempban`.",
       [],
-      "<member> [reason]",
+      "@user [reason]",
       "Kick Members"
     ],
     "mute": [
       "moderation",
-      "Mute with default duration.",
+      "Timeout a user with the default duration: `.mute @user [time] [reason]` (time like `10m`, `2h`, `7d`). `.muteduration` sets the default, `.unmute` lifts.",
       [],
-      "<member> [time] [reason]",
+      "@user 10m [reason]",
       "Moderate Members",
       false
     ],
     "unmute": [
       "moderation",
-      "Lift a timeout.",
+      "Lift a user's timeout early: `.unmute @user`.",
       [
         "untimeout"
       ],
-      "<member>",
+      "@user",
       "Moderate Members"
     ],
     "tempban": [
       "moderation",
-      "Ban for a duration, auto-unban.",
+      "Ban for a duration with auto-unban: `.tempban @user <duration> [reason]` (e.g. `7d`).",
       [],
-      "<member> <duration> [reason]",
+      "@user 7d [reason]",
       "Ban Members"
     ],
     "softban": [
       "moderation",
-      "Ban + instant unban, wipes messages.",
+      "Ban + instant unban in one move — kicks the user AND wipes their messages: `.softban @user [reason]`.",
       [],
-      "<member> [reason]",
+      "@user [reason]",
       "Ban Members"
     ],
     "nick": [
       "economy",
-      "Use a nick token.",
+      "Spend a nick token to change your own nickname: `.nick <name>`. No token = no change.",
       [],
-      "<name>",
+      "NowyNick",
       "Everyone"
     ],
     "warn": [
       "moderation",
-      "Issue a warning to a user.",
+      "Issue a formal warning: `.warn @user [reason]`. Logged, counted, stacked toward punishment.",
       [],
-      "<member> [reason]",
+      "@user [reason]",
       "Manage Messages"
     ],
     "warnings": [
       "moderation",
-      "View all warnings for a user.",
+      "View every warning a user holds: `.warnings @user`.",
       [
         "warns"
       ],
-      "<member>",
+      "@user",
       "Manage Messages"
     ],
     "clearwarns": [
       "moderation",
-      "Clear all warnings for a user.",
+      "Wipe a user's entire warn history: `.clearwarns @user`. Their slate is clean.",
       [
         "clearwarn"
       ],
-      "<member>",
+      "@user",
       "Manage Server"
     ],
     "clear": [
       "moderation",
-      "Bulk delete messages.",
+      "Bulk delete messages: `.clear <amount>` (max 100, 14-day-old limit). Logged to mod-log.",
       [
         "purge"
       ],
-      "<amount>",
+      "50",
       "Manage Messages"
     ],
     "slowmode": [
       "moderation",
-      "Set slowmode in the current channel.",
+      "Set slowmode delay in the current channel: `.slowmode <seconds>` (0 = off).",
       [
         "slow"
       ],
-      "<seconds>",
+      "10",
       "Manage Channels"
     ],
     "lock": [
       "moderation",
-      "Lock the current channel.",
+      "Lock the current channel (no one can talk): `.lock`. `.unlock` reopens.",
       [],
-      null,
+      "",
       "Manage Channels"
     ],
     "unlock": [
       "moderation",
-      "Unlock the current channel.",
+      "Unlock the current channel: `.unlock`. Undoes `.lock`.",
       [],
-      null,
+      "",
       "Manage Channels"
     ],
     "antiraid": [
       "protection",
-      "Age gate, burst lockdown, honeypot.",
+      "Raid shield: account-age gate, join-burst auto-lockdown, honeypot trap channel. `.antiraid status/toggle/...`.",
       [],
       "<subcommand>",
       "Administrator",
@@ -216,7 +216,7 @@
     ],
     "automod": [
       "protection",
-      "Spam, invites, links, bad words filter.",
+      "Content filter suite: `.automod status/toggle/badword-add/badword-remove/anti-invite/anti-link`. Strikes stack into timeouts.",
       [],
       "<subcommand>",
       "Manage Server",
@@ -224,7 +224,7 @@
     ],
     "banlist": [
       "protection",
-      "Permanent bans that re-ban on rejoin.",
+      "Permanent bans that re-ban on rejoin: `.banlist add/remove/list`. Like permkick but for bans.",
       [],
       "<subcommand>",
       "Ban Members",
@@ -232,7 +232,7 @@
     ],
     "mod": [
       "protection",
-      "Full moderation panel (warn/kick/ban/timeout...).",
+      "Full moderation panel: warn/kick/ban/timeout in guided subcommands. `.mod <subcommand>`.",
       [],
       "<subcommand>",
       "Moderate Members",
@@ -240,44 +240,44 @@
     ],
     "raid": [
       "protection",
-      "Show antiraid config.",
+      "Show the current antiraid config: `.raid`. Age gate, burst limits, action.",
       [],
-      null,
+      "",
       "Everyone"
     ],
     "raidtoggle": [
       "protection",
-      "Toggle antiraid on/off.",
+      "Master switch for antiraid: `.raidtoggle`.",
       [],
-      null,
+      "",
       "Administrator"
     ],
     "raction": [
       "protection",
-      "What happens to too-new accounts.",
+      "What happens to too-new accounts: `.raction <kick|ban|log>`. Pairs with `.age` and `.raid`.",
       [],
       "<kick|ban|log>",
       "Administrator"
     ],
     "rburst": [
       "protection",
-      "Join-burst lockdown threshold.",
+      "Join-burst lockdown threshold: `.rburst <joins> <seconds>` — that many joins that fast triggers lockdown.",
       [],
-      "<joins> <seconds>",
+      "5 10",
       "Administrator"
     ],
     "lockdown": [
       "protection",
-      "Lock/unlock ALL channels (raid emergency).",
+      "Raid emergency: lock/unlock ALL channels at once: `.lockdown`. Use when the raid is live.",
       [
         "ld"
       ],
-      null,
+      "",
       "Administrator"
     ],
     "honeypot": [
       "protection",
-      "Trap channel: talkers get auto-banned.",
+      "Trap channel: anyone who talks in it gets auto-banned. `.honeypot #channel` to arm, `.honeypot off` to disarm.",
       [
         "hp"
       ],
@@ -286,35 +286,35 @@
     ],
     "age": [
       "protection",
-      "Minimum account age in days.",
+      "Minimum account age to stay (days): `.age <days>`. Younger accounts get flagged per `.raction`.",
       [],
-      "<days>",
+      "7",
       "Administrator"
     ],
     "am": [
       "protection",
-      "AutoMod status + usage.",
+      "AutoMod status + quick usage: `.am [status]`. Covers spam, invites, links, bad words.",
       [],
       "[status]",
       "Manage Server"
     ],
     "amtoggle": [
       "protection",
-      "Toggle AutoMod on/off.",
+      "Master switch for AutoMod: `.amtoggle`. Everything sub-filter obeys it.",
       [],
-      null,
+      "",
       "Manage Server"
     ],
     "amword": [
       "protection",
-      "Block/unblock a word.",
+      "Block or unblock a word: `.amword <add|del> <word>`. Blocked words earn strikes.",
       [],
       "<add|del> <word>",
       "Manage Server"
     ],
     "aminivite": [
       "protection",
-      "Toggle the invite filter.",
+      "Toggle the Discord-invite filter: `.aminivite <on|off>`.",
       [
         "aminvite"
       ],
@@ -323,35 +323,35 @@
     ],
     "amlinks": [
       "protection",
-      "Toggle the all-links filter.",
+      "Toggle the all-links filter: `.amlinks <on|off>`.",
       [],
       "<on|off>",
       "Manage Server"
     ],
     "pban": [
       "protection",
-      "Permaban by ID, forever.",
+      "Permaban by ID, forever, re-bans on sight: `.pban <id> [reason]`. `.punban` is the only exit.",
       [],
-      "<user_id> [reason]",
+      "<id> [reason]",
       "Ban Members"
     ],
     "punban": [
       "protection",
-      "Lift a permaban + unban.",
+      "Lift a permaban AND unban: `.punban <id>`. Full pardon.",
       [],
-      "<user_id>",
+      "<id>",
       "Ban Members"
     ],
     "pbanlist": [
       "protection",
-      "List permabanned users.",
+      "Everyone under permaban: `.pbanlist`.",
       [],
-      null,
+      "",
       "Ban Members"
     ],
     "help": [
       "info",
-      "This help center.",
+      "This help center: `.help` opens the module browser, `.help <command>` shows full detail + syntax + example for one command.",
       [
         "h",
         "commands"
@@ -361,130 +361,130 @@
     ],
     "info": [
       "info",
-      "FAQ button panels with self-deleting answers.",
+      "FAQ button panels with self-deleting answers: `.info setup` posts a panel, `.info add <panel> <label> [color] <answer>` adds a button. Members click, read, it vanishes.",
       [],
-      "<subcommand>",
+      "setup",
       "Manage Server",
       false
     ],
     "infosetup": [
       "info",
-      "Post a button panel.",
+      "Post a fresh FAQ button panel: `.infosetup [#channel] | Title | text`. Then add buttons with `.infoadd`.",
       [],
       "[#channel] | Title | text",
       "Manage Server"
     ],
     "infoadd": [
       "info",
-      "Add a button with a private answer.",
+      "Add a button with a private answer: `.infoadd <panel> | Label | text`. Full args skip the modal wizard.",
       [],
       "<panel> | Label | text",
       "Manage Server"
     ],
     "inforem": [
       "info",
-      "Remove a button from a panel.",
+      "Remove one button from a panel: `.inforem <panel> | Label`.",
       [],
       "<panel> | Label",
       "Manage Server"
     ],
     "infodel": [
       "info",
-      "Delete a whole panel.",
+      "Delete a whole FAQ panel with all its buttons: `.infodel <panel>`. No undo.",
       [],
       "<panel>",
       "Manage Server"
     ],
     "infolist": [
       "info",
-      "List panels and buttons.",
+      "List all FAQ panels with their buttons: `.infolist`.",
       [],
-      null,
+      "",
       "Everyone"
     ],
     "rules": [
       "info",
-      "Rules panel with click-to-verify.",
+      "Rules panel with click-to-verify: `.rules setup` posts rules + verify button, `.rules edit` changes text, `.rulesoff` removes the panel.",
       [],
-      "<subcommand>",
+      "setup",
       "Manage Server",
       false
     ],
     "rulesetup": [
       "info",
-      "Post rules + verify button.",
+      "Post rules + verify button: `.rulesetup #channel @role | Label | Title | text`. New members click to get the role.",
       [],
       "#channel @role | Label | Title | text",
       "Manage Server"
     ],
     "rulesedit": [
       "info",
-      "Edit rules text/label/title.",
+      "Edit the rules panel in place: `.rulesedit | Label | Title | text`.",
       [],
       "| Label | Title | text",
       "Manage Server"
     ],
     "rulesoff": [
       "info",
-      "Remove the rules panel.",
+      "Remove the rules panel entirely: `.rulesoff`.",
       [],
-      null,
+      "",
       "Manage Server"
     ],
     "tttest": [
       "info",
-      "Check the latest video of an account.",
+      "Manually check the latest video of an account: `.tttest <username>`.",
       [],
       "<username>",
       "Everyone"
     ],
     "rr": [
       "info",
-      "Post a self-role button row (up to 5 roles).",
+      "Post a self-role button row (up to 5 roles): `.rr @role1 @role2 ...`. Members click to take/drop. Manage Roles required.",
       [],
-      "@role1 @role2 ...",
+      "@role1 @role2",
       "Manage Roles"
     ],
     "tiktok": [
       "info",
-      "Ping the channel when a TikTok account posts.",
+      "Ping a channel whenever a TikTok account posts: `.ttwatch <username> <#channel>`. `.ttlist` watched, `.tttest <username>` checks latest, `.ttunwatch <username>` stops.",
       [],
-      "<subcommand>",
+      "watch / unwatch / list / test",
       "Manage Server",
       false
     ],
     "ttwatch": [
       "info",
-      "Watch a TikTok account.",
+      "Watch a TikTok account into a channel: `.ttwatch <username> <#channel>`. New posts ping the channel.",
       [],
       "<username> <#channel>",
       "Manage Server"
     ],
     "ttunwatch": [
       "info",
-      "Stop watching an account.",
+      "Stop watching a TikTok account: `.ttunwatch <username>`.",
       [],
       "<username>",
       "Manage Server"
     ],
     "ttlist": [
       "info",
-      "List watched accounts.",
+      "List all watched TikTok accounts with their channels: `.ttlist`.",
       [],
-      null,
+      "",
       "Everyone"
     ],
     "prefix": [
       "info",
-      "Change the prefix.",
+      "Change this server's command prefix: `.prefix <new>`. Default is `.`. Manage Server only.",
       [],
-      "<subcommand>",
+      "!",
       "Manage Server",
       false
     ],
     "profile": [
       "info",
-      "Player card: level, cash, job, top role, staff badge.",
+      "HOW TO: `.profile [@user]` (alias `.profil`) renders a Direction A player card — avatar, tier pill, STAFF badge for staff, LEVEL/RANK/PROGRESS, CASH/BANK/STREAK, JOB with fame title, TOP ROLE and XP bar, on your nitro banner. No argument = your own card.",
       [
         "profil"
       ],
@@ -493,296 +493,296 @@
     ],
     "setup": [
       "setup",
-      "Full server checklist + staff roles + log channels.",
+      "Full server checklist: staff roles, log channels, verify, welcome — `.setup` walks you through everything step by step.",
       [],
-      null,
+      "",
       "Everyone"
     ],
     "staff": [
       "setup",
-      "Add a staff role (passes every gate).",
+      "Register a staff role (passes every permission gate): `.staff @role`. `.stafflist` shows them.",
       [],
       "@role",
       "Manage Server"
     ],
     "unstaff": [
       "setup",
-      "Remove a staff role.",
+      "Unregister a staff role: `.unstaff @role`.",
       [],
       "@role",
       "Manage Server"
     ],
     "stafflist": [
       "setup",
-      "List staff roles.",
+      "All registered staff roles: `.stafflist`.",
       [],
-      null,
+      "",
       "Everyone"
     ],
     "setlog": [
       "setup",
-      "Set the mod-log channel.",
+      "Pin the mod-log channel: `.setlog #channel`. Bans, kicks, warns land here.",
       [],
       "#channel",
       "Manage Server"
     ],
     "setlevelup": [
       "setup",
-      "Set the level-up channel.",
+      "Pin the level-up announcement channel: `.setlevelup [#channel]`.",
       [],
       "[#channel]",
       "Manage Server"
     ],
     "lang": [
       "setup",
-      "Switch bot language EN/PL.",
+      "Switch the bot language for this server: `.lang [en|pl]`. Everything (help included) flips.",
       [],
       "[en|pl]",
       "Manage Server"
     ],
     "wsetup": [
       "setup",
-      "Set greeting channel + texts.",
+      "Set greeting channel + texts: `.wsetup #channel | join | leave`. Placeholders supported.",
       [],
       "#channel | join | leave",
       "Manage Server"
     ],
     "wtest": [
       "setup",
-      "Preview greeting texts.",
+      "Preview the greeting texts without pinging anyone: `.wtest`.",
       [],
-      null,
+      "",
       "Manage Server"
     ],
     "woff": [
       "setup",
-      "Turn greetings off.",
+      "Turn greetings off entirely: `.woff`.",
       [],
-      null,
+      "",
       "Manage Server"
     ],
     "leaderboard": [
       "levels",
-      "View the XP standings.",
+      "XP standings, top 5 with cards: `.leaderboard` (aliases `.lb`, `.top`). Updates live as people grind.",
       [
         "lb",
         "top"
       ],
-      null,
+      "",
       "Everyone",
       false
     ],
     "muteduration": [
       "moderation",
-      "Default mute length.",
+      "Set the server's default mute length: `.muteduration <time>` (e.g. `30m`). Used when `.mute` gets no time.",
       [],
-      "<time>",
+      "30m",
       "Manage Server",
       false
     ],
     "unmuteall": [
       "moderation",
-      "Remove all timeouts.",
+      "Remove ALL timeouts server-wide: `.unmuteall`. Mass forgiveness.",
       [],
-      null,
+      "",
       "Moderate Members",
       false
     ],
     "mutelist": [
       "moderation",
-      "Currently timed out.",
+      "Everyone currently timed out with time left: `.mutelist`.",
       [],
-      null,
+      "",
       "Moderate Members",
       false
     ],
     "imute": [
       "moderation",
-      "Block images for a user here.",
+      "Block a user from posting images in THIS channel: `.imute @user [reason]`. `.iunmute` lifts it.",
       [],
-      "<member> [reason]",
+      "@user [reason]",
       "Manage Messages",
       false
     ],
     "iunmute": [
       "moderation",
-      "Allow images again.",
+      "Allow images again for a user here: `.iunmute @user`.",
       [],
-      "<member>",
+      "@user",
       "Manage Messages",
       false
     ],
     "imutelist": [
       "moderation",
-      "Image-muted here.",
+      "Who is image-muted in this channel: `.imutelist`.",
       [],
-      null,
+      "",
       "Manage Messages",
       false
     ],
     "rmute": [
       "moderation",
-      "Block reactions for a user here.",
+      "Block a user from adding reactions in THIS channel: `.rmute @user [reason]`. `.runmute` lifts it.",
       [],
-      "<member> [reason]",
+      "@user [reason]",
       "Manage Messages",
       false
     ],
     "runmute": [
       "moderation",
-      "Allow reactions again.",
+      "Allow reactions again for a user here: `.runmute @user`.",
       [],
-      "<member>",
+      "@user",
       "Manage Messages",
       false
     ],
     "rmutelist": [
       "moderation",
-      "Reaction-muted here.",
+      "Who is reaction-muted in this channel: `.rmutelist`.",
       [],
-      null,
+      "",
       "Manage Messages",
       false
     ],
     "permkick": [
       "moderation",
-      "Kick plus re-kick on rejoin.",
+      "Kick plus automatic re-kick whenever they rejoin: `.permkick @user [reason]`. The endless boot. `.unpermkick` ends it.",
       [],
-      "<member> [reason]",
+      "@user [reason]",
       "Kick Members",
       false
     ],
     "permkicked": [
       "moderation",
-      "List permkicks.",
+      "List everyone under permkick: `.permkicked`.",
       [],
-      null,
+      "",
       "Kick Members",
       false
     ],
     "unpermkick": [
       "moderation",
-      "Lift permkick.",
+      "Lift a permkick (or `all`): `.unpermkick @user|all`. They can stay after rejoin.",
       [],
-      "<user|all>",
+      "@user|all",
       "Kick Members",
       false
     ],
     "bans": [
       "moderation",
-      "Server ban list.",
+      "List everyone currently banned: `.bans`. IDs included for `.unban`.",
       [],
-      null,
+      "",
       "Ban Members",
       false
     ],
     "hackban": [
       "moderation",
-      "Ban a raw user ID.",
+      "Ban a raw user ID without them being on the server: `.hackban <id> [reason]`. For pre-banning raiders.",
       [],
-      "<user_id> [reason]",
+      "<id> [reason]",
       "Ban Members",
       false
     ],
     "unbanall": [
       "moderation",
-      "Unban everyone.",
+      "Unban EVERYONE at once: `.unbanall`. Think twice.",
       [],
-      null,
+      "",
       "Administrator",
       false
     ],
     "unwarn": [
       "moderation",
-      "Remove latest warn.",
+      "Remove a user's latest warn: `.unwarn @user`. Forgiveness, one strike at a time.",
       [],
-      "<member>",
+      "@user",
       "Manage Messages",
       false
     ],
     "hide": [
       "moderation",
-      "Hide this channel.",
+      "Hide the current channel from everyone (keeps staff): `.hide`. `.reveal` brings it back.",
       [],
-      null,
+      "",
       "Manage Channels",
       false
     ],
     "reveal": [
       "moderation",
-      "Reveal this channel.",
+      "Reveal a hidden channel: `.reveal`. Undoes `.hide`.",
       [],
-      null,
+      "",
       "Manage Channels",
       false
     ],
     "history": [
       "moderation",
-      "Warns plus timeout state.",
+      "Full rap sheet: warns plus current timeout state: `.history @user`.",
       [],
-      "<member>",
+      "@user",
       "Manage Messages",
       false
     ],
     "reason": [
       "moderation",
-      "Rewrite latest warn reason.",
+      "Rewrite the reason of a user's latest warn: `.reason @user <text>`. For typos and second thoughts.",
       [],
-      "<member> <text>",
+      "@user <text>",
       "Manage Messages",
       false
     ],
     "modstats": [
       "moderation",
-      "Warns given per mod.",
+      "Warns handed out per moderator: `.modstats`. Know who swings the hammer most.",
       [],
-      null,
+      "",
       "Manage Server",
       false
     ],
     "naughty": [
       "moderation",
-      "Most warned users.",
+      "Most warned users ranking: `.naughty`. The wall of shame.",
       [],
-      null,
+      "",
       "Manage Messages",
       false
     ],
     "role": [
       "moderation",
-      "Give a role.",
+      "Give a role: `.role @user @role`. Higher-than-bot roles can't be granted.",
       [],
-      "<member> <role>",
+      "@user @role",
       "Manage Roles",
       false
     ],
     "unrole": [
       "moderation",
-      "Take a role.",
+      "Take a role away: `.unrole @user @role`.",
       [],
-      "<member> <role>",
+      "@user @role",
       "Manage Roles",
       false
     ],
     "inrole": [
       "moderation",
-      "Who has a role.",
+      "List everyone holding a role: `.inrole @role`.",
       [],
-      "<role>",
+      "@role",
       "Manage Roles",
       false
     ],
     "stripstaff": [
       "moderation",
-      "Strip all roles.",
+      "Strip ALL roles from a user at once: `.stripstaff @user`. Nuclear option for rogue mods.",
       [],
-      "<member>",
+      "@user",
       "Administrator",
       false
     ],
     "cleanup": [
       "moderation",
-      "Delete bot messages.",
+      "Delete recent bot messages: `.cleanup [amount]`. For tidying after spammy commands.",
       [],
       "[amount]",
       "Manage Messages",
@@ -790,62 +790,62 @@
     ],
     "forcenick": [
       "economy",
-      "Rename someone for 1h.",
+      "Lock a member's nickname for 1 hour: `.forcenick @user <name>`. Reverts automatically.",
       [],
-      "<member> <name>",
+      "@user Klown",
       "Everyone"
     ],
     "jail": [
       "moderation",
-      "Jail a user.",
+      "Jail a user (they lose chat + economy access): `.jail @user [reason]`. `.unjail` frees, `.bail` is their 500-coin escape.",
       [],
-      "<member> [reason]",
+      "@user [reason]",
       "Moderate Members",
       false
     ],
     "jailed": [
       "moderation",
-      "Who is jailed.",
+      "Who is currently jailed with time left: `.jailed`.",
       [],
-      null,
+      "",
       "Moderate Members",
       false
     ],
     "unjail": [
       "moderation",
-      "Free a user.",
+      "Free a jailed user: `.unjail @user`.",
       [],
-      "<member>",
+      "@user",
       "Moderate Members",
       false
     ],
     "blind": [
       "moderation",
-      "Hide channel from a user.",
+      "Hide the current channel from one user: `.blind @user`. They won't see it exists. `.unblind` reverses.",
       [],
-      "<member>",
+      "@user",
       "Manage Channels",
       false
     ],
     "unblind": [
       "moderation",
-      "Show channel again.",
+      "Show the channel to the user again: `.unblind @user`. Undoes `.blind`.",
       [],
-      "<member>",
+      "@user",
       "Manage Channels",
       false
     ],
     "drag": [
       "moderation",
-      "Drag a user to your VC.",
+      "Drag a user into your voice channel: `.drag @user`. They must be in voice already.",
       [],
-      "<member>",
+      "@user",
       "Move Members",
       false
     ],
     "newusers": [
       "moderation",
-      "Recently joined members.",
+      "Recently joined members: `.newusers [count]`. Spot raid accounts fast.",
       [],
       "[count]",
       "Manage Server",
@@ -853,7 +853,7 @@
     ],
     "purge": [
       "moderation",
-      "Full purge suite: nuke, filters, logs.",
+      "Full purge suite: `.purge <amount>` nuke, plus filters (bots, links, images), log-channel ignore lists and per-channel setup. `.purge logs` manages log targets.",
       [
         "clear"
       ],
@@ -863,7 +863,7 @@
     ],
     "afk": [
       "info",
-      "Go AFK with an optional reason.",
+      "Go AFK with an optional reason: `.afk [reason]`. Babka tells anyone who pings you why you're gone; talking again clears it.",
       [],
       "[reason]",
       "Everyone",
@@ -871,91 +871,91 @@
     ],
     "avatar": [
       "info",
-      "Show a user avatar.",
+      "Show someone's avatar in full size: `.avatar [@user]`. No argument = yours.",
       [],
-      "[member]",
+      "[@user]",
       "Everyone",
       false
     ],
     "banner": [
       "info",
-      "Show a user banner.",
+      "Show someone's profile banner: `.banner [@user]`. Says so if they have none.",
       [],
-      "[member]",
+      "[@user]",
       "Everyone",
       false
     ],
     "roblox": [
       "info",
-      "Roblox user, avatar and name history.",
+      "Roblox lookup: `.roblox user <name>` profile + created + friends, `.roblox avatar <name>` full-size avatar, `.roblox previousnames <name>` name history.",
       [],
-      "<subcommand>",
+      "user <name>",
       "Everyone",
       false
     ],
     "bal": [
       "info",
-      "Your coin balance.",
+      "Your wallet card: cash, bank and daily streak — with your nitro banner as background if you have one. `.bal [@user]` inspects anyone.",
       [
         "balance"
       ],
-      null,
+      "[@user]",
       "Everyone",
       false
     ],
     "daily": [
       "info",
-      "Daily coins.",
+      "Daily coins every 24h: `.daily`. Base 500 plus streak bonus (+50/day up to +500). Missing a day resets the streak — don't.",
       [],
-      null,
+      "",
       "Everyone",
       false
     ],
     "blackjack": [
       "economy",
-      "Blackjack — dealer wins ties, max bet 2k, 10 plays/hour.",
+      "HOW TO PLAY: `.blackjack <bet>` (max 2000). You vs dealer, closest to 21 wins. HIT takes a card, STAND holds, DOUBLE doubles the stake for one card. Dealer draws to 17 and wins ALL ties. Blackjack pays 6:5, bust = bet lost, max profit 10k/hand. 10 plays/hour shared with other games.",
       [
         "bj"
       ],
-      "<bet>",
+      "500",
       "Everyone",
       false
     ],
     "embed": [
       "info",
-      "Post and manage rich embeds.",
+      "Post and manage rich embeds: `.embed post #ch <title> | <text>`, `.embed edit <id> | <new>`, `.embed delete <id>`. Manage Server only.",
       [],
-      "<subcommand>",
+      "post",
       "Manage Server",
       false
     ],
     "giveaway": [
       "info",
-      "Timed draws with reroll.",
+      "Timed draws: `.giveaway start` (follow the wizard: prize, winners, duration), enter with the button, `.giveaway end/reroll/cancel`, `.giveaway list` shows running ones.",
       [],
-      "<subcommand>",
+      "start",
       "Manage Server",
       false
     ],
     "poll": [
       "info",
-      "Button polls with live counts.",
+      "Button polls with live counts: `.poll create`, vote with buttons, `.poll results`, `.poll close`. Manage Server to run.",
       [],
-      "<subcommand>",
+      "create",
       "Manage Server",
       false
     ],
     "reactionroles": [
       "info",
-      "Emoji reaction roles.",
+      "Emoji reaction roles: `.reactionroles setup` posts a panel, users tap emoji to take/drop roles. Full CRUD via subcommands.",
       [],
-      "<subcommand>",
+      "setup",
       "Manage Roles",
       false
     ],
     "welcome": [
       "setup",
-      "Greetings, boost and ping-on-join.",
+      "Greetings, boost thanks and ping-on-join: `.welcome setup/test/disable`. New members feel seen.",
       [],
       "<subcommand>",
       "Manage Server",
@@ -963,7 +963,7 @@
     ],
     "tickets": [
       "setup",
-      "Typed panels, claim, transcripts, ratings, auto-close.",
+      "Ticket system: typed panels, claim, transcripts, ratings, auto-close. `.tickets setup` starts the wizard.",
       [],
       "<subcommand>",
       "Manage Server",
@@ -971,7 +971,7 @@
     ],
     "vcs": [
       "voice",
-      "One-command voice setup.",
+      "One-command voice setup: `.vcs <lobby> <panel>` creates lobby + interface channels fully wired.",
       [],
       "<lobby> <panel>",
       "Manage Server",
@@ -979,7 +979,7 @@
     ],
     "verify": [
       "setup",
-      "Verification gate: button or captcha.",
+      "Verification gate (button or captcha): `.verify setup` wires it, members verify to get the role.",
       [],
       "<subcommand>",
       "Manage Server",
@@ -987,39 +987,39 @@
     ],
     "slots": [
       "economy",
-      "Spin the reels. 10 plays/hour.",
+      "HOW TO: `.slots <bet>` — three animated reels. Triple 7 = JACKPOT 12x, triple gem 5x, other triples 4x, any pair = 1.5x back. Anything else = bet lost. 10 plays/hour shared.",
       [],
-      "<bet>",
+      "100",
       "Everyone"
     ],
     "coinflip": [
       "economy",
-      "Heads or tails with a house edge. 10 plays/hour.",
+      "HOW TO PLAY: `.coinflip <bet> <heads|tails>` (alias `.moneta`, O = orzeł, R = reszka). Win = double back (profit = bet). House-favored odds. 10 plays/hour shared.",
       [
         "moneta"
       ],
-      "<bet> <heads/tails>",
+      "100 heads",
       "Everyone"
     ],
     "roulette": [
       "economy",
-      "European roulette: numbers 35:1, dozens/columns 2:1. 10 plays/hour.",
+      "HOW TO: `.roulette <bet> <choice>` on a real European wheel with animation. Choices: number 0-36 (pays 35:1), red/black, odd/even, high/low (1:1), dozens 1st12/2nd12/3rd12 and columns col1/col2/col3 (2:1). Recent numbers shown every spin. 10 plays/hour shared.",
       [
         "ruletka"
       ],
-      "<bet> <0-36 | red | black | odd | even | high | low | dozens | columns>",
+      "100 red",
       "Everyone"
     ],
     "rob": [
       "economy",
-      "Steal from someone (or pay them trying).",
+      "HOW TO: `.rob @user`. About 20% success — win steals a cut of their cash, fail = you pay a fine. Target must hold cash; bots and yourself excluded. 1 attempt/hour, jail wipes your plans.",
       [],
-      "<member>",
+      "@user",
       "Everyone"
     ],
     "rich": [
       "economy",
-      "Top 10 richest degenerates.",
+      "Top 10 fattest wallets on this server. Updated live — go touch grass instead.",
       [
         "baltop"
       ],
@@ -1028,28 +1028,28 @@
     ],
     "pay": [
       "economy",
-      "Send money to someone.",
+      "Send coins to someone: `.pay @user <amount>`. Minimum 10. No take-backs.",
       [],
-      "<member> <amount>",
+      "@user 100",
       "Everyone"
     ],
     "work": [
       "economy",
-      "Do your job shift (hourly).",
+      "Run a paid shift at your current job: `.work`. 1 shift/hour. Pay scales with job, fame title, level and streak — promotions raise every bracket.",
       [],
       "",
       "Everyone"
     ],
     "ship": [
       "fun",
-      "Love % between two users. Stored forever.",
+      "Love compatibility % between two users, stored forever: `.ship @a [@b]` (no second user = you + them). `.shiplb` ranks couples.",
       [],
-      "<user> [user]",
+      "@a @b",
       "Everyone"
     ],
     "shiplb": [
       "fun",
-      "Top couples ranking.",
+      "Top couples ranking — highest shipped pairs on the server.",
       [
         "ships"
       ],
@@ -1058,14 +1058,14 @@
     ],
     "fitleader": [
       "fun",
-      "Hardest fits leaderboard.",
+      "Hardest fits leaderboard — top rated outfits of the server.",
       [],
       "",
       "Everyone"
     ],
     "clownleader": [
       "fun",
-      "Top clown moments.",
+      "Hall of shame: members with the most clown moments. `.clownleader` shows the top.",
       [
         "clowns"
       ],
@@ -1074,244 +1074,244 @@
     ],
     "clownwall": [
       "fun",
-      "Clown wall setup.",
+      "Clown wall setup: `.clownwall set #channel` to collect marked moments, `.clownwall off` to disable.",
       [],
       "set / off",
       "Manage Server"
     ],
     "babka": [
       "fun",
-      "Babka herself.",
+      "Babka herself — summons a random piece of grandma wisdom (or a roast). Usage: `.babka`. No refunds.",
       [],
       "",
       "Everyone"
     ],
     "wordle": [
       "fun",
-      "Daily Polish word game. Win XP + cash.",
+      "Daily Polish 5-letter word: `.wordle <guess>`, 6 tries. Win = XP + cash, once per day. Bare `.wordle` shows today's board.",
       [],
       "[guess]",
       "Everyone"
     ],
     "counting": [
       "fun",
-      "Counting channel setup.",
+      "Counting game: `.counting set #channel` — members count up one by one, no double turns, wrong number resets. `.counting off` disables.",
       [],
       "set / off",
       "Manage Server"
     ],
     "voice-state": [
       "levels",
-      "Who earns voice XP right now.",
+      "Who earns voice XP right now: `.voice-state` lists connected, unmuted members per channel.",
       [],
       "",
       "Manage Server"
     ],
     "party": [
       "voice",
-      "No-limit party mode for your room.",
+      "No-limit party mode for your room: `.party`. User cap goes poof.",
       [],
       "",
       "Everyone"
     ],
     "bring": [
       "voice",
-      "Drag a role into your voice channel.",
+      "Drag a whole role into your voice channel: `.bring @role`. Party herding tool.",
       [],
-      "<role>",
+      "@role",
       "Move Members"
     ],
     "whitelist": [
       "protection",
-      "Channels exempt from automod/level limits.",
+      "Channels exempt from automod and level limits: `.whitelist add/remove/list`. Spam pits go here.",
       [],
       "add / remove / list",
       "Manage Server"
     ],
     "strikes": [
       "protection",
-      "Check bad-word strikes.",
+      "Check someone's bad-word strike count: `.strikes @user`.",
       [],
-      "<member>",
+      "@user",
       "Manage Messages"
     ],
     "strike-reset": [
       "protection",
-      "Clear bad-word strikes.",
+      "Clear someone's bad-word strikes: `.strike-reset @user`. Clean mouth, clean slate.",
       [],
-      "<member>",
+      "@user",
       "Manage Messages"
     ],
     "youtube": [
       "info",
-      "YouTube upload notifications.",
+      "YouTube upload pings: `.youtube watch <channel-id> <#channel>`, `.youtube list`, `.youtube unwatch`. New uploads get announced.",
       [],
       "watch / unwatch / list / test",
       "Everyone"
     ],
     "stats": [
       "setup",
-      "Live server stat channels.",
+      "Live server stat channels (members/boosts counters): `.stats setup` creates, `.stats refresh` updates.",
       [],
       "setup / refresh",
       "Manage Server"
     ],
     "langroles": [
       "setup",
-      "Auto language roles + panel.",
+      "Auto language roles + picker panel: `.langroles setup`. Members self-tag EN/PL.",
       [],
       "setup",
       "Manage Server"
     ],
     "job": [
       "economy",
-      "Careers, fame and promotions.",
+      "HOW TO: `.job list` shows offers with click-to-join buttons (pay range, top title, level locks). `.job join <name>` hires you, `.job show [@user]` inspects a career, `.job leave` quits, `.job my` shows fame. Higher level = better titles and bigger pay. `.work` runs a paid shift every hour.",
       [],
       "list / join / show / leave / my",
       "Everyone"
     ],
     "shop": [
       "economy",
-      "Spend money on power.",
+      "Spend cash on power: `.shop` lists prices, `.shop buy <item>` buys — nick tokens, shields, bail scrolls, lootboxes.",
       [],
       "buy",
       "Everyone"
     ],
     "inv": [
       "economy",
-      "Your items.",
+      "Your item stash: nick tokens, shields, scrolls, lootboxy. `.inv` to view, `.shop buy` to spend.",
       [],
       "",
       "Everyone"
     ],
     "bail": [
       "economy",
-      "Buy your way out of jail (500).",
+      "Buy your way out of jail for 500 coins with `.bail`. Fails if you're free or broke.",
       [],
       "",
       "Everyone"
     ],
     "heist": [
       "economy",
-      "Crew robberies, split or jail.",
+      "HOW TO: `.heist start <target>` opens a crew robbery — everyone stakes in. `.heist join` before the timer ends. Bigger crew = better odds. Win splits the loot, fail = jail for the whole crew.",
       [],
-      "start / join",
+      "start @user",
       "Everyone"
     ],
     "bounty": [
       "economy",
-      "Put a price on a head.",
+      "Put a price on someone's head: `.bounty @user <amount>`. Paid from your cash immediately, listed until someone claims it.",
       [],
-      "<member> <amount>",
+      "@user 500",
       "Everyone"
     ],
     "bounties": [
       "economy",
-      "Open bounties list.",
+      "Board of open bounties with prices. Claim one by robbing the target successfully — the price lands in your wallet.",
       [],
       "",
       "Everyone"
     ],
     "bank": [
       "economy",
-      "Vault balance + interest.",
+      "Your vault card: balance plus interest that grows over time. Banked money can't be robbed. `.bank` to view, `.deposit` / `.withdraw` to move cash.",
       [],
       "",
       "Everyone"
     ],
     "deposit": [
       "economy",
-      "Hide money from robbers.",
+      "Move cash into your bank: `.deposit <amount|all>`. Banked money earns interest and can't be robbed.",
       [
         "dep"
       ],
-      "<amount|all>",
+      "500",
       "Everyone"
     ],
     "withdraw": [
       "economy",
-      "Take money out.",
+      "Take money out of your bank: `.withdraw <amount|all>`. Cash in hand can be robbed — don't flash it.",
       [
         "with"
       ],
-      "<amount|all>",
+      "500",
       "Everyone"
     ],
     "tribute": [
       "economy",
-      "Tip Babka. She remembers.",
+      "Tip Babka coins: `.tribute <amount>`. She remembers generosity — top tippers get her favor.",
       [],
-      "<amount>",
+      "100",
       "Everyone"
     ],
     "bankshare": [
       "economy",
-      "Joint vault for two.",
+      "Open a joint vault with another member: `.bankshare @user`. Both can deposit; closing it returns the money to where it was.",
       [],
-      "<member>",
+      "@user",
       "Everyone"
     ],
     "ecoreset": [
       "economy",
-      "Wipe all money. OWNER ONLY.",
+      "OWNER ONLY. Wipes everyone's money on this server. Repeat with `yes` to confirm: `.ecoreset yes`.",
       [],
       "yes",
       "Owner"
     ],
     "fitlink": [
       "fun",
-      "Merge two accounts fits.",
+      "Merge two accounts' fits into one profile: `.fitlink @user`. For alts and rebrands.",
       [],
-      "<member>",
+      "@user",
       "Everyone"
     ],
     "fitunlink": [
       "fun",
-      "Split linked fits.",
+      "Split previously linked fits back apart: `.fitunlink`.",
       [],
       "",
       "Everyone"
     ],
     "language": [
       "setup",
-      "Switch bot language.",
+      "Alias of `.lang`: switch bot language EN/PL.",
       [],
       "",
       "Manage Server"
     ],
     "levels": [
       "levels",
-      "Level settings.",
+      "Level system admin: XP rates, stacking, announcements. `.levels` shows subcommands.",
       [],
       "",
       "Manage Server"
     ],
     "nickbomb": [
       "economy",
-      "Rename someone for 1h (scroll).",
+      "Spend a scroll to rename someone else for 1 hour: `.nickbomb @user <name>`. Peak comedy weapon.",
       [],
-      "<member> <name>",
+      "@user Klown",
       "Everyone"
     ],
     "selfroles": [
       "setup",
-      "Self-assignable roles panel.",
+      "Self-assignable roles panel: `.selfroles`. Members take what they want, mods keep control.",
       [],
       "",
       "Manage Server"
     ],
     "sr-add": [
       "setup",
-      "Add a self role.",
+      "Add a role to the selfroles panel: `.sr-add @role`.",
       [],
-      "<role>",
+      "@role",
       "Manage Server"
     ],
     "suggest": [
       "info",
-      "Suggest things: server/bot boxes.",
+      "Suggestions with voting boxes: `.suggest setup` wires server/bot inboxes, members submit, staff accept/deny with buttons.",
       [],
-      "setup / off",
+      "setup",
       "Everyone"
     ],
     "poker": [
