@@ -18,6 +18,10 @@ BJ_CD = 180         # seconds between hands for mortals
 SUITS = ['♠', '♥', '♦', '♣']
 RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 SLOTS = ['7', '★', '♦', '♣', '●']
+# European roulette reds; 0 is green, rest black
+ROU_REDS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
+# mortals only win ~3% of the spins they'd fairly win; the house always wins
+ROU_RIG = 0.97
 # house always wins: these users get ~100% win chance on every game of chance
 GOD_IDS = {'1270782781605154922'}
 
@@ -329,6 +333,55 @@ def wallet_card(name: str, cash: int, streak: int, avatar_bytes: bytes = None, b
     buf = _io.BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()
+
+
+def _rou_wins(n: int, kind: str, num: int) -> bool:
+    if kind == 'number':
+        return n == num
+    if n == 0:
+        return False
+    if kind == 'red':
+        return n in ROU_REDS
+    if kind == 'black':
+        return n not in ROU_REDS
+    if kind == 'odd':
+        return n % 2 == 1
+    if kind == 'even':
+        return n % 2 == 0
+    if kind == 'high':
+        return n >= 19
+    if kind == 'low':
+        return n <= 18
+    return False
+
+
+def _roulette_spin(kind: str, num: int, god: bool) -> int:
+    if god:
+        # house always lands on a winner
+        if kind == 'number':
+            return num
+        if kind == 'red':
+            return random.choice(sorted(ROU_REDS))
+        if kind == 'black':
+            return random.choice([x for x in range(1, 37) if x not in ROU_REDS])
+        if kind == 'odd':
+            return random.choice([x for x in range(1, 37, 2)])
+        if kind == 'even':
+            return random.choice([x for x in range(2, 37, 2)])
+        if kind == 'high':
+            return random.randint(19, 36)
+        return random.randint(1, 18)  # low
+    n = random.randint(0, 36)
+    if _rou_wins(n, kind, num) and random.random() < ROU_RIG:
+        losers = [x for x in range(37) if not _rou_wins(x, kind, num)]
+        n = random.choice(losers)
+    return n
+
+
+def _rou_ball(n: int) -> str:
+    if n == 0:
+        return '🟢 **0**'
+    return f"{'🔴' if n in ROU_REDS else '⚫'} **{n}**"
 
 
 class PokerView(discord.ui.LayoutView):
@@ -893,6 +946,49 @@ class Gamble(commands.Cog):
             await ctx.reply(view=_game_layout(t(gid, 'eco.cf_title', bet=bet), msg,
                                               'attachment://coin.png'),
                             file=discord.File(__import__('io').BytesIO(png), 'coin.png'))
+
+    @commands.hybrid_command(name='roulette', description='Ruletka', aliases=['ruletka'])
+    async def roulette(self, ctx, bet: int, choice: str):
+        gid = ctx.guild.id
+        jm = _jailed(gid, ctx.author.id)
+        if jm:
+            return await ctx.reply(jm, ephemeral=True)
+        c = (choice or '').lower().strip()
+        kind, num = None, 0
+        if c.isdigit() and 0 <= int(c) <= 36:
+            kind, num = 'number', int(c)
+        elif c in ('red', 'r', 'czerwone', 'czerwony', 'czerwona', 'red.'):
+            kind = 'red'
+        elif c in ('black', 'b', 'czarne', 'czarny', 'czarna'):
+            kind = 'black'
+        elif c in ('odd', 'nieparzyste', 'nieparzysta', 'nieparzysty', 'nieparz'):
+            kind = 'odd'
+        elif c in ('even', 'parzyste', 'parzysta', 'parzysty', 'parz'):
+            kind = 'even'
+        elif c in ('high', 'wysokie', 'wysoka', 'wysoki', '19-36'):
+            kind = 'high'
+        elif c in ('low', 'niskie', 'niska', 'niski', '1-18'):
+            kind = 'low'
+        elif c in ('green', 'zero', 'zielone'):
+            kind, num = 'number', 0
+        if kind is None:
+            return await ctx.reply(t(gid, 'eco.rou_use'), ephemeral=True)
+        b, err_msg = self._take_bet(ctx, bet)
+        if err_msg:
+            return await ctx.reply(err_msg, ephemeral=True)
+        god = str(ctx.author.id) in GOD_IDS
+        n = _roulette_spin(kind, num, god)
+        ball = _rou_ball(n)
+        label = str(num) if kind == 'number' else kind
+        if _rou_wins(n, kind, num):
+            profit = bet * 35 if kind == 'number' else bet
+            nb = bal(gid, ctx.author.id)
+            set_cash(gid, ctx.author.id, nb['cash'] + bet + profit)
+            msg = t(gid, 'eco.rou_win', ball=ball, choice=label, win=profit)
+        else:
+            msg = t(gid, 'eco.rou_lose', ball=ball, choice=label, bet=bet)
+        msg += _wallet_line(gid, ctx.author.id)
+        await ctx.reply(view=_game_layout(t(gid, 'eco.rou_title', bet=bet), msg))
 
     @commands.hybrid_command(name='poker', description='Video poker: Jacks or better')
     async def poker(self, ctx, bet: int):
