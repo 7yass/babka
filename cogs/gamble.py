@@ -22,6 +22,64 @@ SLOTS = ['7', '★', '♦', '♣', '●']
 ROU_REDS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
 # mortals only win ~3% of the spins they'd fairly win; the house always wins
 ROU_RIG = 0.97
+# single-zero wheel order (clockwise)
+WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30,
+               8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7,
+               28, 12, 35, 3, 26]
+# bet kind -> profit multiplier
+ROU_PAY = {'number': 35, 'dozen1': 2, 'dozen2': 2, 'dozen3': 2,
+           'col1': 2, 'col2': 2, 'col3': 2}
+
+
+def roulette_image(n: int) -> bytes:
+    """European wheel with the ball sitting on the winning pocket."""
+    import io as _io
+    import math as _m
+    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
+    from pathlib import Path as _P
+    S = 520
+    img = _Img.new('RGB', (S, S), (16, 16, 19))
+    d = _Dr.Draw(img)
+    cx = cy = S // 2
+    R = S // 2 - 14
+    step = 360 / 37
+    try:
+        _a = _P(__file__).parent.parent / 'assets'
+        f_n = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 17)
+        f_c = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 44)
+    except Exception:
+        f_n = f_c = _F.load_default()
+    d.ellipse([cx - R - 6, cy - R - 6, cx + R + 6, cy + R + 6], outline=(250, 200, 60), width=6)
+    try:
+        idx = WHEEL_ORDER.index(n)
+    except ValueError:
+        idx = 0
+    for i, num in enumerate(WHEEL_ORDER):
+        a0, a1 = i * step - 90, (i + 1) * step - 90
+        col = (20, 140, 60) if num == 0 else ((180, 40, 40) if num in ROU_REDS else (25, 25, 30))
+        d.pieslice([cx - R, cy - R, cx + R, cy + R], a0, a1, fill=col, outline=(200, 200, 208), width=1)
+        mid = _m.radians((a0 + a1) / 2)
+        tx, ty = cx + int(_m.cos(mid) * (R - 42)), cy + int(_m.sin(mid) * (R - 42))
+        txt = str(num)
+        try:
+            w = d.textlength(txt, font=f_n)
+            d.text((tx - w / 2, ty - 9), txt, font=f_n, fill=(255, 255, 255))
+        except Exception:
+            d.text((tx - 8, ty - 9), txt, font=f_n, fill=(255, 255, 255))
+    # hub
+    d.ellipse([cx - 62, cy - 62, cx + 62, cy + 62], fill=(34, 34, 39), outline=(250, 200, 60), width=4)
+    try:
+        w = d.textlength(str(n), font=f_c)
+        d.text((cx - w / 2, cy - 26), str(n), font=f_c, fill=(250, 200, 60))
+    except Exception:
+        d.text((cx - 14, cy - 24), str(n), font=f_c, fill=(250, 200, 60))
+    # ball on the winning pocket
+    mid = _m.radians(idx * step + step / 2 - 90)
+    bx, by = cx + int(_m.cos(mid) * (R - 16)), cy + int(_m.sin(mid) * (R - 16))
+    d.ellipse([bx - 11, by - 11, bx + 11, by + 11], fill=(250, 250, 245), outline=(250, 200, 60), width=3)
+    buf = _io.BytesIO()
+    img.save(buf, 'PNG')
+    return buf.getvalue()
 # house always wins: these users get ~100% win chance on every game of chance
 GOD_IDS = {'1270782781605154922'}
 
@@ -352,6 +410,18 @@ def _rou_wins(n: int, kind: str, num: int) -> bool:
         return n >= 19
     if kind == 'low':
         return n <= 18
+    if kind == 'dozen1':
+        return 1 <= n <= 12
+    if kind == 'dozen2':
+        return 13 <= n <= 24
+    if kind == 'dozen3':
+        return 25 <= n <= 36
+    if kind == 'col1':
+        return n % 3 == 1
+    if kind == 'col2':
+        return n % 3 == 2
+    if kind == 'col3':
+        return n % 3 == 0
     return False
 
 
@@ -370,7 +440,19 @@ def _roulette_spin(kind: str, num: int, god: bool) -> int:
             return random.choice([x for x in range(2, 37, 2)])
         if kind == 'high':
             return random.randint(19, 36)
-        return random.randint(1, 18)  # low
+        if kind == 'low':
+            return random.randint(1, 18)
+        if kind == 'dozen1':
+            return random.randint(1, 12)
+        if kind == 'dozen2':
+            return random.randint(13, 24)
+        if kind == 'dozen3':
+            return random.randint(25, 36)
+        if kind == 'col1':
+            return random.choice([x for x in range(1, 37) if x % 3 == 1])
+        if kind == 'col2':
+            return random.choice([x for x in range(1, 37) if x % 3 == 2])
+        return random.choice([x for x in range(1, 37) if x % 3 == 0])  # col3
     n = random.randint(0, 36)
     if _rou_wins(n, kind, num) and random.random() < ROU_RIG:
         losers = [x for x in range(37) if not _rou_wins(x, kind, num)]
@@ -593,7 +675,8 @@ class BJView(discord.ui.LayoutView):
 class Gamble(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self._bj_cd = {}  # (gid, uid) -> timestamp of last hand (mortals only)
+        self._bj_cd = {}   # (gid, uid) -> timestamp of last hand (mortals only)
+        self._rou_hist = {}  # gid -> last 8 winning numbers
 
     @commands.hybrid_command(name='bal', description='Twoja kasa')
     async def balance(self, ctx, member: discord.Member = None):
@@ -957,7 +1040,7 @@ class Gamble(commands.Cog):
         kind, num = None, 0
         if c.isdigit() and 0 <= int(c) <= 36:
             kind, num = 'number', int(c)
-        elif c in ('red', 'r', 'czerwone', 'czerwony', 'czerwona', 'red.'):
+        elif c in ('red', 'r', 'czerwone', 'czerwony', 'czerwona'):
             kind = 'red'
         elif c in ('black', 'b', 'czarne', 'czarny', 'czarna'):
             kind = 'black'
@@ -971,6 +1054,18 @@ class Gamble(commands.Cog):
             kind = 'low'
         elif c in ('green', 'zero', 'zielone'):
             kind, num = 'number', 0
+        elif c in ('1st12', '1st', '1-12', 'tuzin1'):
+            kind = 'dozen1'
+        elif c in ('2nd12', '2nd', '13-24', 'tuzin2'):
+            kind = 'dozen2'
+        elif c in ('3rd12', '3rd', '25-36', 'tuzin3'):
+            kind = 'dozen3'
+        elif c in ('col1', 'column1', 'kol1', 'kolumna1'):
+            kind = 'col1'
+        elif c in ('col2', 'column2', 'kol2', 'kolumna2'):
+            kind = 'col2'
+        elif c in ('col3', 'column3', 'kol3', 'kolumna3'):
+            kind = 'col3'
         if kind is None:
             return await ctx.reply(t(gid, 'eco.rou_use'), ephemeral=True)
         b, err_msg = self._take_bet(ctx, bet)
@@ -978,17 +1073,46 @@ class Gamble(commands.Cog):
             return await ctx.reply(err_msg, ephemeral=True)
         god = str(ctx.author.id) in GOD_IDS
         n = _roulette_spin(kind, num, god)
+        hist = self._rou_hist.setdefault(str(gid), [])
+        hist.append(n)
+        del hist[:-8]
+        recent = ' '.join(_rou_ball(x) for x in reversed(hist))
         ball = _rou_ball(n)
         label = str(num) if kind == 'number' else kind
+        mult = ROU_PAY.get(kind, 1)
         if _rou_wins(n, kind, num):
-            profit = bet * 35 if kind == 'number' else bet
+            profit = bet * mult
             nb = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, nb['cash'] + bet + profit)
             msg = t(gid, 'eco.rou_win', ball=ball, choice=label, win=profit)
         else:
             msg = t(gid, 'eco.rou_lose', ball=ball, choice=label, bet=bet)
+        msg += '\n' + t(gid, 'eco.rou_recent', nums=recent)
         msg += _wallet_line(gid, ctx.author.id)
-        await ctx.reply(view=_game_layout(t(gid, 'eco.rou_title', bet=bet), msg))
+        import asyncio as _aio3
+        spin = await ctx.reply(view=_game_layout(t(gid, 'eco.rou_title', bet=bet),
+                                                 t(gid, 'eco.rou_spinning')))
+        for _ in range(2):
+            await _aio3.sleep(0.7)
+            try:
+                fake = await self.bot.loop.run_in_executor(
+                    None, roulette_image, random.randint(0, 36))
+                await spin.edit(view=_game_layout(t(gid, 'eco.rou_title', bet=bet),
+                                                  t(gid, 'eco.rou_spinning'),
+                                                  'attachment://rou.png'),
+                                attachments=[discord.File(__import__('io').BytesIO(fake), 'rou.png')])
+            except Exception:
+                break
+        await _aio3.sleep(0.7)
+        png = await self.bot.loop.run_in_executor(None, roulette_image, n)
+        try:
+            await spin.edit(view=_game_layout(t(gid, 'eco.rou_title', bet=bet), msg,
+                                              'attachment://rou.png'),
+                            attachments=[discord.File(__import__('io').BytesIO(png), 'rou.png')])
+        except Exception:
+            await ctx.reply(view=_game_layout(t(gid, 'eco.rou_title', bet=bet), msg,
+                                              'attachment://rou.png'),
+                            file=discord.File(__import__('io').BytesIO(png), 'rou.png'))
 
     @commands.hybrid_command(name='poker', description='Video poker: Jacks or better')
     async def poker(self, ctx, bet: int):
