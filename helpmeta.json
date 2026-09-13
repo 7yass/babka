@@ -1193,7 +1193,7 @@
     ],
     "bail": [
       "economy",
-      "Buy your way out of jail for 15000 coins with `.bail`. Fails if you're free or broke.",
+      "Buy your way out of jail for 40000 coins with `.bail` (or `.shop buy bail`). Fails if you're free or broke.",
       [],
       "",
       "Everyone"
