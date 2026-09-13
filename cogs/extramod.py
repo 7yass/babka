@@ -121,7 +121,7 @@ class ExtraMod(commands.Cog):
             pass
         await ctx.reply(t(ctx.guild.id, 'xm.iunmuted', user=member.mention, ch=ctx.channel.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='imutelist', description='Kto bez obrazków')
+    @commands.command(name='imutelist', description='Kto bez obrazków')
     @staff_or('manage_messages')
     async def imutelist(self, ctx):
         found = set()
@@ -150,7 +150,7 @@ class ExtraMod(commands.Cog):
             pass
         await ctx.reply(t(ctx.guild.id, 'xm.runmuted', user=member.mention, ch=ctx.channel.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='rmutelist', description='Kto bez reakcji')
+    @commands.command(name='rmutelist', description='Kto bez reakcji')
     @staff_or('manage_messages')
     async def rmutelist(self, ctx):
         found = set()
@@ -175,7 +175,7 @@ class ExtraMod(commands.Cog):
             pass
         await ctx.reply(t(gid, 'xm.pkicked', user=member.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='permkicked', description='Lista permkicków')
+    @commands.command(name='permkicked', description='Lista permkicków')
     @staff_or('kick_members')
     async def permkicked(self, ctx):
         gid = ctx.guild.id
@@ -454,7 +454,7 @@ class ExtraMod(commands.Cog):
             pass
         await ctx.reply(t(ctx.guild.id, 'xm.unjailed', user=member.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='jailed', description='Kto siedzi')
+    @commands.command(name='jailed', description='Kto siedzi')
     @staff_or('moderate_members')
     async def jailed(self, ctx):
         role = await self._jail_role(ctx.guild)

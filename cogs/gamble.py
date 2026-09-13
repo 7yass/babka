@@ -728,6 +728,14 @@ class Gamble(commands.Cog):
         set_cash(gid, ctx.author.id, b['cash'] - bet)
         return b, None
 
+    def _win_chance(self, gid, bet: int) -> float:
+        """Calculate win chance based on bet amount. Higher bet = lower chance."""
+        base_chance = 0.02  # 2% base chance
+        # Higher bet = lower chance. Scale logarithmically.
+        import math
+        bet_factor = 1 - min(0.95, math.log10(max(1, bet)) * 0.15)
+        return base_chance * bet_factor
+
     @commands.hybrid_command(name='slots', description='Maszynka')
     async def slots(self, ctx, bet: int):
         gid = ctx.guild.id
@@ -737,14 +745,14 @@ class Gamble(commands.Cog):
         b, err_msg = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
-        reels = [random.choice(SLOTS) for _ in range(3)]
-        if reels[0] == reels[1] == reels[2]:
-            mult = 12 if reels[0] == '7' else 5
+        
+        win_chance = self._win_chance(gid, bet)
+        won = random.random() < win_chance
+        
+        if won:
+            mult = 12 if random.random() < 0.1 else 5
             win = bet * mult
             msg = t(gid, 'eco.slots_jackpot', mult=mult, win=win)
-        elif reels[0] == reels[1] or reels[1] == reels[2] or reels[0] == reels[2]:
-            win = bet
-            msg = t(gid, 'eco.slots_small', win=win)
         else:
             win = 0
             msg = t(gid, 'eco.slots_lose', bet=bet)
@@ -776,7 +784,7 @@ class Gamble(commands.Cog):
                                               'attachment://slots.png'),
                             file=discord.File(__import__('io').BytesIO(png), 'slots.png'))
 
-    @commands.hybrid_command(name='coinflip', description='Orzeł czy reszka', aliases=['moneta'])
+@commands.hybrid_command(name='coinflip', description='Orzeł czy reszka', aliases=['moneta'])
     async def coinflip(self, ctx, bet: int, side: str):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
@@ -789,8 +797,9 @@ class Gamble(commands.Cog):
         b, err_msg = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
-        result = random.choice(['O', 'R'])
-        if result == pick:
+        win_chance = self._win_chance(gid, bet)
+        won = random.random() < win_chance
+        if won:
             nb = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, nb['cash'] + bet * 2)
             msg = t(gid, 'eco.cf_win', win=bet)
@@ -857,7 +866,7 @@ class Gamble(commands.Cog):
             return await ctx.reply(t(gid, 'eco.rob_poor', user=member.display_name), ephemeral=True)
         if db.has_shield(gid, member.id):
             return await ctx.reply(t(gid, 'eco.rob_shield', user=member.display_name), ephemeral=True)
-        win_chance = 0.45
+        win_chance = 0.15  # 15% base chance to rob successfully
         won = random.random() < win_chance
         if won:
             loot = max(10, int(vb['cash'] * random.uniform(0.1, 0.3)))
@@ -866,11 +875,11 @@ class Gamble(commands.Cog):
             set_cash(gid, ctx.author.id, ab['cash'] + loot)
             msg = t(gid, 'eco.rob_win', user=member.display_name, loot=loot)
         else:
-            fine = min(bal(gid, ctx.author.id)['cash'], max(50, int(vb['cash'] * 0.15)))
+            fine = min(bal(gid, ctx.author.id)['cash'], max(100, int(vb['cash'] * 0.2)))
             ab = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, ab['cash'] - fine)
             set_cash(gid, member.id, vb['cash'] + fine)
-            db.jail(gid, ctx.author.id, 10)
+            db.jail(gid, ctx.author.id, 15)
             msg = t(gid, 'eco.rob_fail_jail', user=member.display_name, fine=fine)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE eco SET last_rob=? WHERE guild_id=? AND user_id=?',

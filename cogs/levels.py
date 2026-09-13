@@ -179,20 +179,29 @@ def rank_tier(level: int):
     return ('ROOKIE', 3, 0)
 
 
-def _bar(img, bx, by, bw, bh, pct):
+def _bar_knob(img, bx, by, bw, bh, pct, fill=(255, 255, 255)):
     d = ImageDraw.Draw(img, 'RGBA')
-    d.rounded_rectangle([bx, by, bx + bw, by + bh], radius=16, fill=(42, 42, 46))
-    if pct > 0:
-        fw = max(32, int(bw * pct))
-        # monochrome: white -> grey gradient
-        bar = Image.new('RGB', (fw, bh))
-        bd = ImageDraw.Draw(bar)
-        for x in range(fw):
-            k = x / max(fw - 1, 1)
-            bd.line([(x, 0), (x, bh)], fill=(int(255 - 105 * k), int(255 - 105 * k), int(255 - 100 * k)))
-        m = Image.new('L', (fw, bh), 0)
-        ImageDraw.Draw(m).rounded_rectangle([0, 0, fw, bh], radius=16, fill=255)
-        img.paste(bar, (bx, by), m)
+    d.rounded_rectangle([bx, by, bx + bw, by + bh], radius=bh // 2, fill=(42, 42, 46))
+    fw = max(bh, int(bw * max(0.0, min(1.0, pct))))
+    bar = Image.new('RGB', (fw, bh), fill)
+    m = Image.new('L', (fw, bh), 0)
+    ImageDraw.Draw(m).rounded_rectangle([0, 0, fw, bh], radius=bh // 2, fill=255)
+    img.paste(bar, (bx, by), m)
+    kx = bx + fw - bh // 2
+    d.ellipse([kx - bh // 2, by - 3, kx + bh // 2, by + bh + 3], fill=(255, 255, 255),
+              outline=(30, 30, 34), width=2)
+
+
+def _pill(d, x, y, text, font, fg, outline):
+    try:
+        tw = d.textlength(text, font=font)
+    except Exception:
+        tw = len(text) * 13
+    pad, h = 18, 38
+    d.rounded_rectangle([x, y, x + tw + pad * 2, y + h], radius=h // 2,
+                        fill=(24, 24, 28), outline=outline, width=2)
+    d.text((x + pad, y + 5), text, font=font, fill=fg)
+    return tw + pad * 2
 
 
 def _ctext(d, cx, y, s, font, fill):
@@ -234,15 +243,17 @@ def rank_card(member: discord.Member, data: dict, rank: int, lang: str = 'en', a
         except Exception:
             f_big = f_mid = f_sm = ImageFont.load_default()
     pasted = False
-    if show_av and avatar_bytes:
-        pasted = paste_avatar(img, avatar_bytes, (50, 50, 160))
+    if layout != 'center' and show_av and avatar_bytes:
+        pasted = paste_avatar(img, avatar_bytes, (45, 28, 140))
     tier_name, ring_w, stars = tier_for(data['level'], tier_names)
-    if show_av and not pasted:
+    if layout != 'center' and show_av and not pasted:
         # fallback: initial letter instead of an empty ring
-        fallback_face(d, (50, 50, 160), member.display_name)
-    if show_av:
-        # tier ring evolves with level
-        d.ellipse([50, 50, 210, 210], outline=ring, width=ring_w)
+        fallback_face(d, (45, 28, 140), member.display_name)
+    # spine + avatar rings
+    d.rectangle([0, 0, 10, H], fill=ring)
+    if layout != 'center' and show_av:
+        d.ellipse([45, 28, 185, 168], outline=ring, width=ring_w)
+        d.ellipse([40, 23, 190, 173], outline=(90, 90, 98), width=2)
     if data['level'] >= 20:
         d.rectangle([6, 6, W - 6, H - 6], outline=(120, 120, 128), width=2)
     if data['level'] >= 50:
@@ -250,35 +261,48 @@ def rank_card(member: discord.Member, data: dict, rank: int, lang: str = 'en', a
     need = xp_needed(data['level'])
     pct = min(1, data['xp'] / need if need else 0)
     tier_txt = tier_name + (' ' + '★' * stars if stars else '')
-    lvl_txt = f"{L('cv.level', 'Level {n}').replace('{n}', str(data['level']))}   •   {L('cv.rank', 'Rank #{n}').replace('{n}', str(rank))}"
+    lvl_num = str(data['level'])
+    rank_num = f'#{rank}'
     xp_txt = L('cv.xp', '{xp} / {need} XP • {pct}%').replace('{xp}', str(data['xp'])).replace('{need}', str(need)).replace('{pct}', str(round((data['xp'] / need * 100) if need else 0)))
     if layout == 'center':
-        _ctext(d, W / 2, 22, member.display_name[:22], f_big, (255, 255, 255))
+        _ctext(d, W / 2, 20, member.display_name[:22], f_big, (255, 255, 255))
+        y = 72
         if show_tier:
-            _ctext(d, W / 2, 74, tier_txt, f_mid, ring)
-        _ctext(d, W / 2, 112 if show_tier else 78, lvl_txt, f_mid, (181, 181, 181))
+            try:
+                tw = d.textlength(tier_txt, font=f_mid)
+            except Exception:
+                tw = len(tier_txt) * 13
+            _pill(d, (W - tw - 36) / 2, y, tier_txt, f_mid, ring, ring)
+            y += 50
+        _ctext(d, W / 2, y, f'LVL {lvl_num}  •  RANK {rank_num}', f_mid, (181, 181, 181))
+        y += 40
         if show_bar:
-            _bar(img, 150, 152, 600, 30, pct)
-            if show_xp:
-                _ctext(d, W / 2, 192, xp_txt, f_sm, (255, 255, 255))
-        elif show_xp:
-            _ctext(d, W / 2, 158, xp_txt, f_sm, (255, 255, 255))
+            _bar_knob(img, 150, y, 600, 24, pct, ring)
+            y += 34
+        if show_xp:
+            _ctext(d, W / 2, y, xp_txt, f_sm, (255, 255, 255))
         buf = io.BytesIO()
         img.save(buf, 'PNG')
         buf.seek(0)
         return discord.File(buf, 'rank.png')
-    d.text((240, 55), member.display_name[:18], font=f_big, fill=(255, 255, 255))
+    tx = 215
+    d.text((tx, 24), member.display_name[:18], font=f_big, fill=(255, 255, 255))
     if show_tier:
-        try:
-            tw = d.textlength(tier_txt, font=f_mid)
-        except Exception:
-            tw = len(tier_txt) * 14
-        d.text((W - 30 - tw, 55), tier_txt, font=f_mid, fill=(200, 200, 208))
-    d.text((240, 105), lvl_txt, font=f_mid, fill=(181, 181, 181))
+        _pill(d, tx, 76, tier_txt, f_mid, ring, ring)
+    # stat columns
+    sy = 132
+    pct_txt = f"{round((data['xp'] / need * 100) if need else 0)}%"
+    for i, (lab, val) in enumerate((
+            (L('cv.level', 'Level {n}').replace('{n}', '').strip() or 'LEVEL', lvl_num),
+            (L('cv.rank', 'Rank #{n}').replace('{n}', '').replace('#', '').strip() or 'RANK', rank_num),
+            ('PROGRESS', pct_txt))):
+        cx = tx + i * 215
+        d.text((cx, sy), lab.upper()[:8], font=f_sm, fill=(130, 130, 138))
+        d.text((cx, sy + 24), val, font=f_mid, fill=(255, 255, 255))
     if show_bar:
-        _bar(img, 240, 165, 600, 32, pct)
-    if show_xp:
-        d.text((240, 205 if show_bar else 168), xp_txt, font=f_sm, fill=(255, 255, 255))
+        _bar_knob(img, 45, 208, 810, 22, pct, ring)
+    if show_xp and not show_bar:
+        d.text((tx, 168), xp_txt, font=f_sm, fill=(255, 255, 255))
     buf = io.BytesIO()
     img.save(buf, 'PNG')
     buf.seek(0)

@@ -1,4 +1,4 @@
-"""Lookups: avatar, banner, Roblox user/avatar/previousnames. All hybrid."""
+﻿"""Lookups: avatar, banner, Roblox user/avatar/previousnames. All hybrid."""
 import aiohttp
 import discord
 from discord.ext import commands
@@ -23,14 +23,14 @@ class Lookups(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_command(name='avatar', description="Czyjś awatar")
+    @commands.command(name='avatar', description="CzyjÅ› awatar")
     async def avatar(self, ctx, member: discord.Member = None):
         member = member or ctx.author
         e = discord.Embed(title=str(member), color=WHITE)
         e.set_image(url=str(member.display_avatar.with_size(1024).url))
         await ctx.reply(embed=e, mention_author=False)
 
-    @commands.hybrid_command(name='banner', description="Czyjś banner")
+    @commands.command(name='banner', description="CzyjÅ› banner")
     async def banner(self, ctx, member: discord.Member = None):
         member = member or ctx.author
         gid = ctx.guild.id if ctx.guild else None
@@ -72,7 +72,7 @@ class Lookups(commands.Cog):
             prof = await _get_json(s, f'https://users.roblox.com/v1/users/{uid}') or {}
             fc = await _get_json(s, f'https://friends.roblox.com/v1/users/{uid}/friends/count') or {}
             fl = await _get_json(s, f'https://friends.roblox.com/v1/users/{uid}/followers/count') or {}
-        desc = (prof.get('description') or '')[:300] or '—'
+        desc = (prof.get('description') or '')[:300] or 'â€”'
         e = discord.Embed(title=f"{prof.get('displayName', info.get('displayName'))} (@{prof.get('name', username)})",
                           description=desc, color=WHITE,
                           url=f'https://www.roblox.com/users/{uid}/profile')
@@ -113,7 +113,7 @@ class Lookups(commands.Cog):
         names = [h.get('name') for h in ((hist or {}).get('data') or []) if h.get('name')]
         if not names:
             return await ctx.reply(t(gid, 'lk.rbx_nonames', user=username), ephemeral=True)
-        await ctx.reply(embed=ok(t(gid, 'lk.rbx_names', user=username) + '\n' + '\n'.join(f'• {n}' for n in names[:25])),
+        await ctx.reply(embed=ok(t(gid, 'lk.rbx_names', user=username) + '\n' + '\n'.join(f'â€¢ {n}' for n in names[:25])),
                         ephemeral=True)
 
 
