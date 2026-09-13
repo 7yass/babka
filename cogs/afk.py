@@ -60,7 +60,7 @@ class AFK(commands.Cog):
                 except Exception:
                     pass
 
-    @commands.hybrid_command(name='afk', description='Zaznacz AFK (z powodem lub bez)')
+    @commands.command(name='afk', description='Zaznacz AFK (z powodem lub bez)')
     async def afk(self, ctx, *, reason: str = ''):
         gid = ctx.guild.id if ctx.guild else None
         if len(reason) > 200:

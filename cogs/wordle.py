@@ -210,9 +210,9 @@ class Wordle(commands.Cog):
                 pass
             self.active.pop(gid, None)
 
-    @commands.hybrid_group(name='wordle', description='Zgadywanka babki')
+    @commands.group(name='wordle', description='Zgadywanka babki')
     async def wordle(self, ctx):
-        await ctx.reply('/wordle set / off / now / top', ephemeral=True)
+        await ctx.reply('.wordle set / off / now / top', ephemeral=True)
 
     @wordle.command(name='set', description='Ustaw kanał i co ile minut')
     @staff_or('manage_guild')

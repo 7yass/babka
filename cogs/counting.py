@@ -12,9 +12,9 @@ class Counting(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_group(name='counting', description='Kanał liczenia')
+    @commands.group(name='counting', description='Kanał liczenia')
     async def counting(self, ctx):
-        await ctx.reply('/counting set / off', ephemeral=True)
+        await ctx.reply('.counting set / off', ephemeral=True)
 
     @counting.command(name='set', description='Ustaw kanał liczenia')
     @staff_or('manage_guild')

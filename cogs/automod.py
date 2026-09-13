@@ -327,9 +327,9 @@ class AutoMod(commands.Cog):
                 pass
 
     # ---------- commands ----------
-    @commands.hybrid_group(name='automod', description='Auto-moderacja')
+    @commands.group(name='automod', description='Auto-moderacja')
     async def automod(self, ctx):
-        await ctx.reply('/automod status / toggle / badword-add / badword-remove / anti-invite / anti-link',
+        await ctx.reply('.automod status / toggle / badword-add / badword-remove / anti-invite / anti-link',
                         ephemeral=True)
 
     @automod.command(name='status', description='Pokaż ustawienia')

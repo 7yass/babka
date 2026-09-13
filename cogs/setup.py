@@ -46,9 +46,9 @@ class Setup(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_group(name='setup', description='Startowa konfiguracja')
+    @commands.group(name='setup', description='Startowa konfiguracja')
     async def setup(self, ctx):
-        await ctx.reply('/setup status / staff-add / staff-remove / set-modlog / set-levelup', ephemeral=True)
+        await ctx.reply('.setup status / staff-add / staff-remove / set-modlog / set-levelup', ephemeral=True)
 
     @setup.command(name='status', description='Pełna checklista')
     async def status(self, ctx):

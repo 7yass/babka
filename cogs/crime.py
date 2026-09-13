@@ -23,9 +23,9 @@ class Crime(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_group(name='heist', description='Napad ekipÄ…')
+    @commands.group(name='heist', description='Napad ekipÄ…')
     async def heist(self, ctx):
-        await ctx.reply('/heist start / join', ephemeral=True)
+        await ctx.reply('.heist start / join', ephemeral=True)
 
     @heist.command(name='start', description='Zacznij napad (bank/kasyno/muzeum)')
     async def heist_start(self, ctx, target: str):

@@ -550,7 +550,7 @@ class Levels(commands.Cog):
                                 print(f'[voice] announce failed: {e}')
 
     # ---- commands ----
-    @commands.hybrid_command(name='rank', description='Karta gracza')
+    @commands.command(name='rank', description='Karta gracza')
     async def rank(self, ctx, member: discord.Member = None):
         import aiohttp
         import asyncio as _aio
@@ -600,7 +600,7 @@ class Levels(commands.Cog):
             __import__('lang').get_lang(ctx.guild.id), avatar, None, accent, style, custom_bg, names)
         await ctx.reply(file=card, mention_author=False)
 
-    @commands.hybrid_command(name='leaderboard', description='Ranking XP', aliases=['lb', 'top'])
+    @commands.command(name='leaderboard', description='Ranking XP', aliases=['lb', 'top'])
     async def leaderboard(self, ctx):
         from lang import t as _t
         await ctx.defer()
@@ -771,7 +771,7 @@ class Levels(commands.Cog):
             return await interaction.response.send_message(_t(interaction.guild_id, 'lb.empty'), ephemeral=True)
         await interaction.response.edit_message(embeds=embeds, attachments=files, view=view)
 
-    @commands.hybrid_group(name='levels', description='Levele (admin)')
+    @commands.group(name='levels', description='Levele (admin)')
     async def levels_grp(self, ctx):
         await ctx.reply('levels reward-add / reward-remove / reward-list / multiplier / noxp / levelup-channel / add-xp / stack',
                         ephemeral=True)

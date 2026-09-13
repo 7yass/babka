@@ -140,9 +140,9 @@ class Giveaway(commands.Cog):
         except Exception:
             pass
 
-    @commands.hybrid_group(name='giveaway', description='Rozdania')
+    @commands.group(name='giveaway', description='Rozdania')
     async def giveaway(self, ctx):
-        await ctx.reply('/giveaway start / end / reroll / cancel / list', ephemeral=True)
+        await ctx.reply('.giveaway start / end / reroll / cancel / list', ephemeral=True)
 
     @giveaway.command(name='start', description='Nowe rozdanie')
     @staff_or('manage_guild')

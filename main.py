@@ -71,16 +71,18 @@ COGS = [
 async def on_ready():
     print(f'[+] Babka Danka: {bot.user} ({bot.user.id})')
     try:
+        # prefix-only mode: wipe any registered slash commands
+        bot.tree.clear_commands(guild=None)
         if GUILD_ID:
             guild = discord.Object(id=GUILD_ID)
-            bot.tree.copy_global_to(guild=guild)
+            bot.tree.clear_commands(guild=guild)
             await bot.tree.sync(guild=guild)
-            print(f'[+] Slash synced to guild {GUILD_ID}')
+            print(f'[+] Slash cleared for guild {GUILD_ID}')
         else:
             await bot.tree.sync()
-            print('[+] Slash synced globally')
+            print('[+] Slash cleared globally')
     except Exception as e:
-        print(f'[-] Sync failed: {e}')
+        print(f'[-] Slash clear failed: {e}')
     await bot.change_presence(activity=discord.Activity(
         type=discord.ActivityType.watching, name='Jestem prawdziwą babcią Matrofa osły'))
 

@@ -159,7 +159,7 @@ class Help(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_command(name='help', description='Centrum pomocy', aliases=['h', 'commands'])
+    @commands.command(name='help', description='Centrum pomocy', aliases=['h', 'commands'])
     async def help_cmd(self, ctx, *, query: str = None):
         gid = ctx.guild.id if ctx.guild else None
         prefix = db.get_prefix(gid) if gid else '.'

@@ -20,10 +20,10 @@ class Whitelist(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_group(name='whitelist', description='Kanały wolne od limitów')
+    @commands.group(name='whitelist', description='Kanały wolne od limitów')
     @staff_or('manage_guild')
     async def whitelist(self, ctx):
-        await ctx.reply('/whitelist add / remove / list', ephemeral=True)
+        await ctx.reply('.whitelist add / remove / list', ephemeral=True)
 
     @whitelist.command(name='add', description='Zwolnij kanał (automod / levels / all)')
     @staff_or('manage_guild')

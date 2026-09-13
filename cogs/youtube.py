@@ -114,9 +114,9 @@ class YouTube(commands.Cog):
     async def _before(self):
         await self.bot.wait_until_ready()
 
-    @commands.hybrid_group(name='youtube', description='Powiadomienia YouTube')
+    @commands.group(name='youtube', description='Powiadomienia YouTube')
     async def youtube(self, ctx):
-        await ctx.reply('/youtube watch / unwatch / list / test', ephemeral=True)
+        await ctx.reply('.youtube watch / unwatch / list / test', ephemeral=True)
 
     @youtube.command(name='watch', description='Śledź kanał')
     @staff_or('manage_guild')

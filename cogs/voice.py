@@ -435,9 +435,9 @@ class Voice(commands.Cog):
             return
 
     # ---------- commands ----------
-    @commands.hybrid_group(name='voicemaster', description='Pokoje gÅ‚osowe')
+    @commands.group(name='voicemaster', description='Pokoje gÅ‚osowe')
     async def voicemaster(self, ctx):
-        await ctx.reply('/voicemaster setup / interface / icon / icons / disable / panel', ephemeral=True)
+        await ctx.reply('.voicemaster setup / interface / icon / icons / disable / panel', ephemeral=True)
 
     @voicemaster.command(name='setup', description='Ustaw lobby')
     @staff_or('manage_guild')

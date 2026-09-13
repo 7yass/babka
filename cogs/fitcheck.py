@@ -136,7 +136,7 @@ class FitCheck(commands.Cog):
         except Exception:
             pass
 
-    @commands.hybrid_command(name='fitleader', description='Najtrwadsze fity')
+    @commands.command(name='fitleader', description='Najtrwadsze fity')
     async def fitleader(self, ctx):
         await ctx.defer()
         ch = ctx.guild.get_channel(int(FIT_CHANNEL))

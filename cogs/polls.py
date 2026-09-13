@@ -110,9 +110,9 @@ class Polls(commands.Cog):
             content=board_text(gid, p['question'], options, counts),
             view=poll_view(mid, options))
 
-    @commands.hybrid_group(name='poll', description='Ankiety')
+    @commands.group(name='poll', description='Ankiety')
     async def poll(self, ctx):
-        await ctx.reply('/poll create / close / results', ephemeral=True)
+        await ctx.reply('.poll create / close / results', ephemeral=True)
 
     @poll.command(name='create', description='Nowa ankieta (max 5)')
     @staff_or('manage_guild')

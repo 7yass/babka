@@ -781,7 +781,7 @@ class Gamble(commands.Cog):
         self.bot = bot
         self._rou_hist = {}  # gid -> last 8 winning numbers
 
-    @commands.hybrid_command(name='bal', description='Twoja kasa')
+    @commands.command(name='bal', description='Twoja kasa')
     async def balance(self, ctx, member: discord.Member = None):
         import aiohttp
         import asyncio as _aio
@@ -820,7 +820,7 @@ class Gamble(commands.Cog):
                         file=discord.File(__import__('io').BytesIO(png), 'wallet.png'),
                         ephemeral=True)
 
-    @commands.hybrid_command(name='daily', description='Dzienne monety')
+    @commands.command(name='daily', description='Dzienne monety')
     async def daily(self, ctx):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
@@ -842,7 +842,7 @@ class Gamble(commands.Cog):
         await ctx.reply(t(gid, 'eco.daily_ok', cash=DAILY_CASH + bonus, streak=streak)
                         + _wallet_line(gid, ctx.author.id), ephemeral=True)
 
-    @commands.hybrid_command(name='pay', description='Przelej kasę')
+    @commands.command(name='pay', description='Przelej kasę')
     async def pay(self, ctx, member: discord.Member, amount: int):
         gid = ctx.guild.id
         if member.id == ctx.author.id or member.bot:
@@ -886,7 +886,7 @@ class Gamble(commands.Cog):
         other = row['u2'] if row['u1'] == str(uid) else row['u1']
         return row['u1'], other
 
-    @commands.hybrid_command(name='bank', description='Twój bank')
+    @commands.command(name='bank', description='Twój bank')
     async def bank(self, ctx):
         gid = ctx.guild.id
         owner, partner = self._vault(gid, ctx.author.id)
@@ -900,7 +900,7 @@ class Gamble(commands.Cog):
             msg += '\n' + t(gid, 'eco.bank_interest', earned=earned)
         await ctx.reply(view=_game_layout(t(gid, 'eco.bank_title'), msg), ephemeral=True)
 
-    @commands.hybrid_command(name='bankshare', description='Wspólny sejf we dwoje')
+    @commands.command(name='bankshare', description='Wspólny sejf we dwoje')
     async def bankshare(self, ctx, partner: discord.Member = None):
         gid = ctx.guild.id
         me = str(ctx.author.id)
@@ -922,7 +922,7 @@ class Gamble(commands.Cog):
             conn.execute('INSERT INTO bank_links (guild_id, u1, u2) VALUES (?,?,?)', (str(gid), a, b))
         await ctx.reply(t(gid, 'eco.share_ok', user=partner.display_name), ephemeral=True)
 
-    @commands.hybrid_command(name='deposit', description='Wpłać do banku', aliases=['dep'])
+    @commands.command(name='deposit', description='Wpłać do banku', aliases=['dep'])
     async def deposit(self, ctx, amount: str):
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
@@ -948,7 +948,7 @@ class Gamble(commands.Cog):
         await ctx.reply(t(gid, 'eco.dep_ok', amount=amount, bank=bank + amount)
                         + _wallet_line(gid, ctx.author.id), ephemeral=True)
 
-    @commands.hybrid_command(name='withdraw', description='Wypłać z banku', aliases=['with'])
+    @commands.command(name='withdraw', description='Wypłać z banku', aliases=['with'])
     async def withdraw(self, ctx, amount: str):
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
@@ -973,7 +973,7 @@ class Gamble(commands.Cog):
         await ctx.reply(t(gid, 'eco.with_ok', amount=amount) + _wallet_line(gid, ctx.author.id),
                         ephemeral=True)
 
-    @commands.hybrid_command(name='tribute', description='Daj babce napiwek')
+    @commands.command(name='tribute', description='Daj babce napiwek')
     async def tribute(self, ctx, amount: int):
         import random
         gid = ctx.guild.id
@@ -993,7 +993,7 @@ class Gamble(commands.Cog):
         await ctx.reply(view=_game_layout(t(gid, 'eco.tribute_title'),
                                           thanks + '\n' + t(gid, 'eco.tribute_total', total=total)))
 
-    @commands.hybrid_command(name='blackjack', description='Oczko', aliases=['bj'])
+    @commands.command(name='blackjack', description='Oczko', aliases=['bj'])
     async def blackjack(self, ctx, bet: int):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
@@ -1056,7 +1056,7 @@ class Gamble(commands.Cog):
         bet_factor = 1 - min(0.95, math.log10(max(1, bet)) * 0.15)
         return base_chance * bet_factor
 
-    @commands.hybrid_command(name='slots', description='Maszynka')
+    @commands.command(name='slots', description='Maszynka')
     async def slots(self, ctx, bet: int):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
@@ -1111,7 +1111,7 @@ class Gamble(commands.Cog):
                                               'attachment://slots.png'),
                             file=discord.File(__import__('io').BytesIO(png), 'slots.png'))
 
-    @commands.hybrid_command(name='coinflip', description='Orzeł czy reszka', aliases=['moneta'])
+    @commands.command(name='coinflip', description='Orzeł czy reszka', aliases=['moneta'])
     async def coinflip(self, ctx, bet: int, side: str):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
@@ -1160,7 +1160,7 @@ class Gamble(commands.Cog):
                                               'attachment://coin.png'),
                             file=discord.File(__import__('io').BytesIO(png), 'coin.png'))
 
-    @commands.hybrid_command(name='roulette', description='Ruletka', aliases=['ruletka'])
+    @commands.command(name='roulette', description='Ruletka', aliases=['ruletka'])
     async def roulette(self, ctx, bet: int, choice: str):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
@@ -1248,7 +1248,7 @@ class Gamble(commands.Cog):
                                               'attachment://rou.png'),
                             file=discord.File(__import__('io').BytesIO(png), 'rou.png'))
 
-    @commands.hybrid_command(name='poker', description='Video poker: Jacks or better')
+    @commands.command(name='poker', description='Video poker: Jacks or better')
     async def poker(self, ctx, bet: int):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
@@ -1267,7 +1267,7 @@ class Gamble(commands.Cog):
         view = PokerView(self, ctx.author.id, bet, deck, hand, gid)
         await ctx.reply(view=view, files=[await view._img()])
 
-    @commands.hybrid_command(name='rob', description='Okradnij typa')
+    @commands.command(name='rob', description='Okradnij typa')
     async def rob(self, ctx, member: discord.Member):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
@@ -1332,7 +1332,7 @@ class Gamble(commands.Cog):
             conn.execute('DELETE FROM bounties WHERE guild_id=?', (str(gid),))
         await ctx.reply(t(gid, 'eco.reset_done'))
 
-    @commands.hybrid_command(name='rich', description='Najbogatsi', aliases=['baltop'])
+    @commands.command(name='rich', description='Najbogatsi', aliases=['baltop'])
     async def rich(self, ctx):
         gid = ctx.guild.id
         await ctx.defer()

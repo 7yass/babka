@@ -153,9 +153,9 @@ class Welcome(commands.Cog):
         except Exception:
             pass
 
-    @commands.hybrid_group(name='welcome', description='Powitania')
+    @commands.group(name='welcome', description='Powitania')
     async def welcome(self, ctx):
-        await ctx.reply('/welcome setup / test / disable', ephemeral=True)
+        await ctx.reply('.welcome setup / test / disable', ephemeral=True)
 
     @welcome.command(name='setup', description='Wejścia i wyjścia')
     @staff_or('manage_guild')

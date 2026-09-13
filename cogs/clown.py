@@ -106,9 +106,9 @@ class Clown(commands.Cog):
         except Exception:
             pass
 
-    @commands.hybrid_group(name='clownwall', description='Ściana clownów')
+    @commands.group(name='clownwall', description='Ściana clownów')
     async def clownwall(self, ctx):
-        await ctx.reply('/clownwall set / off', ephemeral=True)
+        await ctx.reply('.clownwall set / off', ephemeral=True)
 
     @clownwall.command(name='set', description='Ustaw kanał ściany')
     @staff_or('manage_guild')
@@ -125,7 +125,7 @@ class Clown(commands.Cog):
             conn.execute('DELETE FROM clown_cfg WHERE guild_id=?', (str(ctx.guild.id),))
         await ctx.reply(t(ctx.guild.id, 'cw.off'), ephemeral=True)
 
-    @commands.hybrid_command(name='clownleader', description='Top momentów', aliases=['clowns'])
+    @commands.command(name='clownleader', description='Top momentów', aliases=['clowns'])
     async def clownleader(self, ctx):
         wall = wall_channel(ctx.guild)
         if not wall:

@@ -40,7 +40,7 @@ class Shop(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_group(name='shop', description='Sklep')
+    @commands.group(name='shop', description='Sklep')
     async def shop(self, ctx):
         lines = [f"• **{k}** — {v['price']}$ — {t(ctx.guild.id, v['use'])}" for k, v in ITEMS.items()]
         await ctx.reply(embed=ok(t(ctx.guild.id, 'shop.title') + '\n' + '\n'.join(lines)), ephemeral=True)
@@ -63,7 +63,7 @@ class Shop(commands.Cog):
         inv_add(gid, ctx.author.id, item, 1, exp)
         await ctx.reply(t(gid, 'shop.bought', item=item), ephemeral=True)
 
-    @commands.hybrid_command(name='inv', description='Twoje graty')
+    @commands.command(name='inv', description='Twoje graty')
     async def inv(self, ctx):
         gid = ctx.guild.id
         with db.conn_ctx() as conn:
@@ -81,7 +81,7 @@ class Shop(commands.Cog):
             lines.append(f"• **{r['item']}** x{r['qty']}{tail}")
         await ctx.reply(embed=ok('\n'.join(lines)), ephemeral=True)
 
-    @commands.hybrid_command(name='nick', description='Użyj token zmiany nicku')
+    @commands.command(name='nick', description='Użyj token zmiany nicku')
     async def nick(self, ctx, *, newname: str):
         gid = ctx.guild.id
         if not inv_take(gid, ctx.author.id, 'nick'):
@@ -93,7 +93,7 @@ class Shop(commands.Cog):
             return await ctx.reply(t(gid, 'shop.nick_fail'), ephemeral=True)
         await ctx.reply(t(gid, 'shop.nick_ok', name=newname[:32]))
 
-    @commands.hybrid_command(name='nickbomb', description='Zmień komuś nick na 1h')
+    @commands.command(name='nickbomb', description='Zmień komuś nick na 1h')
     async def forcenick(self, ctx, member: discord.Member, *, newname: str):
         gid = ctx.guild.id
         if not inv_take(gid, ctx.author.id, 'force'):
@@ -113,7 +113,7 @@ class Shop(commands.Cog):
         except Exception:
             pass
 
-    @commands.hybrid_command(name='bail', description='Wykup się z pudła (500)')
+    @commands.command(name='bail', description='Wykup się z pudła (500)')
     async def bail(self, ctx):
         from cogs.gamble import bal, set_cash
         gid = ctx.guild.id

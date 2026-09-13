@@ -53,9 +53,9 @@ class ReactRoles(commands.Cog):
         except Exception:
             pass
 
-    @commands.hybrid_group(name='reactionroles', description='Role za reakcje')
+    @commands.group(name='reactionroles', description='Role za reakcje')
     async def rr(self, ctx):
-        await ctx.reply('/reactionroles setup / add / list / delete', ephemeral=True)
+        await ctx.reply('.reactionroles setup / add / list / delete', ephemeral=True)
 
     @rr.command(name='setup', description='Postaw panel')
     @staff_or('manage_roles')

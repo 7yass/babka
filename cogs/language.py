@@ -9,7 +9,7 @@ class Language(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_command(name='language', description='Język bota: english / polski')
+    @commands.command(name='language', description='Język bota: english / polski')
     @staff_or('manage_guild')
     async def language(self, ctx, lang: str = None):
         gid = ctx.guild.id if ctx.guild else None

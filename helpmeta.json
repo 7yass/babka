@@ -88,7 +88,7 @@
       [],
       "<subcommand>",
       "Manage Server",
-      true
+      false
     ],
     "ban": [
       "moderation",
@@ -212,7 +212,7 @@
       [],
       "<subcommand>",
       "Administrator",
-      true
+      false
     ],
     "automod": [
       "protection",
@@ -220,7 +220,7 @@
       [],
       "<subcommand>",
       "Manage Server",
-      true
+      false
     ],
     "banlist": [
       "protection",
@@ -228,7 +228,7 @@
       [],
       "<subcommand>",
       "Ban Members",
-      true
+      false
     ],
     "mod": [
       "protection",
@@ -236,7 +236,7 @@
       [],
       "<subcommand>",
       "Moderate Members",
-      true
+      false
     ],
     "raid": [
       "protection",
@@ -365,7 +365,7 @@
       [],
       "<subcommand>",
       "Manage Server",
-      true
+      false
     ],
     "infosetup": [
       "info",
@@ -408,7 +408,7 @@
       [],
       "<subcommand>",
       "Manage Server",
-      true
+      false
     ],
     "rulesetup": [
       "info",
@@ -451,7 +451,7 @@
       [],
       "<subcommand>",
       "Manage Server",
-      true
+      false
     ],
     "ttwatch": [
       "info",
@@ -480,7 +480,16 @@
       [],
       "<subcommand>",
       "Manage Server",
-      true
+      false
+    ],
+    "profile": [
+      "info",
+      "Player card: level, cash, job, top role, staff badge.",
+      [
+        "profil"
+      ],
+      "[@user]",
+      "Everyone"
     ],
     "setup": [
       "setup",
@@ -903,8 +912,8 @@
       false
     ],
     "blackjack": [
-      "info",
-      "Blackjack for coins.",
+      "economy",
+      "Blackjack — dealer wins ties, max bet 2k, 10 plays/hour.",
       [
         "bj"
       ],
@@ -978,18 +987,27 @@
     ],
     "slots": [
       "economy",
-      "Spin the reels.",
+      "Spin the reels. 10 plays/hour.",
       [],
       "<bet>",
       "Everyone"
     ],
     "coinflip": [
       "economy",
-      "Heads or tails, double or nothing.",
+      "Heads or tails with a house edge. 10 plays/hour.",
       [
         "moneta"
       ],
       "<bet> <heads/tails>",
+      "Everyone"
+    ],
+    "roulette": [
+      "economy",
+      "European roulette: numbers 35:1, dozens/columns 2:1. 10 plays/hour.",
+      [
+        "ruletka"
+      ],
+      "<bet> <0-36 | red | black | odd | even | high | low | dozens | columns>",
       "Everyone"
     ],
     "rob": [
@@ -1149,7 +1167,7 @@
       "economy",
       "Careers, fame and promotions.",
       [],
-      "list / join / leave / my",
+      "list / join / show / leave / my",
       "Everyone"
     ],
     "shop": [

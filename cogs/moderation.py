@@ -97,7 +97,7 @@ class Moderation(commands.Cog):
         self.bot = bot
 
     # ---------- mod group ----------
-    @commands.hybrid_group(name='mod', description='NarzÄ™dzia modów')
+    @commands.group(name='mod', description='NarzÄ™dzia modów')
     async def mod(self, ctx):
         await ctx.reply('mod warn / warnings / timeout / kick / ban / unban / softban / tempban / nick / clear / slowmode / lock / unlock / set-log',
                         ephemeral=True)
@@ -283,7 +283,7 @@ class Moderation(commands.Cog):
                         ephemeral=True)
 
     # ---------- standalone clear (purge++) ----------
-    @commands.hybrid_command(name='clear', description='Masowe czyszczenie')
+    @commands.command(name='clear', description='Masowe czyszczenie')
     @staff_or('manage_messages')
     async def clear(self, ctx, amount: int = 10, target: discord.Member = None, bots: bool = False,
                     wipe_all: bool = False, match: str = None):
@@ -343,7 +343,7 @@ class Moderation(commands.Cog):
         await ctx.reply(t(gid, 'clear.deleted2', n=deleted, label=label), ephemeral=True)
 
     # ---------- purge suite ----------
-    @commands.hybrid_group(name='purge', description='Czyszczenie PRO')
+    @commands.group(name='purge', description='Czyszczenie PRO')
     @staff_or('manage_messages')
     async def purge(self, ctx, amount: int = None):
         gid = ctx.guild.id
@@ -500,7 +500,7 @@ class Moderation(commands.Cog):
 
     @purge.group(name='logs', description='Logi czyszczenia')
     async def purge_logs(self, ctx):
-        await ctx.reply('/purge logs set / remove / ignore / unignore / list', ephemeral=True)
+        await ctx.reply('.purge logs set / remove / ignore / unignore / list', ephemeral=True)
 
     @purge_logs.command(name='set', description='Logi tutaj')
     @staff_or('manage_guild')
@@ -545,9 +545,9 @@ class Moderation(commands.Cog):
                         ephemeral=True)
 
     # ---------- permabans ----------
-    @commands.hybrid_group(name='banlist', description='Permbany')
+    @commands.group(name='banlist', description='Permbany')
     async def banlist(self, ctx):
-        await ctx.reply('/banlist add / remove / list', ephemeral=True)
+        await ctx.reply('.banlist add / remove / list', ephemeral=True)
 
     @banlist.command(name='add', description='Permban po ID')
     @staff_or('ban_members')

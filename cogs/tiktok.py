@@ -144,9 +144,9 @@ class TikTok(commands.Cog):
     async def _before(self):
         await self.bot.wait_until_ready()
 
-    @commands.hybrid_group(name='tiktok', description='Powiadomienia TikTok')
+    @commands.group(name='tiktok', description='Powiadomienia TikTok')
     async def tiktok(self, ctx):
-        await ctx.reply('/tiktok watch / unwatch / list / test', ephemeral=True)
+        await ctx.reply('.tiktok watch / unwatch / list / test', ephemeral=True)
 
     @tiktok.command(name='watch', description='Śledź konto')
     @staff_or('manage_guild')

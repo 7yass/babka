@@ -83,9 +83,9 @@ class Rules(commands.Cog):
         except Exception:
             pass
 
-    @commands.hybrid_group(name='rules', description='Regulamin + weryfka')
+    @commands.group(name='rules', description='Regulamin + weryfka')
     async def rules(self, ctx):
-        await ctx.reply('/rules setup / edit / disable', ephemeral=True)
+        await ctx.reply('.rules setup / edit / disable', ephemeral=True)
 
     @rules.command(name='setup', description='Postaw regulamin')
     @staff_or('manage_guild')

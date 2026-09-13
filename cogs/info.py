@@ -70,9 +70,9 @@ class Info(commands.Cog):
         except Exception:
             pass
 
-    @commands.hybrid_group(name='info', description='Panele FAQ')
+    @commands.group(name='info', description='Panele FAQ')
     async def info(self, ctx):
-        await ctx.reply('/info setup / add / remove / list / delete', ephemeral=True)
+        await ctx.reply('.info setup / add / remove / list / delete', ephemeral=True)
 
     @info.command(name='setup', description='Postaw panel')
     @staff_or('manage_guild')

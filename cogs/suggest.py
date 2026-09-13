@@ -44,9 +44,9 @@ class Suggest(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_group(name='suggest', description='Propozycje')
+    @commands.group(name='suggest', description='Propozycje')
     async def suggest(self, ctx):
-        await ctx.reply('/suggest setup / off', ephemeral=True)
+        await ctx.reply('.suggest setup / off', ephemeral=True)
 
     @suggest.command(name='setup', description='Panel + tajny kanał')
     @staff_or('manage_guild')

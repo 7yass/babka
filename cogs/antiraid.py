@@ -120,9 +120,9 @@ class AntiRaid(commands.Cog):
             print(f'[honeypot] {e}')
 
     # ---------- commands ----------
-    @commands.hybrid_group(name='antiraid', description='Ochrona anty-rajdowa')
+    @commands.group(name='antiraid', description='Ochrona anty-rajdowa')
     async def antiraid(self, ctx):
-        await ctx.reply('/antiraid status / toggle / set-age / set-action / set-burst / honeypot-set / honeypot-clear / lockdown',
+        await ctx.reply('.antiraid status / toggle / set-age / set-action / set-burst / honeypot-set / honeypot-clear / lockdown',
                         ephemeral=True)
 
     @antiraid.command(name='status', description='PokaÅ¼ ustawienia')

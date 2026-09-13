@@ -28,9 +28,9 @@ class LangRoles(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_group(name='langroles', description='Role językowe')
+    @commands.group(name='langroles', description='Role językowe')
     async def langroles(self, ctx):
-        await ctx.reply('/langroles setup', ephemeral=True)
+        await ctx.reply('.langroles setup', ephemeral=True)
 
     @langroles.command(name='setup', description='Stwórz kanał + role + panel')
     @staff_or('manage_guild')

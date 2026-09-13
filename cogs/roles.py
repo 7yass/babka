@@ -87,7 +87,7 @@ class Roles(commands.Cog):
                 pass
             await interaction.response.send_message(t(gid, 'sr.added', role=role.mention), ephemeral=True)
 
-    @commands.hybrid_command(name='selfroles', description='Panel ról')
+    @commands.command(name='selfroles', description='Panel ról')
     @staff_or('manage_roles')
     async def selfroles(self, ctx, role1: discord.Role, role2: discord.Role = None, role3: discord.Role = None,
                         role4: discord.Role = None, role5: discord.Role = None, title: str = None):
@@ -108,7 +108,7 @@ class Roles(commands.Cog):
                          (str(gid), str(msg.id), str(ctx.channel.id), json.dumps([str(r.id) for r in roles])))
         await ctx.reply(t(gid, 'sr.posted', n=len(roles)), ephemeral=True)
 
-    @commands.hybrid_command(name='sr-add', description='Szybki guzik na wiadomoÅ›Ä‡')
+    @commands.command(name='sr-add', description='Szybki guzik na wiadomoÅ›Ä‡')
     @staff_or('manage_roles')
     async def sr_add(self, ctx, message_link: str = None, label: str = None, role: str = None, color: str = None):
         gid = ctx.guild.id

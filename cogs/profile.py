@@ -163,7 +163,7 @@ class Profile(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_command(name='profile', description='Profil gracza', aliases=['profil'])
+    @commands.command(name='profile', description='Profil gracza', aliases=['profil'])
     async def profile(self, ctx, member: discord.Member = None):
         import aiohttp
         import asyncio as _aio

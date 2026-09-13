@@ -140,9 +140,9 @@ class Verify(commands.Cog):
         except Exception:
             pass
 
-    @commands.hybrid_group(name='verify', description='Verification gate')
+    @commands.group(name='verify', description='Verification gate')
     async def verify(self, ctx):
-        await ctx.reply('/verify setup / off', ephemeral=True)
+        await ctx.reply('.verify setup / off', ephemeral=True)
 
     @verify.command(name='setup', description='Post the verification panel')
     @staff_or('manage_guild')

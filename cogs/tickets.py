@@ -387,9 +387,9 @@ class Tickets(commands.Cog):
             return
 
     # ---------- setup commands ----------
-    @commands.hybrid_group(name='tickets', description='Tickety')
+    @commands.group(name='tickets', description='Tickety')
     async def tickets(self, ctx):
-        await ctx.reply('/tickets setup / config / panel / type-add / type-remove / types / staff-add / staff-remove / rename / reopen / stats',
+        await ctx.reply('.tickets setup / config / panel / type-add / type-remove / types / staff-add / staff-remove / rename / reopen / stats',
                         ephemeral=True)
 
     @tickets.command(name='setup', description='Nowa konfiguracja')

@@ -46,9 +46,9 @@ class Lookups(commands.Cog):
         await ctx.reply(embed=e, mention_author=False)
 
     # ---------- roblox ----------
-    @commands.hybrid_group(name='roblox', description='Sprawdzanie Robloxa')
+    @commands.group(name='roblox', description='Sprawdzanie Robloxa')
     async def roblox(self, ctx):
-        await ctx.reply('/roblox user / avatar / previousnames', ephemeral=True)
+        await ctx.reply('.roblox user / avatar / previousnames', ephemeral=True)
 
     async def _resolve(self, username: str):
         async with aiohttp.ClientSession() as s:

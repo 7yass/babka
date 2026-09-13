@@ -48,9 +48,9 @@ class ServerStats(commands.Cog):
             except Exception:
                 continue
 
-    @commands.hybrid_group(name='stats', description='Statystyki serwera')
+    @commands.group(name='stats', description='Statystyki serwera')
     async def stats(self, ctx):
-        await ctx.reply('/stats setup / refresh', ephemeral=True)
+        await ctx.reply('.stats setup / refresh', ephemeral=True)
 
     @stats.command(name='setup', description='Stwórz kategorię statystyk')
     @staff_or('manage_guild')

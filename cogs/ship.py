@@ -73,7 +73,7 @@ class Ship(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_command(name='ship', description='Ile % miłości?')
+    @commands.command(name='ship', description='Ile % miłości?')
     async def ship(self, ctx, first: discord.Member, second: discord.Member = None):
         gid = ctx.guild.id
         await ctx.defer()
@@ -109,7 +109,7 @@ class Ship(commands.Cog):
         e.set_image(url='attachment://ship.png')
         await ctx.reply(embed=e, file=discord.File(__import__('io').BytesIO(png), 'ship.png'))
 
-    @commands.hybrid_command(name='shiplb', description='Top pary', aliases=['ships'])
+    @commands.command(name='shiplb', description='Top pary', aliases=['ships'])
     async def shiplb(self, ctx):
         gid = ctx.guild.id
         with db.conn_ctx() as conn:

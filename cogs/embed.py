@@ -79,9 +79,9 @@ class Embeds(commands.Cog):
                 conn.execute('DELETE FROM embeds WHERE id=?', (eid,))
         await interaction.response.send_message(t(gid, 'emb.deleted'), ephemeral=True)
 
-    @commands.hybrid_group(name='embed', description='Konstruktor embedów')
+    @commands.group(name='embed', description='Konstruktor embedów')
     async def embed(self, ctx):
-        await ctx.reply('/embed post / edit / delete', ephemeral=True)
+        await ctx.reply('.embed post / edit / delete', ephemeral=True)
 
     @embed.command(name='post', description='Wyślij embeda')
     @staff_or('manage_guild')
