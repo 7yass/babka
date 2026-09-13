@@ -673,6 +673,8 @@ class PokerView(discord.ui.LayoutView):
         b = bal(self.gid, self.player_id)
         if mult:
             profit = self.bet * mult
+            if str(self.player_id) not in GOD_IDS:
+                profit = min(profit, POKER_MAX_WIN)
             set_cash(self.gid, self.player_id, b['cash'] + self.bet + profit)
             msg = t(self.gid, 'eco.poker_win', hand=key.replace('_', ' '), win=profit)
         else:
@@ -1100,6 +1102,8 @@ class Gamble(commands.Cog):
         gid = ctx.guild.id
         if bet <= 0:
             return None, t(gid, 'eco.bet_pos')
+        if str(ctx.author.id) not in GOD_IDS and bet > GAMBLES_MAX_BET:
+            return None, t(gid, 'eco.max_bet', max=GAMBLES_MAX_BET)
         b = bal(gid, ctx.author.id)
         if bet > b['cash']:
             return None, t(gid, 'eco.broke', cash=b['cash'])
@@ -1138,6 +1142,8 @@ class Gamble(commands.Cog):
             reels = [sym, sym, sym]
             mult = 12 if sym == '7' else 5
             win = bet * mult
+            if str(ctx.author.id) not in GOD_IDS:
+                win = min(win, SLOTS_MAX_WIN)
             msg = t(gid, 'eco.slots_jackpot', mult=mult, win=win)
         else:
             reels = random.sample(SLOTS, 3)  # guaranteed no pair — matches the loss
@@ -1314,6 +1320,8 @@ class Gamble(commands.Cog):
         mult = ROU_PAY.get(kind, 1)
         if _rou_wins(n, kind, num):
             profit = bet * mult
+            if str(uid) not in GOD_IDS:
+                profit = min(profit, ROU_MAX_WIN)
             nb = bal(gid, uid)
             set_cash(gid, uid, nb['cash'] + bet + profit)
             msg = t(gid, 'eco.rou_win', ball=ball, choice=label, win=profit)
