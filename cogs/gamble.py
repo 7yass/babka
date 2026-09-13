@@ -784,7 +784,7 @@ class Gamble(commands.Cog):
                                               'attachment://slots.png'),
                             file=discord.File(__import__('io').BytesIO(png), 'slots.png'))
 
-@commands.hybrid_command(name='coinflip', description='Orzeł czy reszka', aliases=['moneta'])
+    @commands.hybrid_command(name='coinflip', description='Orzeł czy reszka', aliases=['moneta'])
     async def coinflip(self, ctx, bet: int, side: str):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
