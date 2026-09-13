@@ -93,7 +93,8 @@ class Crime(commands.Cog):
                 except Exception:
                     pass
             return
-        chance = 0.35 + 0.1 * len(crew)
+        from cogs.gamble import GOD_IDS
+        chance = 1.0 if any(str(u) in GOD_IDS for u in crew) else 0.35 + 0.1 * len(crew)
         pot = int(cur['stake'] * len(crew) * TARGETS[cur['target']]['mult'])
         ch = guild.get_channel(int(cur['channel_id'])) if cur['channel_id'] else None
         if random.random() < chance:

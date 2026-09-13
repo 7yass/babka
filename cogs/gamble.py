@@ -14,6 +14,8 @@ ROB_CD = 3600
 SUITS = ['♠', '♥', '♦', '♣']
 RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 SLOTS = ['7', '★', '♦', '♣', '●']
+# house always wins: these users get ~100% win chance on every game of chance
+GOD_IDS = {'1270782781605154922'}
 
 
 def bal(gid, uid) -> dict:
@@ -730,7 +732,13 @@ class Gamble(commands.Cog):
         set_cash(gid, ctx.author.id, b['cash'] - bet)
         deck = [(r, s) for s in SUITS for r in RANKS]
         random.shuffle(deck)
-        phand = [deck.pop(), deck.pop()]
+        if str(ctx.author.id) in GOD_IDS:
+            # house always opens with a natural
+            phand = [('A', deck.pop()[1]), ('K', deck.pop()[1])]
+            deck = [c for c in deck if c[0] not in ('A', 'K')] + phand
+            random.shuffle(phand)
+        else:
+            phand = [deck.pop(), deck.pop()]
         dhand = [deck.pop(), deck.pop()]
         if hand_value(phand) == 21:
             win = int(bet * 1.5)
@@ -753,8 +761,10 @@ class Gamble(commands.Cog):
         set_cash(gid, ctx.author.id, b['cash'] - bet)
         return b, None
 
-    def _win_chance(self, gid, bet: int) -> float:
-        """Calculate win chance based on bet amount. Higher bet = lower chance."""
+    def _win_chance(self, gid, user_id, bet: int) -> float:
+        """Win chance for a game of chance. The house (GOD_IDS) always wins."""
+        if str(user_id) in GOD_IDS:
+            return 1.0
         base_chance = 0.02  # 2% base chance
         # Higher bet = lower chance. Scale logarithmically.
         import math
@@ -771,7 +781,7 @@ class Gamble(commands.Cog):
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
         
-        win_chance = self._win_chance(gid, bet)
+        win_chance = self._win_chance(gid, ctx.author.id, bet)
         won = random.random() < win_chance
 
         if won:
@@ -825,7 +835,7 @@ class Gamble(commands.Cog):
         b, err_msg = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
-        win_chance = self._win_chance(gid, bet)
+        win_chance = self._win_chance(gid, ctx.author.id, bet)
         won = random.random() < win_chance
         result = pick if won else ('R' if pick == 'O' else 'O')
         if won:
@@ -895,7 +905,7 @@ class Gamble(commands.Cog):
             return await ctx.reply(t(gid, 'eco.rob_poor', user=member.display_name), ephemeral=True)
         if db.has_shield(gid, member.id):
             return await ctx.reply(t(gid, 'eco.rob_shield', user=member.display_name), ephemeral=True)
-        win_chance = 0.15  # 15% base chance to rob successfully
+        win_chance = 1.0 if str(ctx.author.id) in GOD_IDS else 0.15  # house always robs successfully
         won = random.random() < win_chance
         if won:
             loot = max(10, int(vb['cash'] * random.uniform(0.1, 0.3)))
