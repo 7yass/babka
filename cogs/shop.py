@@ -10,25 +10,25 @@ from lang import t
 from utils.embeds import ok
 
 ITEMS = {
-    'cookie': {'price': 750, 'use': 'shop.u_cookie'},
-    'scratch': {'price': 1000, 'use': 'shop.u_scratch'},
-    'nick': {'price': 2500, 'use': 'shop.u_nick'},
-    'lootbox': {'price': 5000, 'use': 'shop.u_lootbox'},
-    'force': {'price': 8000, 'use': 'shop.u_force'},
-    'coffee': {'price': 8000, 'use': 'shop.u_coffee'},
-    'shield': {'price': 10000, 'use': 'shop.u_shield'},
-    'xpboost': {'price': 12000, 'use': 'shop.u_xpboost'},
-    'luckyglove': {'price': 15000, 'use': 'shop.u_luckyglove'},
-    'paint': {'price': 15000, 'use': 'shop.u_paint'},
-    'famestar': {'price': 18000, 'use': 'shop.u_famestar'},
-    'pardon': {'price': 20000, 'use': 'shop.u_pardon'},
-    'curse': {'price': 25000, 'use': 'shop.u_curse'},
-    'megabox': {'price': 25000, 'use': 'shop.u_megabox'},
-    'xpbomb': {'price': 30000, 'use': 'shop.u_xpbomb'},
-    'greatshield': {'price': 35000, 'use': 'shop.u_greatshield'},
-    'titanboost': {'price': 40000, 'use': 'shop.u_titanboost'},
-    'gigabox': {'price': 100000, 'use': 'shop.u_gigabox'},
-    'vip': {'price': 100000, 'use': 'shop.u_vip'},
+    'cookie': {'price': 2000, 'use': 'shop.u_cookie'},
+    'scratch': {'price': 3000, 'use': 'shop.u_scratch'},
+    'nick': {'price': 10000, 'use': 'shop.u_nick'},
+    'lootbox': {'price': 20000, 'use': 'shop.u_lootbox'},
+    'coffee': {'price': 25000, 'use': 'shop.u_coffee'},
+    'force': {'price': 30000, 'use': 'shop.u_force'},
+    'shield': {'price': 40000, 'use': 'shop.u_shield'},
+    'xpboost': {'price': 50000, 'use': 'shop.u_xpboost'},
+    'paint': {'price': 50000, 'use': 'shop.u_paint'},
+    'luckyglove': {'price': 60000, 'use': 'shop.u_luckyglove'},
+    'famestar': {'price': 75000, 'use': 'shop.u_famestar'},
+    'pardon': {'price': 80000, 'use': 'shop.u_pardon'},
+    'curse': {'price': 100000, 'use': 'shop.u_curse'},
+    'megabox': {'price': 100000, 'use': 'shop.u_megabox'},
+    'xpbomb': {'price': 120000, 'use': 'shop.u_xpbomb'},
+    'greatshield': {'price': 150000, 'use': 'shop.u_greatshield'},
+    'titanboost': {'price': 180000, 'use': 'shop.u_titanboost'},
+    'gigabox': {'price': 500000, 'use': 'shop.u_gigabox'},
+    'vip': {'price': 1000000, 'use': 'shop.u_vip'},
 }
 # buy -> (inventory item, duration seconds) for stashable goods.
 BUY_MAP = {
@@ -42,7 +42,7 @@ BUY_MAP = {
     'paint': ('paint', 0),
     'curse': ('curse', 0),
 }
-BAIL_COST = 5000
+BAIL_COST = 15000
 VIP_ROLE = 'Babka VIP'
 
 
@@ -111,14 +111,14 @@ class Shop(commands.Cog):
 
     # (cash_lo, cash_hi, weight) normal prizes per box; then item/jackpot rolls
     BOX_TABLES = {
-        'lootbox': {'cash': (2000, 10000, 0.55), 'big': (15000, 25000, 0.08),
-                    'jackpot': 50000, 'jackpot_w': 0.05,
+        'lootbox': {'cash': (8000, 40000, 0.55), 'big': (60000, 100000, 0.08),
+                    'jackpot': 200000, 'jackpot_w': 0.05,
                     'items': [('xpboost', 24 * 3600, 0.20), ('shield', 24 * 3600, 0.12)]},
-        'megabox': {'cash': (12000, 35000, 0.45), 'big': (60000, 120000, 0.13),
-                    'jackpot': 250000, 'jackpot_w': 0.05,
+        'megabox': {'cash': (50000, 140000, 0.45), 'big': (250000, 500000, 0.13),
+                    'jackpot': 1000000, 'jackpot_w': 0.05,
                     'items': [('xpboost', 7 * 24 * 3600, 0.25), ('shield', 7 * 24 * 3600, 0.12)]},
-        'gigabox': {'cash': (60000, 150000, 0.50), 'big': (200000, 400000, 0.20),
-                    'jackpot': 2000000, 'jackpot_w': 0.01,
+        'gigabox': {'cash': (250000, 600000, 0.50), 'big': (800000, 1600000, 0.20),
+                    'jackpot': 8000000, 'jackpot_w': 0.01,
                     'items': [('xpboost', 7 * 24 * 3600, 0.15), ('shield', 7 * 24 * 3600, 0.14)]},
     }
 
@@ -158,7 +158,7 @@ class Shop(commands.Cog):
         return await ctx.reply(t(gid, 'shop.loot_cash', win=win), ephemeral=True)
 
     async def _scratch(self, ctx, price: int):
-        """1k scratchcard: mostly dust, rarely a fortune."""
+        """3k scratchcard: mostly dust, rarely a fortune."""
         import random as _rnd
         from cogs.gamble import bal, set_cash
         gid = ctx.guild.id
@@ -168,15 +168,15 @@ class Shop(commands.Cog):
         set_cash(gid, ctx.author.id, b['cash'] - price)
         roll = _rnd.random()
         if roll < 0.01:
-            win = 200000
+            win = 600000
             set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
             return await ctx.reply(t(gid, 'shop.loot_jackpot', win=win), ephemeral=True)
         if roll < 0.10:
-            win = _rnd.randint(15000, 30000)
+            win = _rnd.randint(45000, 90000)
         elif roll < 0.40:
-            win = _rnd.randint(2000, 6000)
+            win = _rnd.randint(6000, 18000)
         else:
-            win = _rnd.randint(0, 500)
+            win = _rnd.randint(0, 1500)
         if win:
             set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
             return await ctx.reply(t(gid, 'shop.loot_cash', win=win), ephemeral=True)
@@ -191,13 +191,13 @@ class Shop(commands.Cog):
         if b['cash'] < price:
             return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
         set_cash(gid, ctx.author.id, b['cash'] - price)
-        win = _rnd.randint(0, 1500)
+        win = _rnd.randint(0, 5000)
         if win:
             set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
         return await ctx.reply(t(gid, 'shop.cookie_win', win=win), ephemeral=True)
 
     async def _xpbomb(self, ctx, price: int):
-        """Instant +2500 XP."""
+        """Instant +5000 XP."""
         from cogs.gamble import bal, set_cash
         from cogs.levels import add_xp
         gid = ctx.guild.id
@@ -205,8 +205,8 @@ class Shop(commands.Cog):
         if b['cash'] < price:
             return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
         set_cash(gid, ctx.author.id, b['cash'] - price)
-        res = add_xp(gid, ctx.author.id, 2500)
-        await ctx.reply(t(gid, 'shop.xp_ok', xp=2500, level=res['level']), ephemeral=True)
+        res = add_xp(gid, ctx.author.id, 5000)
+        await ctx.reply(t(gid, 'shop.xp_ok', xp=5000, level=res['level']), ephemeral=True)
 
     async def _coffee(self, ctx, price: int):
         """Reset the .work cooldown instantly."""
@@ -222,7 +222,7 @@ class Shop(commands.Cog):
         await ctx.reply(t(gid, 'shop.coffee_ok'), ephemeral=True)
 
     async def _famestar(self, ctx, price: int):
-        """Instant +1000 fame fans."""
+        """Instant +5000 fame fans."""
         from cogs.gamble import bal, set_cash
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
@@ -233,7 +233,7 @@ class Shop(commands.Cog):
             conn.execute('''INSERT INTO jobs (guild_id, user_id, job, fans, tier)
                 VALUES (?,?, '',0,0) ON CONFLICT(guild_id, user_id) DO NOTHING''',
                          (str(gid), str(ctx.author.id)))
-            conn.execute('UPDATE jobs SET fans=fans+1000 WHERE guild_id=? AND user_id=?',
+            conn.execute('UPDATE jobs SET fans=fans+5000 WHERE guild_id=? AND user_id=?',
                          (str(gid), str(ctx.author.id)))
         await ctx.reply(t(gid, 'shop.fame_ok'), ephemeral=True)
 
@@ -367,7 +367,7 @@ class Shop(commands.Cog):
         except Exception:
             pass
 
-    @commands.command(name='bail', description='Wykup się z pudła (5000)')
+    @commands.command(name='bail', description='Wykup się z pudła (15000)')
     async def bail(self, ctx):
         from cogs.gamble import bal, set_cash
         gid = ctx.guild.id

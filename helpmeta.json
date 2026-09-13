@@ -913,7 +913,7 @@
     ],
     "blackjack": [
       "economy",
-      "HOW TO PLAY: `.blackjack <bet>` (max 2000). You vs dealer, closest to 21 wins. HIT takes a card, STAND holds, DOUBLE doubles the stake for one card. Dealer draws to 17 and wins ALL ties. Blackjack pays 6:5, bust = bet lost, max profit 10k/hand. 10 plays/hour shared with other games.",
+      "HOW TO PLAY: `.blackjack <bet>` (max 15000). You vs dealer, closest to 21 wins. HIT takes a card, STAND holds, DOUBLE doubles the stake for one card. Dealer draws to 17 and wins ALL ties. Blackjack pays 6:5, bust = bet lost, max profit 10k/hand. 10 plays/hour shared with other games.",
       [
         "bj"
       ],
@@ -1193,7 +1193,7 @@
     ],
     "bail": [
       "economy",
-      "Buy your way out of jail for 5000 coins with `.bail`. Fails if you're free or broke.",
+      "Buy your way out of jail for 15000 coins with `.bail`. Fails if you're free or broke.",
       [],
       "",
       "Everyone"

@@ -12,8 +12,12 @@ from utils.embeds import foot
 START_CASH, DAILY_CASH, DAILY_CD = 1000, 500, 86400
 ROB_CD = 3600
 # blackjack anti-abuse: no more 100k wins
-BJ_MAX_BET = 2000   # gods (house) exempt
+BJ_MAX_BET = 15000   # gods (house) exempt
 BJ_MAX_WIN = 15000  # max profit per hand for mortals
+GAMBLES_MAX_BET = 15000  # slots/coinflip/roulette/poker, gods exempt
+SLOTS_MAX_WIN = 25000    # max slots payout for mortals
+ROU_MAX_WIN = 25000      # max roulette profit for mortals
+POKER_MAX_WIN = 50000    # max poker profit for mortals
 # gambling is limited to 10 plays per hour (shared across all games); gods exempt
 GAMBLES_PER_HOUR = 10
 SUITS = ['♠', '♥', '♦', '♣']
