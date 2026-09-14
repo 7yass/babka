@@ -589,6 +589,21 @@ def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict) -> bytes:
     return buf.getvalue()
 
 
+class _PkIxCtx:
+    """Minimal Context shim so shop handlers work from button clicks."""
+    def __init__(self, interaction: discord.Interaction):
+        self._ix = interaction
+        self.guild = interaction.guild
+        self.author = interaction.user
+
+    async def reply(self, content=None, **kwargs):
+        kwargs.pop('mention_author', None)
+        try:
+            await self._ix.followup.send(content, ephemeral=True, **kwargs)
+        except Exception:
+            pass
+
+
 class Pokemon(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -999,10 +1014,120 @@ class Pokemon(commands.Cog):
             parts.append('incense ON')
         return ' · '.join(parts)
 
+    # ball shop storefront sections
+    BALL_SECTIONS = [
+        ('Balls', ['poke', 'great', 'ultra', 'master']),
+        ('Battle', ['potion', 'superpotion', 'candy']),
+        ('Special', ['egg', 'incense']),
+    ]
+
+    @staticmethod
+    def _pk_price(item: str) -> int:
+        if item in BALLS:
+            return BALLS[item][0]
+        if item in POTIONS:
+            return POTIONS[item][0]
+        if item == 'candy':
+            return CANDY_PRICE
+        if item == 'egg':
+            return EGG_PRICE
+        if item == 'incense':
+            return INCENSE_PRICE
+        return 0
+
+    @staticmethod
+    def _pk_desc(gid, item: str) -> str:
+        if item in BALLS:
+            mult = BALLS[item][1]
+            return t(gid, 'eco.pk_shop_ball', mult='∞' if mult is None else f'x{mult:g}')
+        if item in POTIONS:
+            return t(gid, 'eco.pk_shop_potion', pct=int(POTIONS[item][1] * 100))
+        if item == 'candy':
+            return t(gid, 'eco.pk_shop_candy')
+        if item == 'egg':
+            return t(gid, 'eco.pk_shop_egg')
+        if item == 'incense':
+            return t(gid, 'eco.pk_shop_incense')
+        return ''
+
     @commands.group(name='balls', description='Balle')
     async def balls(self, ctx):
-        await ctx.reply(t(ctx.guild.id, 'eco.pk_balls', have=self._balls_line(ctx.guild.id, ctx.author.id)),
-                        ephemeral=True)
+        from cogs.gamble import bal
+        gid = ctx.guild.id
+        layout = self._balls_layout(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'])
+        await ctx.reply(view=layout, ephemeral=True)
+
+    def _balls_layout(self, gid, uid, cash: int):
+        from discord.ui import LayoutView, Container, TextDisplay, ActionRow
+        layout = LayoutView(timeout=180)
+        box = Container(accent_color=0xFF4655)
+        box.add_item(TextDisplay(f'# ⚪ {t(gid, "eco.pk_balls_title")}\n'
+                                 f'-# {t(gid, "eco.pk_balls_wallet", cash=cshort(cash))}\n'
+                                 f'-# {self._balls_line(gid, uid)}'))
+        row = ActionRow()
+        for sec, keys in self.BALL_SECTIONS:
+            items = '\n'.join(
+                f"• **{k}** — {cshort(self._pk_price(k))} — {self._pk_desc(gid, k)}"
+                for k in keys)
+            box.add_item(TextDisplay(f'**{sec}**\n{items}'))
+            for k in keys:
+                if len(row.children) >= 5:
+                    box.add_item(row)
+                    row = ActionRow()
+                b = discord.ui.Button(label=f'{k} · {cshort(self._pk_price(k))}',
+                                      style=discord.ButtonStyle.secondary,
+                                      custom_id=f'pkbuy:{uid}:{k}')
+                b.callback = self._mk_pkbuy(gid, uid, k)
+                row.add_item(b)
+        if row.children:
+            box.add_item(row)
+        layout.add_item(box)
+        return layout
+
+    def _mk_pkbuy(self, gid, uid, item: str):
+        async def _cb(interaction: discord.Interaction):
+            set_ctx_lang(interaction.user)
+            if interaction.user.id != int(uid):
+                return await interaction.response.send_message(
+                    t(gid, 'eco.not_yours'), ephemeral=True)
+            from cogs.gamble import bal
+            price = self._pk_price(item)
+            cash = bal(gid, uid)['cash']
+            from discord.ui import LayoutView, Container, TextDisplay, ActionRow
+            layout = LayoutView(timeout=120)
+            box = Container(accent_color=0xFF4655)
+            box.add_item(TextDisplay(
+                f'## {item} — {cshort(price)}\n'
+                f'{self._pk_desc(gid, item)}\n'
+                f'-# {t(gid, "eco.pk_buy_confirm", cash=cshort(cash), left=cshort(cash - price))}'))
+            row = ActionRow()
+            yes = discord.ui.Button(label=t(gid, 'eco.pk_buy_yes'), style=discord.ButtonStyle.success)
+            no = discord.ui.Button(label=t(gid, 'eco.pk_buy_no'), style=discord.ButtonStyle.danger)
+
+            async def _yes(ix: discord.Interaction):
+                set_ctx_lang(ix.user)
+                await ix.response.defer(ephemeral=True)
+                try:
+                    await ix.message.edit(view=None)
+                except Exception:
+                    pass
+                await self.balls_buy.callback(self, _PkIxCtx(ix), item, 1)
+
+            async def _no(ix: discord.Interaction):
+                set_ctx_lang(ix.user)
+                try:
+                    await ix.response.edit_message(content=t(gid, 'eco.pk_buy_cancel'), view=None)
+                except Exception:
+                    pass
+
+            yes.callback = _yes
+            no.callback = _no
+            row.add_item(yes)
+            row.add_item(no)
+            box.add_item(row)
+            layout.add_item(box)
+            await interaction.response.send_message(view=layout, ephemeral=True)
+        return _cb
 
     @balls.command(name='buy', description='Kup balle')
     async def balls_buy(self, ctx, ball: str, n: int = 1):

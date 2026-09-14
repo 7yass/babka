@@ -69,6 +69,7 @@ COGS = [
     'cogs.stocks',
     'cogs.valorant',
     'cogs.pokemon',
+    'cogs.emojis',
 ]
 
 

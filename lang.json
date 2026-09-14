@@ -310,6 +310,13 @@
     "eco.ach_unlock": "🏆 {emoji} Achievement unlocked: **{name}**!",
     "eco.ach_none": "{user} has no badges yet. Grind.",
     "eco.ach_title": "{user}'s achievements ({n})",
+    "eco.emoji_preview": "Fleet setup: **{n}** emojis ready. `.emojisetup confirm` WIPES + uploads.",
+    "eco.emoji_row": "• {name}: {n} now → {m} after.",
+    "eco.emoji_missing": "• {gid}: bot not inside.",
+    "eco.emoji_warn": "⚠️ Confirm DELETES every existing emoji there.",
+    "eco.emoji_go": "Deploying… this takes a while (rate limits).",
+    "eco.emoji_noperm": "• {name}: no emoji permission.",
+    "eco.emoji_done": "• {name}: wiped {wiped}, uploaded {added}.",
     "eco.stocks_title": "Babka Stock Exchange",
     "eco.stock_no": "No such stock. Listed: {syms}.",
     "eco.stock_poor": "One share costs {price}. Come back richer.",
@@ -1351,6 +1358,13 @@
     "eco.ach_unlock": "🏆 {emoji} Odznaka zdobyta: **{name}**!",
     "eco.ach_none": "{user} nie ma jeszcze odznak. Grinduj.",
     "eco.ach_title": "Odznaki: {user} ({n})",
+    "eco.emoji_preview": "Setup floty: **{n}** gotowych. `.emojisetup confirm` CZYŚCI + wgrywa.",
+    "eco.emoji_row": "• {name}: teraz {n} → będzie {m}.",
+    "eco.emoji_missing": "• {gid}: bota nie ma w środku.",
+    "eco.emoji_warn": "⚠️ Confirm USUWA wszystkie tamtejsze emoji.",
+    "eco.emoji_go": "Wgrywam… to potrwa (limity).",
+    "eco.emoji_noperm": "• {name}: brak uprawnień do emoji.",
+    "eco.emoji_done": "• {name}: wyczyszczono {wiped}, wgrano {added}.",
     "eco.stocks_title": "Giełda Babki",
     "eco.stock_no": "Nie ma takiej spółki. Lista: {syms}.",
     "eco.stock_poor": "Jedna akcja kosztuje {price}. Wróć bogatszy.",
@@ -2297,6 +2311,7 @@
     "hc_d_moves": "Zestaw ruchów pokemona.",
     "hc_d_npc": "Drabinka NPC, raz dziennie każdy.",
     "hc_d_trainer": "Karta trenera.",
-    "hc_d_trainers": "Top trenerzy."
+    "hc_d_trainers": "Top trenerzy.",
+    "hc_d_emojisetup": "Flota emoji Babki: podgląd, potem confirm czyści + wgrywa 20 emoji na serwer."
   }
 }

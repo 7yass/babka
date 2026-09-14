@@ -150,7 +150,7 @@ class Shop(commands.Cog):
                 await interaction.message.edit(view=None)
             except Exception:
                 pass
-            await self.buy(_IxCtx(interaction), item)
+            await self.buy.callback(self, _IxCtx(interaction), item)
 
         async def _no(interaction: discord.Interaction):
             set_ctx_lang(interaction.user)

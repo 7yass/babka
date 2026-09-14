@@ -1611,6 +1611,13 @@
       [],
       "",
       "Everyone"
+    ],
+    "emojisetup": [
+      "economy",
+      "Deploy Babka emoji fleet: preview, then confirm wipes + uploads 20 emojis per server.",
+      [],
+      "[confirm]",
+      "Everyone"
     ]
   },
   "cats": {
