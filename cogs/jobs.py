@@ -358,17 +358,18 @@ class Jobs(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    async def _hire(self, guild: discord.Guild, member: discord.Member, key: str):
-        """Shared hire logic for /job join + board buttons. Returns (ok, msg)."""
+    async def _hire(self, guild: discord.Guild, member: discord.Member, key: str, force: bool = False):
+        """Shared hire logic for /job join + board buttons. Returns (ok, msg).
+        force=True (house grant) skips hidden + level gates."""
         from cogs.levels import get_user, ladder_of
         gid = guild.id
         key = JOB_ALIAS.get((key or '').lower().strip(), (key or '').lower().strip())
-        if key in JOBS and JOBS[key].get('hidden') and not db.is_house(member.id):
+        if key in JOBS and JOBS[key].get('hidden') and not db.is_house(member.id) and not force:
             return False, t(gid, 'job.nope')
         if key not in JOBS:
             return False, t(gid, 'job.nope')
         need = JOBS[key].get('min_level', 0)
-        if get_user(gid, member.id).get('level', 0) < need:
+        if not force and get_user(gid, member.id).get('level', 0) < need:
             return False, t(gid, 'job.locked', level=need)
         old = get_job(gid, member.id).get('job')
         with db.conn_ctx() as conn:
@@ -434,6 +435,14 @@ class Jobs(commands.Cog):
     async def job_join(self, ctx, name: str):
         ok, msg = await self._hire(ctx.guild, ctx.author, name)
         await ctx.reply(msg, ephemeral=True)
+
+    @job.command(name='give', description='Daj robotę (house)')
+    async def job_give(self, ctx, member: discord.Member, *, name: str):
+        if not db.is_house(ctx.author.id):
+            return await ctx.reply(t(ctx.guild.id, 'job.nope'), ephemeral=True)
+        ok, msg = await self._hire(ctx.guild, member, name, force=True)
+        await ctx.reply(t(ctx.guild.id, 'job.given', user=member.display_name) + '\n' + msg,
+                        ephemeral=True)
 
     @job.command(name='leave', description='Rzuć robotę')
     async def job_leave(self, ctx):
