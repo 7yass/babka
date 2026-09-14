@@ -361,7 +361,7 @@ class Jobs(commands.Cog):
     async def _hire(self, guild: discord.Guild, member: discord.Member, key: str, force: bool = False):
         """Shared hire logic for /job join + board buttons. Returns (ok, msg).
         force=True (house grant) skips hidden + level gates."""
-        from cogs.levels import get_user, ladder_of
+        from cogs.levels import get_user
         gid = guild.id
         key = JOB_ALIAS.get((key or '').lower().strip(), (key or '').lower().strip())
         if key in JOBS and JOBS[key].get('hidden') and not db.is_house(member.id) and not force:
