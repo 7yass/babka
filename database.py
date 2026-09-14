@@ -372,6 +372,24 @@ def init_db():
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL, ball TEXT NOT NULL,
             qty INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id, ball))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS pk_dexcount (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, dex INTEGER NOT NULL,
+            count INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, dex))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS pk_quested (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, track TEXT NOT NULL,
+            tier INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, track))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS pk_hunt (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, target INTEGER DEFAULT 0,
+            streak INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS pk_market (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id TEXT NOT NULL,
+            seller_id TEXT NOT NULL, seller_name TEXT DEFAULT '',
+            dex INTEGER DEFAULT 1, level INTEGER DEFAULT 5,
+            xp INTEGER DEFAULT 0, shiny INTEGER DEFAULT 0, nick TEXT DEFAULT '',
+            price INTEGER DEFAULT 0, created INTEGER DEFAULT 0)''')
         c.execute('''CREATE TABLE IF NOT EXISTS suggest_cfg (
             guild_id TEXT PRIMARY KEY, panel_channel TEXT,
             panel_message TEXT, inbox_channel TEXT)''')

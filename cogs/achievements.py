@@ -21,6 +21,10 @@ BADGES = {
     'rich5m': ('👑', '5M', 'Mogul', 'Hold 5M cash.'),
     'highroller': ('🎲', 'ROLLER', 'High Roller', 'Buy the High Roller pass.'),
     'famous': ('📣', 'FAMOUS', 'Famous', 'Reach 1K fans.'),
+    'region_kanto': ('🔴', 'KANTO', 'Kanto Master', 'Finish the Kanto quest track.'),
+    'region_johto': ('🟡', 'JOHTO', 'Johto Master', 'Finish the Johto quest track.'),
+    'region_hoenn': ('🟢', 'HOENN', 'Hoenn Master', 'Finish the Hoenn quest track.'),
+    'region_sinnoh': ('🔵', 'SINNOH', 'Sinnoh Master', 'Finish the Sinnoh quest track.'),
 }
 
 
