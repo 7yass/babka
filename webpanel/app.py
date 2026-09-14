@@ -1154,6 +1154,82 @@ def giveaways():
                            add_label=None)
 
 
+# ---------- economy ----------
+def _eco_row(g, uid):
+    with db.conn_ctx() as conn:
+        row = conn.execute('SELECT * FROM eco WHERE guild_id=? AND user_id=?', (g, uid)).fetchone()
+        return dict(row) if row else {}
+
+
+@app.route('/economy', methods=['GET', 'POST'])
+@login_required
+def economy():
+    g = gid()
+    if request.method == 'POST':
+        uid = (request.form.get('uid') or '').strip()
+        try:
+            amt = abs(int(request.form.get('amount') or 0))
+            if request.form.get('uid_search'):
+                return redirect(url_for('economy', uid=uid))
+            with db.conn_ctx() as conn:
+                if (request.form.get('give') or request.form.get('take')) and uid and amt > 0:
+                    conn.execute('INSERT OR IGNORE INTO eco (guild_id, user_id, cash) VALUES (?,?,0)',
+                                 (g, uid))
+                    if request.form.get('give'):
+                        conn.execute('UPDATE eco SET cash=cash+? WHERE guild_id=? AND user_id=?',
+                                     (amt, g, uid))
+                        flash(f'Gave {amt}.')
+                    else:
+                        conn.execute('UPDATE eco SET cash=CASE WHEN cash>? THEN cash-? ELSE 0 END '
+                                     'WHERE guild_id=? AND user_id=?', (amt, amt, g, uid))
+                        flash(f'Took {amt}.')
+                elif request.form.get('reset_limit') and uid:
+                    conn.execute('UPDATE eco SET gamble_n=0 WHERE guild_id=? AND user_id=?', (g, uid))
+                    flash('Hourly gamble counter reset.')
+                elif request.form.get('reset_cookie') and uid:
+                    conn.execute('UPDATE eco SET cookie_n=0 WHERE guild_id=? AND user_id=?', (g, uid))
+                    flash('Cookie ration reset.')
+                elif request.form.get('unjail') and uid:
+                    db.unjail(g, uid)
+                    flash('Freed from jail.')
+                elif request.form.get('clearwarns') and uid:
+                    conn.execute('DELETE FROM warns WHERE guild_id=? AND user_id=?', (g, uid))
+                    flash('Warns cleared.')
+        except Exception as e:
+            flash(str(e))
+        return redirect(url_for('economy', uid=uid) if uid else url_for('economy'))
+    uid = (request.args.get('uid') or '').strip()
+    member = None
+    if uid:
+        e = _eco_row(g, uid)
+        with db.conn_ctx() as conn:
+            job = conn.execute('SELECT job, fans, shifts FROM jobs WHERE guild_id=? AND user_id=?',
+                               (g, uid)).fetchone()
+            warns = conn.execute('SELECT COUNT(*) c FROM warns WHERE guild_id=? AND user_id=?',
+                                 (g, uid)).fetchone()['c']
+        jl = db.jail_left(g, uid)
+        member = {'id': uid, 'cash': e.get('cash', 0), 'bank': e.get('bank', 0),
+                  'streak': e.get('daily_streak', 0),
+                  'gambles': f"{e.get('gamble_n', 0)}/10",
+                  'cookies': f"{e.get('cookie_n', 0)}/3",
+                  'job': dict(job) if job else {},
+                  'warns': warns, 'jailed': max(1, jl // 60) if jl else 0}
+    with db.conn_ctx() as conn:
+        try:
+            top = [dict(r) for r in conn.execute(
+                'SELECT user_id, cash, bank FROM eco WHERE guild_id=? '
+                'ORDER BY cash+bank DESC LIMIT 10', (g,)).fetchall()]
+        except Exception:
+            top = []
+    try:
+        from cogs.shop import ITEMS as SHOP_ITEMS
+        prices = sorted(((k, v['price']) for k, v in SHOP_ITEMS.items()),
+                        key=lambda x: x[1])
+    except Exception:
+        prices = []
+    return render_template('economy.html', uid=uid, member=member, top=top, prices=prices)
+
+
 if __name__ == '__main__':
     if not PASSWORD:
         print('Set WEBPANEL_PASSWORD in .env first.')

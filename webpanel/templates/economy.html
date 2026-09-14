@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block body %}
+<h1>Economy</h1>
+<p class="hint">Balances, gamble rations, jail and warns — live from the same database the bot uses.</p>
+<details class="sect" open>
+<summary>1 · Find user</summary>
+<div class="inner">
+<form class="row" method="post" action="/economy">
+  <input name="uid" placeholder="user ID" value="{{ uid }}" style="width:240px">
+  <button name="uid_search" value="1">Find</button>
+</form>
+{% if member %}
+<h2>{{ member.id }}</h2>
+<table>
+<tr><th>Cash</th><td>{{ member.cash }}</td></tr>
+<tr><th>Bank</th><td>{{ member.bank }}</td></tr>
+<tr><th>Daily streak</th><td>{{ member.streak }}</td></tr>
+<tr><th>Gambles this hour</th><td>{{ member.gambles }}</td></tr>
+<tr><th>Cookies today</th><td>{{ member.cookies }}</td></tr>
+<tr><th>Job</th><td>{{ member.job.get('job', '—') }} · fans {{ member.job.get('fans', 0) }} · shifts {{ member.job.get('shifts', 0) }}</td></tr>
+<tr><th>Warns</th><td>{{ member.warns }}</td></tr>
+<tr><th>Jailed</th><td>{% if member.jailed %}{{ member.jailed }}m left{% else %}free{% endif %}</td></tr>
+</table>
+<form class="row" method="post" action="/economy">
+  <input type="hidden" name="uid" value="{{ member.id }}">
+  <input name="amount" placeholder="amount" style="width:140px">
+  <button name="give" value="1">Give cash</button>
+  <button name="take" value="1">Take cash</button>
+</form>
+<form class="row" method="post" action="/economy">
+  <input type="hidden" name="uid" value="{{ member.id }}">
+  <button name="reset_limit" value="1">Reset gamble limit</button>
+  <button name="reset_cookie" value="1">Reset cookie ration</button>
+  <button name="unjail" value="1">Unjail</button>
+  <button name="clearwarns" value="1" class="danger" onclick="return confirm('Clear all warns?')">Clear warns</button>
+</form>
+{% endif %}
+</div>
+</details>
+<details class="sect">
+<summary>2 · Richest <span class="sub">top 10 by cash + bank</span></summary>
+<div class="inner">
+<table>
+<tr><th>User</th><th>Cash</th><th>Bank</th></tr>
+{% for r in top %}<tr><td><a href="/economy?uid={{ r.user_id }}">{{ r.user_id }}</a></td><td>{{ r.cash }}</td><td>{{ r.bank }}</td></tr>{% endfor %}
+</table>
+</div>
+</details>
+<details class="sect">
+<summary>3 · Shop prices <span class="sub">read-only, edit in cogs/shop.py</span></summary>
+<div class="inner">
+<table>
+<tr><th>Item</th><th>Price</th></tr>
+{% for k, p in prices %}<tr><td>{{ k }}</td><td>{{ p }}</td></tr>{% endfor %}
+</table>
+</div>
+</details>
+{% endblock %}
