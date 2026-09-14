@@ -331,6 +331,7 @@
     "eco.port_empty": "No stocks. `.stocks` to browse, `.stockbuy` to ape in.",
     "eco.port_total": "Portfolio: **{val}** ({pnl}).",
     "eco.port_title": "{user}'s portfolio",
+    "eco.ping_pong": "🏓 Pong! Gateway **{gw}ms** · round trip **{rt}ms**.",
     "eco.pk_has": "You already have a starter. `;box` to see your gang.",
     "eco.pk_starters": "Pick: bulbasaur / charmander / squirtle / pikachu / eevee / turtwig (or blank for random).",
     "eco.pk_api": "Pokedex is down. Try again in a bit.",
@@ -1416,6 +1417,7 @@
     "eco.port_empty": "Brak akcji. `.stocks` przegląd, `.stockbuy` zakup.",
     "eco.port_total": "Portfel: **{val}** ({pnl}).",
     "eco.port_title": "Portfel: {user}",
+    "eco.ping_pong": "🏓 Pong! Gateway **{gw}ms** · w obie **{rt}ms**.",
     "eco.pk_has": "Masz już startera. `;box` pokaże ekipę.",
     "eco.pk_starters": "Wybierz: bulbasaur / charmander / squirtle / pikachu / eevee / turtwig (pusto = los).",
     "eco.pk_api": "Pokedex nie działa. Za chwilę wróć.",
@@ -2395,6 +2397,7 @@
     "hc_d_evolve": "Ręczna ewolucja.",
     "hc_d_streaks": "Twoje serie.",
     "hc_d_code": "Kody eventowe: odbierz kasę/balle.",
-    "hc_d_phelp": "Pełny poradnik komend pokemon."
+    "hc_d_phelp": "Pełny poradnik komend pokemon.",
+    "hc_d_ping": "Ping gateway + czas w obie strony."
   }
 }

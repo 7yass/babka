@@ -1681,6 +1681,13 @@
       [],
       "",
       "Everyone"
+    ],
+    "ping": [
+      "info",
+      "Gateway latency + message round trip.",
+      [],
+      "",
+      "Everyone"
     ]
   },
   "cats": {

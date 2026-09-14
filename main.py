@@ -70,6 +70,7 @@ COGS = [
     'cogs.valorant',
     'cogs.pokemon',
     'cogs.emojis',
+    'cogs.ping',
 ]
 
 
