@@ -130,7 +130,13 @@ def get_conn():
                                   sync_interval=60)
             return _Conn(conn)
         except Exception as e:
-            print(f'[-] Turso connect failed ({e}), using local SQLite')
+            msg = str(e)
+            if 'metadata' in msg:
+                print('[-] Turso: local file has no replica metadata. '
+                      'Fix: .backup, upload the snapshot as a NEW Turso DB, '
+                      'point TURSO_URL/TOKEN at it, delete data.db*, restart.')
+            else:
+                print(f'[-] Turso connect failed ({e}), using local SQLite')
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     try:
