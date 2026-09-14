@@ -20,6 +20,7 @@ STREAM_MULT = 1.5
 MIN_GIF_LEVEL = 10
 GIF_CD = 20  # seconds between GIFs per user
 _GIF_LAST: dict = {}
+_XP_FAST: dict = {}
 # house rule: this one always earns a little extra
 HOUSE_BOOST_ID = '1270782781605154922'
 HOUSE_BOOST_MULT = 2.0
@@ -457,13 +458,23 @@ class Levels(commands.Cog):
             pass
         if len(message.content or '') < 5:
             return
+        now_ms = int(time.time() * 1000)
+        fast_key = (message.guild.id, message.author.id)
+        if now_ms - _XP_FAST.get(fast_key, 0) < COOLDOWN * 1000:
+            return  # hot path: zero DB hits for chatters on cooldown
         u = get_user(message.guild.id, message.author.id)
-        now = int(time.time() * 1000)
+        now = now_ms
         if now - (u.get('last_text_xp') or 0) < COOLDOWN * 1000:
+            _XP_FAST[fast_key] = now
             return
         with db.conn_ctx() as conn:
             conn.execute('UPDATE levels SET last_text_xp=? WHERE guild_id=? AND user_id=?',
                          (now, str(message.guild.id), str(message.author.id)))
+        _XP_FAST[fast_key] = now
+        if len(_XP_FAST) > 10000:
+            _cut = now - COOLDOWN * 1000
+            for _k in [k for k, v in _XP_FAST.items() if v < _cut]:
+                del _XP_FAST[_k]
         amount = (TEXT_MIN + random.random() * (TEXT_MAX - TEXT_MIN)) * (settings.get('xp_multiplier') or 1)
         amount *= user_boost(message.guild.id, message.author.id)
         res = add_xp(message.guild.id, message.author.id, amount)

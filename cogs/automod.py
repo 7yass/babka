@@ -139,7 +139,22 @@ DEFAULT_BADWORDS = [
 ]
 
 
+_CFG_CACHE = {}
+_CFG_TTL = 30
+
+
+def _cfg_drop(gid):
+    _cfg_drop(gid)
+
+
+
+
 def _cfg(guild_id) -> dict:
+    import time as _t
+    key = str(guild_id)
+    hit = _CFG_CACHE.get(key)
+    if hit and _t.time() - hit[0] < _CFG_TTL:
+        return dict(hit[1])
     with db.conn_ctx() as conn:
         row = conn.execute('SELECT * FROM automod WHERE guild_id = ?', (str(guild_id),)).fetchone()
         if not row:
@@ -148,7 +163,8 @@ def _cfg(guild_id) -> dict:
             row = conn.execute('SELECT * FROM automod WHERE guild_id = ?', (str(guild_id),)).fetchone()
         d = dict(row)
         d['badwords'] = json.loads(d.get('badwords') or '[]')
-        return d
+    _CFG_CACHE[key] = (_t.time(), d)
+    return dict(d)
 
 
 def _strikecfg(guild_id) -> dict:
@@ -409,6 +425,7 @@ class AutoMod(commands.Cog):
         cfg = _cfg(gid)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE automod SET enabled=? WHERE guild_id=?', (0 if cfg['enabled'] else 1, str(gid)))
+            _cfg_drop(gid)
         await ctx.reply(t(gid, 'am.toggled', t=t(gid, 'ar.off') if cfg['enabled'] else t(gid, 'ar.on')), ephemeral=True)
 
     @automod.command(name='badword-add', description='Zablokuj słowo')
@@ -419,6 +436,7 @@ class AutoMod(commands.Cog):
         words = set(cfg['badwords']) | {word.lower()}
         with db.conn_ctx() as conn:
             conn.execute('UPDATE automod SET badwords=? WHERE guild_id=?', (json.dumps(sorted(words)), str(gid)))
+            _cfg_drop(gid)
         await ctx.reply(t(gid, 'am.blocked', w=word.lower()), ephemeral=True)
 
     @automod.command(name='badword-remove', description='Odblokuj słowo')
@@ -429,6 +447,7 @@ class AutoMod(commands.Cog):
         words = [w for w in cfg['badwords'] if w != word.lower()]
         with db.conn_ctx() as conn:
             conn.execute('UPDATE automod SET badwords=? WHERE guild_id=?', (json.dumps(words), str(gid)))
+            _cfg_drop(gid)
         await ctx.reply(t(gid, 'am.unblocked', w=word.lower()), ephemeral=True)
 
     @automod.command(name='anti-invite', description='Filtr invite wł./wył.')
@@ -438,6 +457,7 @@ class AutoMod(commands.Cog):
         cfg = _cfg(gid)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE automod SET anti_invite=? WHERE guild_id=?', (0 if cfg['anti_invite'] else 1, str(gid)))
+            _cfg_drop(gid)
         await ctx.reply(t(gid, 'am.inv', t=t(gid, 'ar.off') if cfg['anti_invite'] else t(gid, 'ar.on')), ephemeral=True)
 
     @automod.command(name='anti-link', description='Filtr linków wł./wył.')
@@ -447,6 +467,7 @@ class AutoMod(commands.Cog):
         cfg = _cfg(gid)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE automod SET anti_link=? WHERE guild_id=?', (0 if cfg['anti_link'] else 1, str(gid)))
+            _cfg_drop(gid)
         await ctx.reply(t(gid, 'am.links', t=t(gid, 'ar.off') if cfg['anti_link'] else t(gid, 'ar.on')), ephemeral=True)
 
     @automod.command(name='strikes', description='Ile warnów ma typ')
@@ -475,6 +496,7 @@ class AutoMod(commands.Cog):
         words = sorted(set(cfg['badwords']) | set(DEFAULT_BADWORDS))
         with db.conn_ctx() as conn:
             conn.execute('UPDATE automod SET badwords=? WHERE guild_id=?', (json.dumps(words), str(gid)))
+            _cfg_drop(gid)
         await ctx.reply(t(gid, 'am.seeded', n=len(words)), ephemeral=True)
 
 

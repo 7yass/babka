@@ -627,19 +627,38 @@ def init_db():
                 pass  # already there
 
 
+_CACHE_TTL = 45
+_prefix_cache = {}
+_settings_cache = {}
+
+
 def get_settings(guild_id: str) -> dict:
+    import time as _t
+    key = str(guild_id)
+    hit = _settings_cache.get(key)
+    if hit and _t.time() - hit[0] < _CACHE_TTL:
+        return dict(hit[1])
     with conn_ctx() as conn:
         row = conn.execute('SELECT * FROM guild_settings WHERE guild_id = ?', (str(guild_id),)).fetchone()
         if not row:
             conn.execute('INSERT INTO guild_settings (guild_id) VALUES (?)', (str(guild_id),))
             row = conn.execute('SELECT * FROM guild_settings WHERE guild_id = ?', (str(guild_id),)).fetchone()
-        return dict(row)
+        d = dict(row)
+    _settings_cache[key] = (_t.time(), d)
+    return dict(d)
 
 
 def get_prefix(guild_id) -> str:
+    import time as _t
+    key = str(guild_id)
+    hit = _prefix_cache.get(key)
+    if hit and _t.time() - hit[0] < _CACHE_TTL:
+        return hit[1]
     with conn_ctx() as conn:
         row = conn.execute('SELECT prefix FROM prefixes WHERE guild_id = ?', (str(guild_id),)).fetchone()
-        return row['prefix'] if row else '.'
+        prefix = row['prefix'] if row else '.'
+    _prefix_cache[key] = (_t.time(), prefix)
+    return prefix
 
 
 def get_antiraid(guild_id) -> dict:
