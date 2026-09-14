@@ -378,8 +378,8 @@ def calc_stats(base: dict, level: int) -> dict:
 
 
 def damage(att_level: int, move: dict, atk_stats: dict, dfn_stats: dict,
-           att_types: list, dfn_types: list) -> tuple:
-    """Returns (damage, crit). Misses deal 0."""
+           att_types: list, dfn_types: list, weather=None) -> tuple:
+    """Returns (damage, crit). Misses deal 0. Rain/sun boost water/fire."""
     a = atk_stats['atk'] if atk_stats['atk'] >= atk_stats['spa'] else atk_stats['spa']
     d = dfn_stats['dfn'] if atk_stats['atk'] >= atk_stats['spa'] else dfn_stats['spd']
     if random.random() * 100 > (move.get('acc') or 100):
@@ -387,9 +387,39 @@ def damage(att_level: int, move: dict, atk_stats: dict, dfn_stats: dict,
     crit = random.random() < 0.0625
     stab = 1.5 if move.get('ptype') in att_types else 1.0
     eff = effectiveness(move.get('ptype', 'normal'), dfn_types)
+    wmult = 1.0
+    if weather == 'rain' and move.get('ptype') == 'water':
+        wmult = 1.2
+    elif weather == 'sun' and move.get('ptype') == 'fire':
+        wmult = 1.2
     base = ((2 * att_level / 5 + 2) * (move.get('power') or 40) * max(1, a) / max(1, d)) / 50 + 2
-    dmg = base * stab * eff * random.uniform(0.85, 1.0) * (1.5 if crit else 1.0)
+    dmg = base * stab * eff * wmult * random.uniform(0.85, 1.0) * (1.5 if crit else 1.0)
     return max(1, int(dmg)), crit
+
+
+WEATHER_LINE = {
+    'rain': 'eco.pk_wx_rain',
+    'sun': 'eco.pk_wx_sun',
+}
+
+
+def roll_weather():
+    r = random.random()
+    if r < 0.25:
+        return 'rain'
+    if r < 0.5:
+        return 'sun'
+    return None
+
+
+def hp_dot(frac: float, fainted: bool = False) -> str:
+    if fainted:
+        return '⚪'
+    if frac > 0.5:
+        return '🟢'
+    if frac > 0.2:
+        return '🟡'
+    return '🔴'
 
 
 def catch_chance(rate: int, level: int, hp_frac: float, ball_mult) -> float:
@@ -1678,10 +1708,59 @@ class Pokemon(commands.Cog):
         wild['hp'] = e['hp']
         key = (str(gid), str(user.id))
         self._battle[key] = {'me': me, 'wild': wild, 'mid': act['id'], 'log': [],
-                             'me_spr': me_spr, 'wild_spr': wild_spr}
+                             'me_spr': me_spr, 'wild_spr': wild_spr,
+                             'weather': roll_weather(), 'fainted': set(),
+                             'sent': False}
         await self._send_battle(ix_or_ctx, is_ix, gid, user.id)
 
-    def _scene_file(self, st) -> tuple:
+    def _team_line(self, gid, name: str, hp: int, maxhp: int, fainted: bool = False) -> str:
+        return f"{hp_dot(hp / max(1, maxhp), fainted)} {name} HP {hp}/{maxhp}"
+
+    def _vs_wild_body(self, gid, uid, st) -> str:
+        me, wild, log = st['me'], st['wild'], st['log']
+        who = f'<@{uid}>'
+        body = t(gid, 'eco.pk_vs', a=who, b=t(gid, 'eco.pk_wild_foe', name=wild['name']))
+        body += '\n' + t(gid, 'eco.pk_sentout', ball='🔴', who=who, name=me['name'])
+        body += '\n' + t(gid, 'eco.pk_sentout_wild', ball='🔵', name=wild['name'])
+        if st.get('weather') in WEATHER_LINE:
+            body += '\n' + t(gid, WEATHER_LINE[st['weather']])
+        body += '\n' + t(gid, 'eco.pk_team_of', user=who)
+        for m in team_get(gid, uid)[:3]:
+            if m['id'] == st.get('mid'):
+                body += '\n' + self._team_line(gid, me['name'], me['hp'], me['stats']['maxhp'])
+            else:
+                row = _dex_row(m['dex'])
+                nm = (m.get('nick') or (row.get('name') or '?').capitalize())
+                if m.get('shiny'):
+                    nm = '✨' + nm
+                body += '\n' + self._team_line(gid, nm, 1, 1)
+        if log:
+            body += '\n' + '\n'.join(log[-4:])
+        return body
+
+    def _vs_duel_body(self, gid, st) -> str:
+        a, b = self._duel_pair(st)
+        ua, ub = f"<@{st['u1']}>", (st['u2'] if isinstance(st['u2'], str) and st['u2'].startswith('npc:')
+                                    else f"<@{st['u2']}>")
+        if st.get('npc'):
+            ub = st['npc']
+        body = t(gid, 'eco.pk_vs', a=ua, b=ub)
+        body += '\n' + t(gid, 'eco.pk_sentout', ball='🔴', who=ua, name=a['name'])
+        body += '\n' + t(gid, 'eco.pk_sentout', ball='🔵', who=ub, name=b['name'])
+        if st.get('weather') in WEATHER_LINE:
+            body += '\n' + t(gid, WEATHER_LINE[st['weather']])
+        for tag, team, mids, idx in (('pa', st['t1'], st['m1'], st['i1']),
+                                     ('pb', st['t2'], st['m2'], st['i2'])):
+            owner = ua if tag == 'pa' else ub
+            body += '\n' + t(gid, 'eco.pk_team_of', user=owner)
+            for j, (f, mid) in enumerate(zip(team, mids)):
+                fainted = f['hp'] <= 0 or mid in st.get('fainted', set())
+                body += '\n' + self._team_line(gid, f['name'], f['hp'], f['stats']['maxhp'], fainted)
+        if st['log']:
+            body += '\n' + '\n'.join(st['log'][-4:])
+        return body
+
+    def _scene_file(self, st):
         import io as _bio
         try:
             png = battle_image(st.get('me_spr'), st.get('wild_spr'),
@@ -1717,20 +1796,16 @@ class Pokemon(commands.Cog):
         st = self._battle.get((str(gid), str(uid)))
         if not st:
             return
-        me, wild, log = st['me'], st['wild'], st['log']
-        view = self._battle_view(gid, uid, me, wild, log)
+        view = self._battle_view(gid, uid, st)
         await self._show_battle(ix_or_ctx, True, st, view, self._scene_file(st))
 
-    def _battle_view(self, gid, uid, me, wild, log):
+    def _battle_view(self, gid, uid, st):
         from discord.ui import ActionRow, Container, TextDisplay
         from discord.ui import LayoutView
+        me = st['me']
         layout = LayoutView(timeout=180)
         box = Container(accent_color=0xFF4655)
-        body = (f"## {me['name']} Lv{me['level']} ({me['hp']}/{me['stats']['maxhp']}) "
-                f"vs {wild['name']} Lv{wild['level']} ({wild['hp']}/{wild['stats']['maxhp']})")
-        if log:
-            body += '\n' + '\n'.join(log[-4:])
-        box.add_item(TextDisplay(body))
+        box.add_item(TextDisplay(self._vs_wild_body(gid, uid, st)))
         moves = (me.get('moves') or [])[:4]
         row = ActionRow()
         for i, mv in enumerate(moves):
@@ -1751,6 +1826,24 @@ class Pokemon(commands.Cog):
             b.callback = self._mk_battle_btn(gid, uid, cid)
             row2.add_item(b)
         box.add_item(row2)
+        row3 = ActionRow()
+        for m in team_get(gid, uid)[:5]:
+            rowm = _dex_row(m['dex'])
+            nm = (m.get('nick') or (rowm.get('name') or '?').capitalize())[:16]
+            if m.get('shiny'):
+                nm = '✨' + nm
+            cur = (m['id'] == st.get('mid'))
+            b = discord.ui.Button(label=('▶ ' if cur else '') + nm[:80],
+                                  style=discord.ButtonStyle.success if cur
+                                  else discord.ButtonStyle.secondary,
+                                  custom_id=f'pksw:{uid}:{m["id"]}',
+                                  disabled=cur)
+            b.callback = self._mk_battle_btn(gid, uid, ('switch', m['id']))
+            row3.add_item(b)
+            if len(row3.children) >= 5:
+                break
+        if row3.children:
+            box.add_item(row3)
         layout.add_item(box)
         return layout
 
@@ -1800,7 +1893,34 @@ class Pokemon(commands.Cog):
                 me['hp'] = min(me['stats']['maxhp'], me['hp'] + heal)
                 log.append(t(gid, 'eco.pk_healed', name=me['name'], hp=heal))
             # potion costs the turn: wild strikes
-            await self._wild_strike(gid, me, wild, log)
+            await self._wild_strike(gid, me, wild, log, st.get('weather'))
+            return await self._after_turn(ix, gid, user, key, st)
+        if isinstance(what, tuple) and what[0] == 'switch':
+            import aiohttp
+            nm = None
+            with db.conn_ctx() as conn:
+                nm = conn.execute('SELECT * FROM pk_mons WHERE id=? AND guild_id=? AND owner_id=?',
+                                  (what[1], str(gid), str(user.id))).fetchone()
+            if not nm:
+                return await ix.followup.send(t(gid, 'eco.pk_noslot'), ephemeral=True)
+            nm = dict(nm)
+            if nm['id'] == st.get('mid'):
+                return await ix.followup.send(view=self._battle_view(gid, user.id, st))
+            async with aiohttp.ClientSession() as s:
+                me2 = await self._fighter(s, nm)
+                me2_spr = await fetch_sprite(s, pix_url(nm['dex'], bool(nm['shiny']), back=True))
+            mem = st.setdefault('hp_mem', {})
+            mem[st.get('mid')] = me['hp']
+            if nm['id'] in mem:
+                me2['hp'] = max(1, min(me2['stats']['maxhp'], mem[nm['id']]))
+            with db.conn_ctx() as conn:
+                conn.execute('UPDATE pk_mons SET active=0 WHERE guild_id=? AND owner_id=?',
+                             (str(gid), str(user.id)))
+                conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (nm['id'],))
+            st['me'], st['mid'], st['me_spr'] = me2, nm['id'], me2_spr
+            me = me2
+            log.append(t(gid, 'eco.pk_switched', name=mon_name(nm)))
+            await self._wild_strike(gid, me, wild, log, st.get('weather'))
             return await self._after_turn(ix, gid, user, key, st)
         # chosen move (or fallback): faster strikes first
         mv = None
@@ -1818,16 +1938,17 @@ class Pokemon(commands.Cog):
                 if wild['hp'] <= 0:
                     break
                 use_mv = chosen or random.choice(me['moves'])
-                await self._strike(gid, me, wild, use_mv, True, log)
+                await self._strike(gid, me, wild, use_mv, True, log, st.get('weather'))
             else:
                 if me['hp'] <= 0:
                     break
-                await self._strike(gid, wild, me, random.choice(wild['moves']), False, log)
+                await self._strike(gid, wild, me, random.choice(wild['moves']), False, log,
+                                   st.get('weather'))
         return await self._after_turn(ix, gid, user, key, st)
 
-    async def _strike(self, gid, att, dfn, mv, is_me: bool, log: list):
+    async def _strike(self, gid, att, dfn, mv, is_me: bool, log: list, weather=None):
         dmg, crit = damage(att['level'], mv, att['stats'], dfn['stats'],
-                           att['types'], dfn['types'])
+                           att['types'], dfn['types'], weather)
         dfn['hp'] = max(0, dfn['hp'] - dmg)
         eff = effectiveness(mv.get('ptype', 'normal'), dfn['types'])
         tag = ' 💥' if eff > 1 else (' 🛡' if eff < 1 else '')
@@ -1836,8 +1957,8 @@ class Pokemon(commands.Cog):
         who = t(gid, 'eco.pk_you') if is_me else t(gid, 'eco.pk_foe')
         log.append(t(gid, 'eco.pk_hit', who=who, move=mv['name'], dmg=dmg) + tag)
 
-    async def _wild_strike(self, gid, me, wild, log: list):
-        await self._strike(gid, wild, me, random.choice(wild['moves']), False, log)
+    async def _wild_strike(self, gid, me, wild, log: list, weather=None):
+        await self._strike(gid, wild, me, random.choice(wild['moves']), False, log, weather)
 
     async def _after_turn(self, ix: discord.Interaction, gid, user, key, st):
         me, wild, log = st['me'], st['wild'], st['log']
@@ -1864,7 +1985,7 @@ class Pokemon(commands.Cog):
             st['done'] = True
             await self._show_battle(ix, False, st, view, self._scene_file(st))
             return
-        view = self._battle_view(gid, user.id, me, wild, log)
+        view = self._battle_view(gid, user.id, st)
         await self._show_battle(ix, False, st, view, self._scene_file(st))
 
     async def _gain_party_xp(self, gid, uid, active_mid: int, gain: int) -> list:
@@ -1997,7 +2118,9 @@ class Pokemon(commands.Cog):
         self._battle[key] = {'duel': True, 't1': f1, 't2': f2, 'm1': m1, 'm2': m2,
                              'i1': 0, 'i2': 0, 's1': s1, 's2': s2,
                              'u1': u1.id, 'u2': u2.id,
-                             'wager': wager, 'turn': u1.id, 'log': []}
+                             'wager': wager, 'turn': u1.id, 'log': [],
+                             'weather': roll_weather(), 'fainted': set(),
+                             'sent': False}
         await self._duel_render(ix, gid, key)
 
     def _duel_pair(self, st):
@@ -2012,16 +2135,7 @@ class Pokemon(commands.Cog):
         turn_side = a if st['turn'] == st['u1'] else b
         layout = LayoutView(timeout=120)
         box = Container(accent_color=0xFF4655)
-        body = (f"## {a['name']} ({a['hp']}/{a['stats']['maxhp']}) "
-                f"vs {b['name']} ({b['hp']}/{b['stats']['maxhp']})")
-        r1 = len(st['t1']) - st['i1'] - 1
-        r2 = len(st['t2']) - st['i2'] - 1
-        if r1 or r2:
-            body += '\n' + t(gid, 'eco.pk_duel_reserves', a=r1, b=r2)
-        if st['log']:
-            body += '\n' + '\n'.join(st['log'][-4:])
-        body += '\n' + t(gid, 'eco.pk_duel_turn', user=f"<@{st['turn']}>")
-        box.add_item(TextDisplay(body))
+        box.add_item(TextDisplay(self._vs_duel_body(gid, st)))
         row = ActionRow()
         for i, mv in enumerate((turn_side.get('moves') or [])[:4]):
             b = discord.ui.Button(label=f"{mv['name'][:14]} {mv['power']}"[:80],
@@ -2037,6 +2151,23 @@ class Pokemon(commands.Cog):
             b.callback = self._mk_duel_btn(gid, key, cid)
             row2.add_item(b)
         box.add_item(row2)
+        # switch row: own team, current/fainted disabled
+        mine = 't1' if st['turn'] == st['u1'] else 't2'
+        row3 = ActionRow()
+        for j, (f, mid) in enumerate(zip(st[mine], st['m1' if mine == 't1' else 'm2'])):
+            cur = (st['i1' if mine == 't1' else 'i2'] == j)
+            dead = f['hp'] <= 0 or mid in st.get('fainted', set())
+            b = discord.ui.Button(label=('▶ ' if cur else '') + f['name'][:14],
+                                  style=discord.ButtonStyle.success if cur
+                                  else discord.ButtonStyle.secondary,
+                                  custom_id=f'pkdsw:{key[1]}:{mid}',
+                                  disabled=(cur or dead))
+            b.callback = self._mk_duel_btn(gid, key, ('switch', mid))
+            row3.add_item(b)
+            if len(row3.children) >= 5:
+                break
+        if row3.children:
+            box.add_item(row3)
         layout.add_item(box)
         return layout
 
@@ -2059,6 +2190,39 @@ class Pokemon(commands.Cog):
             return await ix.followup.send(t(gid, 'eco.pk_nobattle'), ephemeral=True)
         side = 't1' if st['turn'] == st['u1'] else 't2'
         foe = 't2' if side == 't1' else 't1'
+        if isinstance(what, tuple) and what[0] == 'switch':
+            mids = st['m1' if side == 't1' else 'm2']
+            if what[1] in mids:
+                j = mids.index(what[1])
+                cur = st['i1' if side == 't1' else 'i2']
+                tgt = st[side][j]
+                if j != cur and tgt['hp'] > 0 and what[1] not in st.get('fainted', set()):
+                    if side == 't1':
+                        st['i1'] = j
+                    else:
+                        st['i2'] = j
+                    log.append(t(gid, 'eco.pk_switched', name=tgt['name']))
+                    fo_now = st[foe][st['i2' if side == 't1' else 'i1']]
+                    mv = random.choice(fo_now['moves'])
+                    dmg, crit = damage(fo_now['level'], mv, fo_now['stats'], tgt['stats'],
+                                       fo_now['types'], tgt['types'], st.get('weather'))
+                    tgt['hp'] = max(0, tgt['hp'] - dmg)
+                    eff = effectiveness(mv.get('ptype', 'normal'), tgt['types'])
+                    tag = ' 💥' if eff > 1 else (' 🛡' if eff < 1 else '')
+                    if crit:
+                        tag += ' ✨CRIT'
+                    log.append(t(gid, 'eco.pk_hit', who=fo_now['name'], move=mv['name'], dmg=dmg) + tag)
+                    if tgt['hp'] <= 0:
+                        st.setdefault('fainted', set()).add(what[1])
+                        log.append(t(gid, 'eco.pk_duel_faint', name=tgt['name']))
+                        st['turn'] = st['u2'] if side == 't1' else st['u1']
+                        st['log'] = log
+                        await self._duel_render(ix, gid, key)
+                        return
+            st['turn'] = st['u2'] if side == 't1' else st['u1']
+            st['log'] = log
+            await self._duel_render(ix, gid, key)
+            return
         me, fo = st[side][st['i1' if side == 't1' else 'i2']], st[foe][st['i2' if side == 't1' else 'i1']]
         log = st['log']
         if what == 'forfeit':
@@ -2084,7 +2248,8 @@ class Pokemon(commands.Cog):
                 if 0 <= idx < len(me.get('moves') or []):
                     mv = me['moves'][idx]
             mv = mv or random.choice(me['moves'])
-            dmg, crit = damage(me['level'], mv, me['stats'], fo['stats'], me['types'], fo['types'])
+            dmg, crit = damage(me['level'], mv, me['stats'], fo['stats'], me['types'], fo['types'],
+                               st.get('weather'))
             fo['hp'] = max(0, fo['hp'] - dmg)
             eff = effectiveness(mv.get('ptype', 'normal'), fo['types'])
             tag = ' 💥' if eff > 1 else (' 🛡' if eff < 1 else '')
@@ -2094,12 +2259,14 @@ class Pokemon(commands.Cog):
         if fo['hp'] <= 0:
             log.append(t(gid, 'eco.pk_duel_faint', name=fo['name']))
             if side == 't1':
+                st.setdefault('fainted', set()).add((st['m2'] or [None])[st['i2']])
                 st['i2'] += 1
                 if st['i2'] >= len(st['t2']):
                     self._battle.pop(key, None)
                     return await self._duel_settle(ix, gid, key, st, 't1')
                 log.append(t(gid, 'eco.pk_duel_send', name=st['t2'][st['i2']]['name']))
             else:
+                st.setdefault('fainted', set()).add((st['m1'] or [None])[st['i1']])
                 st['i1'] += 1
                 if st['i1'] >= len(st['t1']):
                     self._battle.pop(key, None)
@@ -2111,7 +2278,8 @@ class Pokemon(commands.Cog):
             a, b = (st['t2'][st['i2']], st['t1'][st['i1']]) if side == 't1' \
                 else (st['t1'][st['i1']], st['t2'][st['i2']])
             mv = random.choice(a['moves'])
-            dmg, crit = damage(a['level'], mv, a['stats'], b['stats'], a['types'], b['types'])
+            dmg, crit = damage(a['level'], mv, a['stats'], b['stats'], a['types'], b['types'],
+                               st.get('weather'))
             b['hp'] = max(0, b['hp'] - dmg)
             eff = effectiveness(mv.get('ptype', 'normal'), b['types'])
             tag = ' 💥' if eff > 1 else (' 🛡' if eff < 1 else '')
@@ -2315,7 +2483,9 @@ class Pokemon(commands.Cog):
                               'i1': 0, 'i2': 0, 's1': s1, 's2': s2,
                               'u1': user.id, 'u2': f'npc:{key}',
                               'wager': 0, 'turn': user.id, 'log': [
-                                  t(gid, 'eco.pk_npc_start', name=name)]}
+                                  t(gid, 'eco.pk_npc_start', name=name)],
+                              'weather': roll_weather(), 'fainted': set(),
+                              'sent': False}
         await self._duel_render_ctx(ctx, gid, bkey)
 
     async def _duel_render_ctx(self, ctx, gid, key):
