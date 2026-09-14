@@ -1,8 +1,14 @@
 {% extends 'base.html' %}
 {% block body %}
-<h1>Login</h1>
+<div class="login-wrap">
+<div class="login-card">
+<div class="mark">B</div>
+<h1>Panel access</h1>
+<p class="hint">Enter the panel password to manage Babka Danka.</p>
 <form method="post">
-  <label>Panel password<input type="password" name="password" autofocus></label>
-  <button>Enter</button>
+  <label>Password<input type="password" name="password" autofocus placeholder="••••••••"></label>
+  <button>Enter panel →</button>
 </form>
+</div>
+</div>
 {% endblock %}
