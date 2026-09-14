@@ -2,7 +2,7 @@ import asyncio
 import os
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 import database as db
@@ -112,6 +112,25 @@ async def _unpin_user_lang(ctx):
         pass
 
 
+@tasks.loop(hours=24)
+async def _daily_backup():
+    try:
+        import datetime as _dt
+        from pathlib import Path as _P
+        _P('backups').mkdir(exist_ok=True)
+        stamp = _dt.datetime.now().strftime('%Y%m%d-%H%M%S')
+        db.backup_to(str(_P('backups') / f'data-{stamp}.db'))
+        snaps = sorted(_P('backups').glob('data-*.db'))
+        for old in snaps[:-7]:
+            try:
+                old.unlink()
+            except Exception:
+                pass
+        print(f'[+] DB backup done ({len(snaps[:7])} kept)')
+    except Exception as e:
+        print(f'[-] DB backup failed: {e}')
+
+
 @bot.event
 async def on_ready():
     print(f'[+] Babka Danka: {bot.user} ({bot.user.id})')
@@ -163,6 +182,7 @@ def _bar(done: int, total: int) -> str:
 async def main():
     db.init_db()
     print(_banner())
+    _daily_backup.start()
     if os.getenv('WEBPANEL_ENABLED', '0') == '1':
         try:
             import threading

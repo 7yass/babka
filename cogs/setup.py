@@ -89,6 +89,27 @@ class Setup(commands.Cog):
                         else t(ctx.guild.id, 'setup.levelup_set', channel=t(ctx.guild.id, 'setup.same_channel')),
                         ephemeral=True)
 
+    @commands.command(name='backup', description='Kopia bazy (house)')
+    async def backup(self, ctx):
+        import datetime as _dt
+        from pathlib import Path as _P
+        if not db.is_house(ctx.author.id):
+            return await ctx.reply(t(ctx.guild.id, 'eco.no_owner'), ephemeral=True)
+        try:
+            _P('backups').mkdir(exist_ok=True)
+            stamp = _dt.datetime.now().strftime('%Y%m%d-%H%M%S')
+            dest = _P('backups') / f'data-{stamp}.db'
+            db.backup_to(str(dest))
+            snaps = sorted(_P('backups').glob('data-*.db'))
+            for old in snaps[:-7]:
+                try:
+                    old.unlink()
+                except Exception:
+                    pass
+            await ctx.reply(t(ctx.guild.id, 'setup.backup_ok', n=len(snaps[:7])), ephemeral=True)
+        except Exception as e:
+            await ctx.reply(f'`{e}`', ephemeral=True)
+
 
 async def setup(bot):
     await bot.add_cog(Setup(bot))

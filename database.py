@@ -7,9 +7,29 @@ DB_PATH = Path(__file__).parent / 'data.db'
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute('PRAGMA journal_mode=WAL')
+        conn.execute('PRAGMA busy_timeout=5000')
+        conn.execute('PRAGMA synchronous=NORMAL')
+    except Exception:
+        pass
     return conn
+
+
+def backup_to(path) -> None:
+    """Online-safe snapshot using the sqlite backup API."""
+    src = get_conn()
+    try:
+        dst = sqlite3.connect(path)
+        try:
+            src.backup(dst)
+            dst.commit()
+        finally:
+            dst.close()
+    finally:
+        src.close()
 
 
 @contextmanager
