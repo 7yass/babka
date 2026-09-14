@@ -287,17 +287,45 @@ def render_greet(kind: str, name: str, stat: str, avatar_bytes: bytes = None,
         except Exception:
             d.text((60, ty), title, font=f_big, fill=accent)
     else:
+        # banner layout — Direction A (avatar left, tracked title, big name)
+        INK, FAINT, DIM, HAIR = (255, 255, 255), (96, 96, 104), (150, 150, 158), (54, 54, 60)
+        try:
+            _a = Path(__file__).parent.parent / 'assets'
+            f_lab = ImageFont.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 17)
+            f_name = ImageFont.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 44)
+            f_stat = ImageFont.truetype(str(_a / 'DejaVuSans.ttf'), 20)
+        except Exception:
+            f_lab, f_name, f_stat = f_sm, f_big, f_sm
+
+        def _tracked(xy, text, font, fill, tracking=3):
+            x, y = xy
+            for ch in text:
+                d.text((x, y), ch, font=font, fill=fill)
+                try:
+                    x += d.textlength(ch, font=font) + tracking
+                except Exception:
+                    x += 12 + tracking
+
+        x0, s = 42, 148
+        ay = (H - s) // 2
         if show_av:
-            if not (avatar_bytes and paste_avatar(img, avatar_bytes, (50, 50, 160))):
-                fallback_face(d, (50, 50, 160), name)
-            d.ellipse([50, 50, 210, 210], outline=accent, width=5)
-            tx = 240
+            if not (avatar_bytes and paste_avatar(img, avatar_bytes, (x0, ay, s))):
+                fallback_face(d, (x0, ay, s), name)
+            d.ellipse([x0 - 3, ay - 3, x0 + s + 3, ay + s + 3], outline=(70, 70, 78), width=2)
+            d.ellipse([x0, ay, x0 + s, ay + s], outline=accent, width=4)
+            dx = x0 + s + 38
         else:
-            tx = 60
-        d.text((tx, 55), title, font=f_big, fill=accent)
-        d.text((tx, 115), name[:24], font=f_mid, fill=(255, 255, 255))
+            dx = 48
+        cb = (64, 64, 72)
+        d.line([(W - 34, 14), (W - 16, 14)], fill=cb, width=2)
+        d.line([(W - 16, 14), (W - 16, 32)], fill=cb, width=2)
+        d.line([(W - 36, H - 14), (W - 20, H - 14)], fill=cb, width=2)
+        d.line([(W - 20, H - 30), (W - 20, H - 14)], fill=cb, width=2)
+        _tracked((dx, 52), title, f_lab, FAINT, tracking=4)
+        d.text((dx, 78), name[:18], font=f_name, fill=INK)
+        d.line([(dx, 148), (W - 40, 148)], fill=HAIR, width=1)
         if show_stat:
-            d.text((tx, 160), stat[:60], font=f_sm, fill=(181, 181, 181))
+            d.text((dx, 166), stat[:64], font=f_stat, fill=DIM)
     buf = io.BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()
