@@ -94,6 +94,9 @@ class _Conn:
     def __init__(self, conn):
         self._conn = conn
 
+    def cursor(self):
+        return _Cursor(self._conn.cursor())
+
     def execute(self, *a, **k):
         return _Cursor(self._conn).execute(*a, **k)
 
