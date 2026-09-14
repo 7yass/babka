@@ -370,7 +370,7 @@ def init_db():
             active INTEGER DEFAULT 0)''')
         c.execute('''CREATE TABLE IF NOT EXISTS pk_balls (
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL, ball TEXT NOT NULL,
-            qty INTEGER DEFAULT 0,
+            qty INTEGER DEFAULT 0, expires INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id, ball))''')
         c.execute('''CREATE TABLE IF NOT EXISTS pk_dexcount (
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL, dex INTEGER NOT NULL,
@@ -417,7 +417,8 @@ def init_db():
                     'ALTER TABLE eco ADD COLUMN gamble_n INTEGER DEFAULT 0',
                     'ALTER TABLE eco ADD COLUMN gamble_hr INTEGER DEFAULT 0',
                     'ALTER TABLE eco ADD COLUMN cookie_n INTEGER DEFAULT 0',
-                    'ALTER TABLE eco ADD COLUMN cookie_day INTEGER DEFAULT 0'):
+                    'ALTER TABLE eco ADD COLUMN cookie_day INTEGER DEFAULT 0',
+                    'ALTER TABLE pk_balls ADD COLUMN expires INTEGER DEFAULT 0'):
             try:
                 c.execute(col)
             except Exception:

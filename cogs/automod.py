@@ -58,8 +58,74 @@ def _readings(s: str) -> list:
             return [_norm(s)]
     return [_norm(r) for r in out]
 
+
+def _raw_variants(s: str) -> list:
+    """AMB alternatives without normalization (length-preserving)."""
+    out = ['']
+    for ch in (s or '').lower():
+        out = [p + o for p in out for o in AMB.get(ch, (ch,))]
+        if len(out) > 32:
+            return [(s or '').lower()]
+    return out
+
+
+def _fold1(s: str) -> str:
+    """Length-preserving fold: accents, lookalikes, leet — no stripping."""
+    s = unicodedata.normalize('NFKD', s or '')
+    s = ''.join(c for c in s if not unicodedata.combining(c))
+    return ''.join(CONFUSE.get(c, c) for c in s).translate(LEET).translate(VU)
+
+
+WORD_RE = re.compile(r'[^\W\d_]+', re.UNICODE)
+# vowel-ish continuations: Polish inflections swap endings for vowels
+# ('suki', 'kurwo'), so stem + vowel still counts as the same word.
+NEXT_OK = set('aeiouyąęó') | {'l', 'r', 'j'}
+
+
+def _badword_hit(content: str, badwords: list):
+    """Word-aware bad-word match. Splits the message into words BEFORE
+    normalization (so separators survive), then matches each entry against
+    whole words: exact for tiny words, stem + length cap otherwise.
+    Multi-word entries fall back to joined-stream matching."""
+    raw_words = WORD_RE.findall(content or '')
+    if not raw_words:
+        return None
+    variants = []
+    folds = []
+    for w in raw_words:
+        for r in _raw_variants(w):
+            variants.append(_norm(r))
+            folds.append(_fold1(r))
+        if len(variants) > 256:
+            break
+    joined = ''.join(_norm(w) for w in raw_words)
+    for w in badwords:
+        nw = _norm(w or '')
+        if not nw:
+            continue
+        if ' ' in (w or '').strip():
+            if nw in joined:
+                return w
+            continue
+        if len(nw) < 4:
+            if any(nw == nm for nm in variants):
+                return w
+            continue
+        bound = len(nw) + 3
+        for nm in variants:
+            if nm == nw:
+                return w
+            if nm.startswith(nw) and len(nm) <= bound:
+                return w
+        for fl in folds:
+            if (fl.startswith(nw[:-1]) and len(fl) <= bound
+                    and len(fl) > len(nw) - 1 and fl[len(nw) - 1] in NEXT_OK):
+                return w
+    return None
+
 # Premade severe-profanity seed (EN + PL). No mild words, no slurs —
-# add your own via badword-add; substring matching catches inflections.
+# add your own via badword-add. Matching is word-based (stem + length cap)
+# so 'jujutsu kaisen' never trips 'suka', while inflections still match.
 DEFAULT_BADWORDS = [
     # EN
     'fuck', 'fucker', 'fucking', 'motherfucker', 'cocksucker', 'cunt',
@@ -272,13 +338,7 @@ class AutoMod(commands.Cog):
             else:
                 verdict = ('delete', t(gid, 'as.links'))
         if verdict is None:
-            norms = _readings(content)
-            hit = None
-            for w in cfg['badwords']:
-                nw = _norm(w or '')
-                if nw and any(nw in nm for nm in norms):
-                    hit = w
-                    break
+            hit = _badword_hit(content, cfg['badwords'])
             if hit:
                 try:
                     await message.delete()
