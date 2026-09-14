@@ -66,6 +66,8 @@ COGS = [
     'cogs.profile',
     'cogs.achievements',
     'cogs.stocks',
+    'cogs.valorant',
+    'cogs.pokemon',
 ]
 
 

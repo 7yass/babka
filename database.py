@@ -354,6 +354,24 @@ def init_db():
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL, symbol TEXT NOT NULL,
             qty INTEGER DEFAULT 0, spent INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id, symbol))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS pk_dex (
+            dex INTEGER PRIMARY KEY, name TEXT DEFAULT '', types TEXT DEFAULT '[]',
+            hp INTEGER DEFAULT 50, atk INTEGER DEFAULT 50, dfn INTEGER DEFAULT 50,
+            spa INTEGER DEFAULT 50, spd INTEGER DEFAULT 50, spe INTEGER DEFAULT 50,
+            sprite TEXT DEFAULT '', rate INTEGER DEFAULT 45,
+            legendary INTEGER DEFAULT 0, evo_to INTEGER DEFAULT 0, evo_level INTEGER DEFAULT 0)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS pk_moves (
+            name TEXT PRIMARY KEY, power INTEGER DEFAULT 40,
+            ptype TEXT DEFAULT 'normal', acc INTEGER DEFAULT 100)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS pk_mons (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL, dex INTEGER DEFAULT 1, level INTEGER DEFAULT 5,
+            xp INTEGER DEFAULT 0, shiny INTEGER DEFAULT 0, nick TEXT DEFAULT '',
+            active INTEGER DEFAULT 0)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS pk_balls (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, ball TEXT NOT NULL,
+            qty INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, ball))''')
         c.execute('''CREATE TABLE IF NOT EXISTS suggest_cfg (
             guild_id TEXT PRIMARY KEY, panel_channel TEXT,
             panel_message TEXT, inbox_channel TEXT)''')

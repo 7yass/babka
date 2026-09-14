@@ -1367,6 +1367,22 @@
       ],
       "",
       "Everyone"
+    ],
+    "pokemon": [
+      "economy",
+      "Full monster game: starter, hunts, catching, balls, levels, evolution, wild battles, duels with wagers, trading, shinies, pokedex.",
+      [],
+      "starter / hunt / catch / box / dex / battle / duel / trade",
+      "Everyone"
+    ],
+    "val": [
+      "info",
+      "Valorant tracker: rank, RR, peak and last match for Name#Tag (needs free Henrik key).",
+      [
+        "valorant"
+      ],
+      "Name#Tag",
+      "Everyone"
     ]
   },
   "cats": {
