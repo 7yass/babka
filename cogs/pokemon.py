@@ -451,9 +451,9 @@ def hp_dot(frac: float, fainted: bool = False) -> str:
 def catch_chance(rate: int, level: int, hp_frac: float, ball_mult) -> float:
     if ball_mult is None:
         return 1.0
-    p = (rate / 255) * ball_mult * (1.2 - 0.9 * max(0.0, min(1.0, hp_frac)))
+    p = (rate / 255) * ball_mult * (1.6 - 1.1 * max(0.0, min(1.0, hp_frac)))
     p *= max(0.25, 1 - level / 150)
-    return max(0.01, min(0.95, p))
+    return max(0.05, min(0.98, p))
 
 
 # ---------- collection helpers ----------
@@ -576,23 +576,51 @@ def move_str(gid, mv: dict) -> str:
     return f'{e} {base}' if e else base
 
 
-def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict) -> bytes:
-    """Game-style pixel battle: grass arena, platforms, nearest-neighbor
-    pixel sprites, classic status boxes with HP bars."""
+def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict,
+                 weather=None) -> bytes:
+    """Game-style pixel battle: sun, clouds, textured grass, platforms,
+    nearest-neighbor sprites, status boxes. Weather tints the sky."""
     import io as _io
+    import random as _r
     from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
     from pathlib import Path as _P
     W, H = 900, 420
+    seed = (p1.get('name', '') + p2.get('name', ''))
+    rnd = _r.Random(sum(map(ord, seed)) if seed else 7)
     img = _Img.new('RGB', (W, H), (24, 28, 40))
     d = _Dr.Draw(img)
+    # sky (weather-tinted)
+    top = {'rain': (52, 60, 84), 'sun': (96, 78, 72)}.get(weather, (30, 34, 52))
+    bot = {'rain': (62, 84, 72), 'sun': (150, 100, 66)}.get(weather, (42, 64, 82))
     for y in range(300):
         tt = y / 300
         d.line([(0, y), (W, y)],
-               fill=(int(24 + 10 * tt), int(28 + 26 * tt), int(40 + 30 * tt)))
+               fill=(int(top[0] + (bot[0] - top[0]) * tt),
+                     int(top[1] + (bot[1] - top[1]) * tt),
+                     int(top[2] + (bot[2] - top[2]) * tt)))
+    # sun + clouds
+    d.ellipse([760, 26, 830, 96], fill=(255, 225, 150) if weather == 'sun'
+              else (200, 205, 220))
+    for cx, cy, w in ((150, 70, 130), (430, 44, 100), (660, 120, 80)):
+        for ox in (-w // 3, 0, w // 3):
+            d.ellipse([cx + ox - 26, cy - 16, cx + ox + 26, cy + 16],
+                      fill=(58, 62, 80))
+    # grass with tufts
     for y in range(300, H):
         tt = (y - 300) / (H - 300)
         d.line([(0, y), (W, y)],
                fill=(int(52 - 12 * tt), int(110 - 24 * tt), int(66 - 14 * tt)))
+    for _ in range(46):
+        x, y = rnd.randint(6, W - 6), rnd.randint(306, H - 8)
+        d.line([(x, y), (x + rnd.choice([-3, 3]), y - rnd.randint(5, 9))],
+               fill=(40, 92, 54), width=2)
+    if weather == 'rain':
+        for _ in range(60):
+            x, y = rnd.randint(0, W), rnd.randint(0, 300)
+            d.line([(x, y), (x - 5, y + 12)], fill=(140, 170, 210), width=2)
+    # platforms with shadow
+    d.ellipse([46, 300, 394, 324], fill=(20, 40, 26))
+    d.ellipse([506, 208, 854, 232], fill=(20, 40, 26))
     d.ellipse([40, 292, 400, 318], fill=(38, 84, 50), outline=(30, 66, 40), width=3)
     d.ellipse([500, 200, 860, 226], fill=(38, 84, 50), outline=(30, 66, 40), width=3)
     d.ellipse([52, 296, 388, 312], fill=(48, 100, 60))
@@ -633,6 +661,9 @@ def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict) -> bytes:
         fw = max(12, int(bw2 * max(0.0, min(1.0, frac))))
         col = (87, 242, 135) if frac > 0.5 else ((250, 200, 60) if frac > 0.2 else (255, 90, 90))
         d.rounded_rectangle([bx, by, bx + fw, by + 14], radius=7, fill=col)
+        for i in range(3):
+            gx = bx + 8 + i * 9
+            d.line([(gx, by + 3), (gx, by + 11)], fill=(255, 255, 255, 70), width=2)
         try:
             w = d.textlength(hp_txt, font=f_hp)
             d.text((x + bw - w - 12, y + 56), hp_txt, font=f_hp, fill=(220, 220, 225))
@@ -648,21 +679,6 @@ def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict) -> bytes:
     buf = _io.BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()
-
-
-class _PkIxCtx:
-    """Minimal Context shim so shop handlers work from button clicks."""
-    def __init__(self, interaction: discord.Interaction):
-        self._ix = interaction
-        self.guild = interaction.guild
-        self.author = interaction.user
-
-    async def reply(self, content=None, **kwargs):
-        kwargs.pop('mention_author', None)
-        try:
-            await self._ix.followup.send(content, ephemeral=True, **kwargs)
-        except Exception:
-            pass
 
 
 class Pokemon(commands.Cog):
@@ -878,6 +894,8 @@ class Pokemon(commands.Cog):
             flags += '\n🧪 ' + t(gid, 'eco.pk_incensed')
         if repelled:
             flags += '\n🧪 ' + t(gid, 'eco.pk_repelled')
+        flags += '\n' + t(gid, 'eco.pk_odds', pct=int(catch_chance(
+            row.get('rate', 45), level, 1.0, BALLS['ultra'][1]) * 100))
         view = await self._mage(gid, t(gid, 'eco.pk_wild_title', level=level),
                                 t(gid, 'eco.pk_wild', name=name,
                                   types=types_str(gid, row["types"]),
@@ -966,6 +984,7 @@ class Pokemon(commands.Cog):
         p = catch_chance(row.get('rate', 45), e['level'], e['hp'] / max(1, e['maxhp']), mult)
         if e.get('grazz'):
             p = min(0.98, p * 1.6)
+        p = min(0.98, p + e.get('pity', 0))
         if random.random() < p:
             first = not my_mons(gid, uid)
             with db.conn_ctx() as conn:
@@ -982,7 +1001,8 @@ class Pokemon(commands.Cog):
             msg += '\n' + self._catch_meta(gid, uid, e['dex'])
             streak_bump(gid, uid, True)
             return True, msg
-        # break out with a bit of damage? no — it just stares back
+        # broke out: pity grows, next throw is kinder
+        e['pity'] = min(0.4, e.get('pity', 0) + 0.08)
         streak_bump(gid, uid, False)
         return False, t(gid, 'eco.pk_broke', name=row['name'].capitalize(), ball=ball)
 
@@ -2209,7 +2229,7 @@ class Pokemon(commands.Cog):
         import io as _bio
         try:
             png = battle_image(st.get('me_spr'), st.get('wild_spr'),
-                               st['me'], st['wild'])
+                               st['me'], st['wild'], st.get('weather'))
             return discord.File(_bio.BytesIO(png), 'battle.png')
         except Exception:
             return None
@@ -2772,8 +2792,8 @@ class Pokemon(commands.Cog):
         a, b = self._duel_pair(st)
         f = None
         try:
-            png = battle_image(st['s1'][st['i1']], st['s2'][st['i2']], a, b)
-            f = discord.File(_bio.BytesIO(png), 'duel.png')
+            png = battle_image(st['s1'][st['i1']], st['s2'][st['i2']], a, b, st.get('weather'))
+            f = discord.File(_bio.BytesIO(png), 'battle.png')
         except Exception:
             pass
         await self._show_battle(ix, False, st, view, f)
@@ -2853,7 +2873,7 @@ class Pokemon(commands.Cog):
         import io as _bio
         try:
             a, b = self._duel_pair(st)
-            png = battle_image(st['s1'][st['i1']], st['s2'][st['i2']], a, b)
+            png = battle_image(st['s1'][st['i1']], st['s2'][st['i2']], a, b, st.get('weather'))
             return discord.File(_bio.BytesIO(png), 'battle.png')
         except Exception:
             return None
@@ -2971,8 +2991,8 @@ class Pokemon(commands.Cog):
         f = None
         try:
             a, b = self._duel_pair(st)
-            png = battle_image(st['s1'][st['i1']], st['s2'][st['i2']], a, b)
-            f = discord.File(_bio.BytesIO(png), 'duel.png')
+            png = battle_image(st['s1'][st['i1']], st['s2'][st['i2']], a, b, st.get('weather'))
+            f = discord.File(_bio.BytesIO(png), 'battle.png')
         except Exception:
             pass
         if f:
