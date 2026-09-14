@@ -896,7 +896,7 @@
     ],
     "blackjack": [
       "economy",
-      "HOW TO PLAY: `.blackjack <bet>` (max 15000). You vs dealer, closest to 21 wins. HIT takes a card, STAND holds, DOUBLE doubles the stake for one card. Dealer draws to 17 and wins ALL ties. Blackjack pays 6:5, bust = bet lost, max profit 10k/hand. 10 plays/hour shared with other games.",
+      "HOW TO PLAY: `.blackjack <bet>` (max 15000). You vs dealer, closest to 21 wins. HIT takes a card, STAND holds, DOUBLE doubles the stake for one card. Dealer draws to 17 and wins ALL ties. Blackjack pays 6:5, bust = bet lost, max profit 10k/hand. 10 plays/hour shared with other games. Bets accept 1k / 2.5k / 1m / all.",
       [
         "bj"
       ],
@@ -970,14 +970,14 @@
     ],
     "slots": [
       "economy",
-      "HOW TO: `.slots <bet>` — three animated reels. Triple 7 = JACKPOT 12x, triple gem 5x, other triples 4x, any pair = 1.5x back. Anything else = bet lost. 10 plays/hour shared.",
+      "HOW TO: `.slots <bet>` — three animated reels. Triple 7 = JACKPOT 12x, triple gem 5x, other triples 4x, any pair = 1.5x back. Anything else = bet lost. 10 plays/hour shared. Bets accept 1k / 2.5k / 1m / all.",
       [],
       "100",
       "Everyone"
     ],
     "coinflip": [
       "economy",
-      "HOW TO PLAY: `.coinflip <bet> <heads|tails>` (alias `.moneta`, O = orzeł, R = reszka). Win = double back (profit = bet). House-favored odds. 10 plays/hour shared.",
+      "HOW TO PLAY: `.coinflip <bet> <heads|tails>` (alias `.moneta`, O = orzeł, R = reszka). Win = double back (profit = bet). House-favored odds. 10 plays/hour shared. Bets accept 1k / 2.5k / 1m / all.",
       [
         "moneta"
       ],
@@ -986,7 +986,7 @@
     ],
     "roulette": [
       "economy",
-      "HOW TO: `.roulette <bet> <choice>` on a real European wheel with animation. Choices: number 0-36 (pays 35:1), red/black, odd/even, high/low (1:1), dozens 1st12/2nd12/3rd12 and columns col1/col2/col3 (2:1). Recent numbers shown every spin. 10 plays/hour shared.",
+      "HOW TO: `.roulette <bet> <choice>` on a real European wheel with animation. Choices: number 0-36 (pays 35:1), red/black, odd/even, high/low (1:1), dozens 1st12/2nd12/3rd12 and columns col1/col2/col3 (2:1). Recent numbers shown every spin. 10 plays/hour shared. Bets accept 1k / 2.5k / 1m / all.",
       [
         "ruletka"
       ],
@@ -1306,7 +1306,7 @@
     ],
     "poker": [
       "economy",
-      "Video poker (Jacks or better). HOW TO PLAY: 1) bet — e.g. `.poker 100`. 2) You get 5 cards. 3) Press buttons 1-5 to HOLD the cards you keep (press again to unhold). 4) Press DRAW — held cards stay, the rest are swapped, once only. PAYS (profit x bet): pair of jacks or better 1x, two pair 2x, three of a kind 3x, straight 4x, flush 6x, full house 9x, four of a kind 25x, straight flush 50x, royal flush 250x. Anything less = bet lost. Shares the 10 plays/hour limit with other games.",
+      "Video poker (Jacks or better). HOW TO PLAY: 1) bet — e.g. `.poker 100`. 2) You get 5 cards. 3) Press buttons 1-5 to HOLD the cards you keep (press again to unhold). 4) Press DRAW — held cards stay, the rest are swapped, once only. PAYS (profit x bet): pair of jacks or better 1x, two pair 2x, three of a kind 3x, straight 4x, flush 6x, full house 9x, four of a kind 25x, straight flush 50x, royal flush 250x. Anything less = bet lost. Shares the 10 plays/hour limit with other games. Bets accept 1k / 2.5k / 1m / all.",
       [],
       "100",
       "Everyone"

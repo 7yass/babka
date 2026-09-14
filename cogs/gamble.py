@@ -368,6 +368,26 @@ def _attach_roulette_again(layout, button):
     layout.add_item(row)
 
 
+def parse_bet(raw, cash: int):
+    """Human bet amounts: 1k, 2.5k, 1m, all, half, 1,000. int or None."""
+    s = str(raw or '').lower().replace(',', '').replace(' ', '').replace('$', '')
+    if s in ('all', 'max', 'everything'):
+        return max(0, int(cash or 0))
+    if s in ('half', '1/2', '50%'):
+        return max(0, int(cash or 0) // 2)
+    mult = 1
+    if s.endswith('k'):
+        mult, s = 1000, s[:-1]
+    elif s.endswith('m'):
+        mult, s = 1_000_000, s[:-1]
+    elif s.endswith('b'):
+        mult, s = 1_000_000_000, s[:-1]
+    try:
+        return max(0, int(float(s) * mult))
+    except Exception:
+        return None
+
+
 def _jailed(gid, uid):
     jl = db.jail_left(gid, uid)
     if jl:
@@ -1091,13 +1111,14 @@ class Gamble(commands.Cog):
                                           thanks + '\n' + t(gid, 'eco.tribute_total', total=total)))
 
     @commands.hybrid_command(name='blackjack', description='Oczko', aliases=['bj'])
-    async def blackjack(self, ctx, bet: int):
+    async def blackjack(self, ctx, bet: str):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
         if jm:
             return await ctx.reply(jm, ephemeral=True)
         god = str(ctx.author.id) in GOD_IDS
-        if bet <= 0:
+        bet = parse_bet(bet, bal(gid, ctx.author.id)['cash'])
+        if not bet:
             return await ctx.reply(t(gid, 'eco.bet_pos'), ephemeral=True)
         if not god:
             if bet > BJ_MAX_BET and not has_highroller(gid, ctx.author.id):
@@ -1133,18 +1154,19 @@ class Gamble(commands.Cog):
         view = BJView(self, ctx.author.id, bet, deck, phand, dhand, gid)
         await ctx.reply(view=view, files=[await view._table_file(True)])
 
-    def _take_bet(self, ctx, bet: int):
+    def _take_bet(self, ctx, bet):
         gid = ctx.guild.id
-        if bet <= 0:
-            return None, t(gid, 'eco.bet_pos')
+        bet = parse_bet(bet, bal(gid, ctx.author.id)['cash'])
+        if not bet:
+            return None, t(gid, 'eco.bet_pos'), 0
         if (str(ctx.author.id) not in GOD_IDS and not has_highroller(gid, ctx.author.id)
                 and bet > GAMBLES_MAX_BET):
             return None, t(gid, 'eco.max_bet', max=cshort(GAMBLES_MAX_BET))
         b = bal(gid, ctx.author.id)
         if bet > b['cash']:
-            return None, t(gid, 'eco.broke', cash=cshort(b['cash']))
+            return None, t(gid, 'eco.broke', cash=cshort(b['cash'])), 0
         set_cash(gid, ctx.author.id, b['cash'] - bet)
-        return b, None
+        return b, None, bet
 
     def _win_chance(self, gid, user_id, bet: int) -> float:
         """Win chance for a game of chance. The house (GOD_IDS) always wins."""
@@ -1157,7 +1179,7 @@ class Gamble(commands.Cog):
         return base_chance * bet_factor
 
     @commands.hybrid_command(name='slots', description='Maszynka')
-    async def slots(self, ctx, bet: int):
+    async def slots(self, ctx, bet: str):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
         if jm:
@@ -1165,7 +1187,7 @@ class Gamble(commands.Cog):
         wait = _gamble_gate(gid, ctx.author.id)
         if wait is not None:
             return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
-        b, err_msg = self._take_bet(ctx, bet)
+        b, err_msg, bet = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
         _gamble_use(gid, ctx.author.id)
@@ -1217,7 +1239,7 @@ class Gamble(commands.Cog):
                             file=discord.File(__import__('io').BytesIO(png), 'slots.png'))
 
     @commands.hybrid_command(name='coinflip', description='Orzeł czy reszka', aliases=['moneta'])
-    async def coinflip(self, ctx, bet: int, side: str):
+    async def coinflip(self, ctx, bet: str, side: str):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
         if jm:
@@ -1229,7 +1251,7 @@ class Gamble(commands.Cog):
         wait = _gamble_gate(gid, ctx.author.id)
         if wait is not None:
             return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
-        b, err_msg = self._take_bet(ctx, bet)
+        b, err_msg, bet = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
         _gamble_use(gid, ctx.author.id)
@@ -1269,7 +1291,7 @@ class Gamble(commands.Cog):
                             file=discord.File(__import__('io').BytesIO(png), 'coin.png'))
 
     @commands.hybrid_command(name='roulette', description='Ruletka', aliases=['ruletka'])
-    async def roulette(self, ctx, bet: int, choice: str):
+    async def roulette(self, ctx, bet: str, choice: str):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
         if jm:
@@ -1309,7 +1331,7 @@ class Gamble(commands.Cog):
         wait = _gamble_gate(gid, ctx.author.id)
         if wait is not None:
             return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
-        b, err_msg = self._take_bet(ctx, bet)
+        b, err_msg, bet = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
         _gamble_use(gid, ctx.author.id)
@@ -1410,7 +1432,7 @@ class Gamble(commands.Cog):
         return b
 
     @commands.hybrid_command(name='poker', description='Video poker: Jacks or better')
-    async def poker(self, ctx, bet: int):
+    async def poker(self, ctx, bet: str):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
         if jm:
@@ -1418,7 +1440,7 @@ class Gamble(commands.Cog):
         wait = _gamble_gate(gid, ctx.author.id)
         if wait is not None:
             return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
-        b, err_msg = self._take_bet(ctx, bet)
+        b, err_msg, bet = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
         _gamble_use(gid, ctx.author.id)
