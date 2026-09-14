@@ -7,7 +7,7 @@ from discord.ext import commands
 
 import database as db
 from utils.cards import short as cshort
-from lang import t
+from lang import t, set_ctx_lang
 from utils.embeds import ok
 from utils.checks import staff_or
 
@@ -294,6 +294,7 @@ class _JobBoard(discord.ui.LayoutView):
         if row.children:
             self._box.add_item(row)
         async def _cb(interaction: discord.Interaction):
+            set_ctx_lang(interaction.user)
             if interaction.user.id != self.invoker_id:
                 from lang import t as _t
                 return await interaction.response.send_message(

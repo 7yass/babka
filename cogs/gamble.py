@@ -7,7 +7,7 @@ from discord.ext import commands
 
 import database as db
 from utils.cards import short as cshort
-from lang import t
+from lang import t, set_ctx_lang
 from utils.embeds import foot
 
 START_CASH, DAILY_CASH, DAILY_CD = 1000, 500, 86400
@@ -682,6 +682,7 @@ class PokerView(discord.ui.LayoutView):
 
     def _mk_hold(self, i: int):
         async def _cb(interaction: discord.Interaction):
+            set_ctx_lang(interaction.user)
             if interaction.user.id != self.player_id:
                 return await interaction.response.send_message(
                     t(self.gid, 'eco.not_yours'), ephemeral=True)
@@ -703,6 +704,7 @@ class PokerView(discord.ui.LayoutView):
         return discord.File(__import__('io').BytesIO(png), 'poker.png')
 
     async def _cb_draw(self, interaction: discord.Interaction):
+        set_ctx_lang(interaction.user)
         if interaction.user.id != self.player_id:
             return await interaction.response.send_message(
                 t(self.gid, 'eco.not_yours'), ephemeral=True)
@@ -779,6 +781,7 @@ class BJView(discord.ui.LayoutView):
         return discord.File(__import__('io').BytesIO(png), 'bj.png')
 
     async def _guard(self, interaction: discord.Interaction) -> bool:
+        set_ctx_lang(interaction.user)
         if interaction.user.id != self.player_id:
             await interaction.response.send_message(t(self.gid, 'eco.not_yours'), ephemeral=True)
             return False
@@ -825,6 +828,7 @@ class BJView(discord.ui.LayoutView):
         self.stop()
 
     async def _cb_hit(self, interaction: discord.Interaction):
+        set_ctx_lang(interaction.user)
         if not await self._guard(interaction) or self.done:
             return
         self.phand.append(self.deck.pop())
@@ -834,11 +838,13 @@ class BJView(discord.ui.LayoutView):
         await interaction.response.edit_message(view=self, attachments=[await self._table_file(True)])
 
     async def _cb_stand(self, interaction: discord.Interaction):
+        set_ctx_lang(interaction.user)
         if not await self._guard(interaction) or self.done:
             return
         await self.finish(interaction)
 
     async def _cb_double(self, interaction: discord.Interaction):
+        set_ctx_lang(interaction.user)
         if not await self._guard(interaction):
             return
         if self.done or len(self.phand) != 2:
@@ -1403,6 +1409,7 @@ class Gamble(commands.Cog):
         cog = self
 
         async def _cb(interaction: discord.Interaction):
+            set_ctx_lang(interaction.user)
             if interaction.user.id != int(uid):
                 return await interaction.response.send_message(
                     t(gid, 'eco.not_yours'), ephemeral=True)

@@ -71,6 +71,24 @@ COGS = [
 ]
 
 
+@bot.before_invoke
+async def _pin_user_lang(ctx):
+    try:
+        from lang import set_ctx_lang
+        set_ctx_lang(getattr(ctx, 'author', None))
+    except Exception:
+        pass
+
+
+@bot.after_invoke
+async def _unpin_user_lang(ctx):
+    try:
+        from lang import reset_ctx_lang
+        reset_ctx_lang()
+    except Exception:
+        pass
+
+
 @bot.event
 async def on_ready():
     print(f'[+] Babka Danka: {bot.user} ({bot.user.id})')

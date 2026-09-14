@@ -8,7 +8,7 @@ import discord
 from discord.ext import commands
 
 import database as db
-from lang import t
+from lang import t, set_ctx_lang
 from utils.cards import short as cshort
 
 POKEAPI = 'https://pokeapi.co/api/v2'
@@ -595,12 +595,14 @@ class Pokemon(commands.Cog):
                                  custom_id=f'pkball:{uid}')
 
         async def _fight(ix: discord.Interaction):
+            set_ctx_lang(ix.user)
             if ix.user.id != int(uid):
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
             await ix.response.defer()
             await self._start_battle(ix, gid, ix.user)
 
         async def _ball(ix: discord.Interaction):
+            set_ctx_lang(ix.user)
             if ix.user.id != int(uid):
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
             await ix.response.defer()
@@ -1145,6 +1147,7 @@ class Pokemon(commands.Cog):
 
     def _mk_battle_btn(self, gid, uid, what: str):
         async def _cb(ix: discord.Interaction):
+            set_ctx_lang(ix.user)
             if ix.user.id != int(uid):
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
             await ix.response.defer()
@@ -1328,6 +1331,7 @@ class Pokemon(commands.Cog):
         no_b = discord.ui.Button(label='DECLINE', style=discord.ButtonStyle.danger)
 
         async def _ok(ix: discord.Interaction):
+            set_ctx_lang(ix.user)
             if ix.user.id != member.id:
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
             m1 = get_mon(gid, ctx.author.id, yours or 0)
@@ -1347,6 +1351,7 @@ class Pokemon(commands.Cog):
             await ix.response.send_message(t(gid, 'eco.pk_traded', m1=mon_name(m1), m2=mon_name(m2)))
 
         async def _no(ix: discord.Interaction):
+            set_ctx_lang(ix.user)
             if ix.user.id != member.id:
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
             await ix.response.send_message(t(gid, 'eco.pk_declined'))

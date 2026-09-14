@@ -7,7 +7,7 @@ from discord.ext import commands
 
 import database as db
 from utils.cards import short as cshort
-from lang import t
+from lang import t, set_ctx_lang
 from utils.embeds import ok
 
 ITEMS = {
@@ -117,6 +117,7 @@ class Shop(commands.Cog):
 
     def _mk_buy(self, gid, uid, item: str):
         async def _cb(interaction: discord.Interaction):
+            set_ctx_lang(interaction.user)
             if interaction.user.id != int(uid):
                 return await interaction.response.send_message(
                     t(gid, 'eco.not_yours'), ephemeral=True)
@@ -143,6 +144,7 @@ class Shop(commands.Cog):
                                custom_id='shop_no')
 
         async def _yes(interaction: discord.Interaction):
+            set_ctx_lang(interaction.user)
             await interaction.response.defer(ephemeral=True)
             try:
                 await interaction.message.edit(view=None)
@@ -151,6 +153,7 @@ class Shop(commands.Cog):
             await self.buy(_IxCtx(interaction), item)
 
         async def _no(interaction: discord.Interaction):
+            set_ctx_lang(interaction.user)
             try:
                 await interaction.response.edit_message(
                     content=t(gid, 'shop.cancelled'), view=None)
