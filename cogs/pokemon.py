@@ -10,6 +10,7 @@ from discord.ext import commands
 import database as db
 from lang import t, set_ctx_lang
 from utils.cards import short as cshort
+from utils.emojis import em
 
 POKEAPI = 'https://pokeapi.co/api/v2'
 HUNT_CD = 60
@@ -142,6 +143,9 @@ DEX_MILESTONES = {1: 500, 10: 2000, 50: 10000, 100: 50000}
 
 INCENSE_PRICE = 25000
 INCENSE_SECONDS = 1800
+GRAZZ_PRICE = 3000
+REPEL_PRICE = 5000
+REPEL_SECONDS = 1800
 
 
 def region_of(dex: int):
@@ -178,6 +182,28 @@ def incense_active(gid, uid) -> bool:
         row = conn.execute("SELECT expires FROM pk_balls WHERE guild_id=? AND user_id=? AND ball='incense'",
                            (str(gid), str(uid))).fetchone()
     return bool(row and row['expires'] and int(row['expires']) > int(_t.time()))
+
+
+def repel_active(gid, uid) -> bool:
+    import time as _t
+    with db.conn_ctx() as conn:
+        row = conn.execute("SELECT expires FROM pk_balls WHERE guild_id=? AND user_id=? AND ball='repel'",
+                           (str(gid), str(uid))).fetchone()
+    return bool(row and row['expires'] and int(row['expires']) > int(_t.time()))
+
+
+def streak_bump(gid, uid, caught: bool):
+    with db.conn_ctx() as conn:
+        conn.execute('INSERT OR IGNORE INTO pk_stats (guild_id, user_id, duels_won, duels_lost) '
+                     'VALUES (?,?,0,0)', (str(gid), str(uid)))
+        if caught:
+            conn.execute('UPDATE pk_stats SET catch_streak=catch_streak+1 WHERE guild_id=? AND user_id=?',
+                         (str(gid), str(uid)))
+            conn.execute('UPDATE pk_stats SET best_streak=max(best_streak, catch_streak) '
+                         'WHERE guild_id=? AND user_id=?', (str(gid), str(uid)))
+        else:
+            conn.execute('UPDATE pk_stats SET catch_streak=0 WHERE guild_id=? AND user_id=?',
+                         (str(gid), str(uid)))
 
 TYPE_CHART = {
     'normal': {'rock': 0.5, 'ghost': 0, 'steel': 0.5},
@@ -463,7 +489,8 @@ def balls_get(gid, uid) -> dict:
                             (str(gid), str(uid))).fetchall()
     out = {b: 0 for b in BALLS}
     for r in rows:
-        out[r['ball']] = r['qty'] or 0
+        if r['ball'] in out:
+            out[r['ball']] = r['qty'] or 0
     return out
 
 
@@ -776,6 +803,9 @@ class Pokemon(commands.Cog):
         mons = my_mons(gid, ctx.author.id)
         avg_lv = sum(m['level'] for m in mons) / max(1, len(mons))
         level = max(3, min(70, int(random.gauss(avg_lv, 6))))
+        repelled = repel_active(gid, ctx.author.id)
+        if repelled:
+            level = max(3, min(100, int(level * 1.5)))
         # shiny odds: base 1/256, hunt target chains it down to 1/32, incense rolls twice
         with db.conn_ctx() as conn:
             h = conn.execute('SELECT target, streak FROM pk_hunt WHERE guild_id=? AND user_id=?',
@@ -809,11 +839,15 @@ class Pokemon(commands.Cog):
                     file=discord.File(_bio.BytesIO(sil), 'who.png'),
                     mention_author=False)
         name = ('✨' if shiny else '') + row['name'].capitalize()
+        flags = ''
+        if inc:
+            flags += '\n🧪 ' + t(gid, 'eco.pk_incensed')
+        if repelled:
+            flags += '\n🧪 ' + t(gid, 'eco.pk_repelled')
         view = await self._mage(gid, t(gid, 'eco.pk_wild_title', level=level),
                                 t(gid, 'eco.pk_wild', name=name,
                                   types='/'.join(row['types'] or ['?']),
-                                  hint=t(gid, 'eco.pk_wild_hint')) +
-                                (('\n🧪 ' + t(gid, 'eco.pk_incensed')) if inc else ''), pix)
+                                  hint=t(gid, 'eco.pk_wild_hint')) + flags, pix)
         self._attach_enc_buttons(view, gid, ctx.author.id)
         await ctx.reply(view=view, mention_author=False)
 
@@ -890,6 +924,8 @@ class Pokemon(commands.Cog):
             row = await dex_get(s, e['dex'])
         mult = BALLS[ball][1]
         p = catch_chance(row.get('rate', 45), e['level'], e['hp'] / max(1, e['maxhp']), mult)
+        if e.get('grazz'):
+            p = min(0.98, p * 1.6)
         if random.random() < p:
             first = not my_mons(gid, uid)
             with db.conn_ctx() as conn:
@@ -899,11 +935,15 @@ class Pokemon(commands.Cog):
                               1 if e['shiny'] else 0, '', 1 if first else 0))
             msg = t(gid, 'eco.pk_caught', name=('✨' if e['shiny'] else '') + row['name'].capitalize(),
                     ball=ball, level=e['level'])
+            msg = em(gid, {'poke': 'pokeball', 'great': 'greatball', 'ultra': 'ultraball',
+                           'master': 'masterball'}.get(ball, ''), '⚪') + ' ' + msg
             for extra in await self._catch_progress(gid, uid, e['dex'], e['shiny']):
                 msg += '\n' + extra
             msg += '\n' + self._catch_meta(gid, uid, e['dex'])
+            streak_bump(gid, uid, True)
             return True, msg
         # break out with a bit of damage? no — it just stares back
+        streak_bump(gid, uid, False)
         return False, t(gid, 'eco.pk_broke', name=row['name'].capitalize(), ball=ball)
 
     def _region_progress(self, gid, uid) -> dict:
@@ -1020,6 +1060,9 @@ class Pokemon(commands.Cog):
         ('Battle', ['potion', 'superpotion', 'candy']),
         ('Special', ['egg', 'incense']),
     ]
+    BALL_EMOJI = {'poke': 'pokeball', 'great': 'greatball', 'ultra': 'ultraball',
+                  'master': 'masterball', 'potion': 'potion', 'superpotion': 'potion',
+                  'candy': 'candy', 'egg': 'egg', 'incense': 'fire'}
 
     @staticmethod
     def _pk_price(item: str) -> int:
@@ -1067,16 +1110,18 @@ class Pokemon(commands.Cog):
         row = ActionRow()
         for sec, keys in self.BALL_SECTIONS:
             items = '\n'.join(
-                f"• **{k}** — {cshort(self._pk_price(k))} — {self._pk_desc(gid, k)}"
+                f"{em(gid, self.BALL_EMOJI.get(k, ''), '•')} **{k}** — {cshort(self._pk_price(k))} — {self._pk_desc(gid, k)}"
                 for k in keys)
             box.add_item(TextDisplay(f'**{sec}**\n{items}'))
             for k in keys:
                 if len(row.children) >= 5:
                     box.add_item(row)
                     row = ActionRow()
+                e = em(gid, self.BALL_EMOJI.get(k, ''))
                 b = discord.ui.Button(label=f'{k} · {cshort(self._pk_price(k))}',
                                       style=discord.ButtonStyle.secondary,
-                                      custom_id=f'pkbuy:{uid}:{k}')
+                                      custom_id=f'pkbuy:{uid}:{k}',
+                                      **({'emoji': e} if e else {}))
                 b.callback = self._mk_pkbuy(gid, uid, k)
                 row.add_item(b)
         if row.children:
@@ -1142,11 +1187,12 @@ class Pokemon(commands.Cog):
             balls_add(gid, ctx.author.id, 'incense', 1)
             with db.conn_ctx() as conn:
                 conn.execute('UPDATE pk_balls SET expires=? WHERE guild_id=? AND user_id=? AND ball=?',
-                             (int(time.time()) + INCENSE_SECONDS, str(gid), str(ctx.author.id)))
+                             (int(time.time()) + INCENSE_SECONDS, str(gid), str(ctx.author.id),
+                              'incense'))
             return await ctx.reply(t(gid, 'eco.pk_incense_on'), ephemeral=True)
         catalog = {**{k: v[0] for k, v in BALLS.items()},
                    **{k: v[0] for k, v in POTIONS.items()},
-                   'candy': CANDY_PRICE, 'egg': EGG_PRICE}
+                   'candy': CANDY_PRICE, 'egg': EGG_PRICE, 'grazz': GRAZZ_PRICE}
         if ball not in catalog:
             return await ctx.reply(t(gid, 'eco.pk_balls', have=self._balls_line(gid, ctx.author.id)),
                                    ephemeral=True)
@@ -1384,6 +1430,7 @@ class Pokemon(commands.Cog):
         else:
             self._enc.pop((str(gid), str(ctx.author.id)), None)
         msg = t(gid, 'eco.pk_guessed', name=('✨' if e['shiny'] else '') + row['name'].capitalize())
+        streak_bump(gid, ctx.author.id, True)
         for extra in await self._catch_progress(gid, ctx.author.id, e['dex'], e['shiny']):
             msg += '\n' + extra
         msg += '\n' + self._catch_meta(gid, ctx.author.id, e['dex'])
@@ -1795,6 +1842,224 @@ class Pokemon(commands.Cog):
             lines.append(t(gid, 'eco.pk_check_ready'))
         await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_check_title'), '\n'.join(lines)),
                         ephemeral=True)
+
+    @commands.command(name='pokemon', description='Ręczny spawn')
+    async def pokemon(self, ctx):
+        """Manual shared spawn (PokeMeow style). 2 min cooldown, guess to claim."""
+        import aiohttp
+        gid = ctx.guild.id
+        key = (str(gid), str(ctx.author.id))
+        wait = 120 - (int(time.time()) - self._hunt_cd.get(('manual',) + key[1:], 0))
+        if wait > 0:
+            return await ctx.reply(t(gid, 'eco.pk_manual_wait', s=wait), ephemeral=True)
+        self._hunt_cd[('manual',) + key[1:]] = int(time.time())
+        if self._get_wild(gid, ctx.channel.id):
+            return await ctx.reply(t(gid, 'eco.pk_manual_busy'), ephemeral=True)
+        await ctx.typing()
+        async with aiohttp.ClientSession() as s:
+            for _ in range(12):
+                dex = random.randint(1, 493)
+                row = await dex_get(s, dex)
+                if not row:
+                    continue
+                r = random.random()
+                is_leg = bool(row.get('legendary'))
+                if (is_leg and r < 0.2) or (not is_leg and r < 0.9):
+                    break
+            else:
+                return await ctx.reply(t(gid, 'eco.pk_api'), ephemeral=True)
+            level = random.randint(5, 40)
+            shiny = random.randint(1, SHINY_ODDS) == 1
+            stats = calc_stats(row, level)
+            self._wild[(str(gid), str(ctx.channel.id))] = {
+                'dex': dex, 'level': level, 'shiny': shiny,
+                'hp': stats['maxhp'], 'maxhp': stats['maxhp'],
+                'exp': int(time.time()) + ENC_TTL}
+            spr = pix_url(dex, shiny)
+            raw = await fetch_sprite(s, spr)
+            sil = silhouette_image(raw) if raw else None
+            import io as _bio
+            try:
+                if sil:
+                    view = self._layout(
+                        gid, t(gid, 'eco.pk_wild_title', level=level),
+                        t(gid, 'eco.pk_autospawn', types='/'.join(row['types'] or ['?'])),
+                        'attachment://who.png')
+                    await ctx.reply(view=view, file=discord.File(_bio.BytesIO(sil), 'who.png'),
+                                    mention_author=False)
+                else:
+                    await ctx.reply(view=self._layout(
+                        gid, t(gid, 'eco.pk_wild_title', level=level),
+                        t(gid, 'eco.pk_autospawn', types='/'.join(row['types'] or ['?'])),
+                        spr), mention_author=False)
+            except Exception:
+                self._wild.pop((str(gid), str(ctx.channel.id)), None)
+
+    @commands.command(name='items', description='Twoje itemy')
+    async def items(self, ctx):
+        gid = ctx.guild.id
+        b = balls_get(gid, uid := ctx.author.id)
+        pots = potions_get(gid, uid)
+        with db.conn_ctx() as conn:
+            extra = {}
+            for it in ('candy', 'grazz', 'incense', 'repel'):
+                row = conn.execute('SELECT qty FROM pk_balls WHERE guild_id=? AND user_id=? AND ball=?',
+                                   (str(gid), str(uid), it)).fetchone()
+                extra[it] = (row['qty'] if row else 0) or 0
+            eggs = conn.execute('SELECT COUNT(*) c FROM pk_eggs WHERE guild_id=? AND owner_id=?',
+                                (str(gid), str(uid))).fetchone()['c']
+        lines = ([f"• {k} x{v}" for k, v in b.items() if v]
+                 + [f"• {k} x{v}" for k, v in pots.items() if v]
+                 + [f"• {k} x{v}" for k, v in extra.items() if v or k == 'incense']
+                 + ([f"• eggs x{eggs}"] if eggs else []))
+        if incense_active(gid, uid):
+            lines.append(t(gid, 'eco.pk_items_incense'))
+        if repel_active(gid, uid):
+            lines.append(t(gid, 'eco.pk_items_repel'))
+        await ctx.reply(view=self._layout(
+            gid, t(gid, 'eco.pk_items_title', user=ctx.author.display_name),
+            '\n'.join(lines) if lines else t(gid, 'eco.pk_items_empty')), ephemeral=True)
+
+    @commands.command(name='list', description='Shiny i legendy serwera')
+    async def plist(self, ctx, what: str = 'shinies'):
+        gid = ctx.guild.id
+        what = (what or '').lower()
+        with db.conn_ctx() as conn:
+            if what.startswith('leg'):
+                rows = [dict(r) for r in conn.execute(
+                    'SELECT owner_id, dex, level FROM pk_mons WHERE guild_id=? ORDER BY id DESC LIMIT 20',
+                    (str(gid),)).fetchall()]
+                rows = [r for r in rows if (_dex_row(r['dex']) or {}).get('legendary')][:10]
+                title = t(gid, 'eco.pk_list_legends')
+            else:
+                rows = [dict(r) for r in conn.execute(
+                    'SELECT owner_id, dex, level FROM pk_mons WHERE guild_id=? AND shiny=1 '
+                    'ORDER BY id DESC LIMIT 10', (str(gid),)).fetchall()]
+                title = t(gid, 'eco.pk_list_shinies')
+        if not rows:
+            return await ctx.reply(t(gid, 'eco.pk_list_empty'), ephemeral=True)
+        lines = []
+        for r in rows:
+            m = ctx.guild.get_member(int(r['owner_id']))
+            nm = m.display_name if m else r['owner_id']
+            d = _dex_row(r['dex'])
+            lines.append(f"• {(d.get('name') or '?').capitalize()} Lv{r['level']} — {nm}")
+        await ctx.reply(view=self._layout(gid, title, '\n'.join(lines)), ephemeral=True)
+
+    @commands.command(name='grazz', description='Złota malina na encounter')
+    async def grazz(self, ctx):
+        gid = ctx.guild.id
+        e = self._get_enc(gid, ctx.author.id)
+        if not e:
+            return await ctx.reply(t(gid, 'eco.pk_noenc'), ephemeral=True)
+        if e.get('grazz'):
+            return await ctx.reply(t(gid, 'eco.pk_grazz_already'), ephemeral=True)
+        if not balls_take(gid, ctx.author.id, 'grazz'):
+            return await ctx.reply(t(gid, 'eco.pk_grazz_none'), ephemeral=True)
+        e['grazz'] = True
+        await ctx.reply(t(gid, 'eco.pk_grazz_on'), ephemeral=True)
+
+    @commands.command(name='repel', description='Mocniejsze dzikie 30 min')
+    async def repel(self, ctx):
+        from cogs.gamble import bal, set_cash
+        gid = ctx.guild.id
+        b = bal(gid, ctx.author.id)
+        if REPEL_PRICE > b['cash']:
+            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
+        set_cash(gid, ctx.author.id, b['cash'] - REPEL_PRICE)
+        balls_add(gid, ctx.author.id, 'repel', 1)
+        with db.conn_ctx() as conn:
+            conn.execute('UPDATE pk_balls SET expires=? WHERE guild_id=? AND user_id=? AND ball=?',
+                         (int(time.time()) + REPEL_SECONDS, str(gid), str(ctx.author.id), 'repel'))
+        await ctx.reply(t(gid, 'eco.pk_repel_on'), ephemeral=True)
+
+    @commands.command(name='evolve', description='Ewoluuj ręcznie')
+    async def evolve(self, ctx, slot: int):
+        import aiohttp
+        gid = ctx.guild.id
+        m = get_mon(gid, ctx.author.id, slot or 0)
+        if not m:
+            return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
+        async with aiohttp.ClientSession() as s:
+            row = await dex_get(s, m['dex'])
+        if not row.get('evo_to'):
+            return await ctx.reply(t(gid, 'eco.pk_evolve_max', name=mon_name(m)), ephemeral=True)
+        if not row.get('evo_level'):
+            return await ctx.reply(t(gid, 'eco.pk_evolve_stone', name=mon_name(m)), ephemeral=True)
+        if m['level'] < row['evo_level']:
+            return await ctx.reply(t(gid, 'eco.pk_evolve_soon', name=mon_name(m),
+                                     level=row['evo_level']), ephemeral=True)
+        async with aiohttp.ClientSession() as s:
+            nxt = await dex_get(s, row['evo_to'])
+        with db.conn_ctx() as conn:
+            conn.execute('UPDATE pk_mons SET dex=? WHERE id=?', (row['evo_to'], m['id']))
+        await ctx.reply(t(gid, 'eco.pk_evolve', old=mon_name(m),
+                          new=('✨' if m.get('shiny') else '') + nxt['name'].capitalize()))
+
+    @commands.command(name='streaks', description='Twoje serie')
+    async def streaks(self, ctx, member: discord.Member = None):
+        gid = ctx.guild.id
+        member = member or ctx.author
+        with db.conn_ctx() as conn:
+            r = conn.execute('SELECT catch_streak, best_streak FROM pk_stats WHERE guild_id=? AND user_id=?',
+                             (str(gid), str(member.id))).fetchone()
+            h = conn.execute('SELECT target, streak FROM pk_hunt WHERE guild_id=? AND user_id=?',
+                             (str(gid), str(member.id))).fetchone()
+        cs = (r['catch_streak'] if r else 0) or 0
+        best = (r['best_streak'] if r else 0) or 0
+        ht = ''
+        if h and h['target']:
+            row = _dex_row(h['target'])
+            denom = max(32, SHINY_ODDS - (h['streak'] or 0) * 4)
+            ht = '\n' + t(gid, 'eco.pk_hunt_status', name=(row.get('name') or '?').capitalize(),
+                          streak=h['streak'] or 0, denom=denom)
+        await ctx.reply(view=self._layout(
+            gid, t(gid, 'eco.pk_streaks_title', user=member.display_name),
+            t(gid, 'eco.pk_streaks', cur=cs, best=best) + ht), ephemeral=True)
+
+    @commands.command(name='code', description='Kody eventowe')
+    async def code(self, ctx, sub: str = '', a: str = '', b: str = ''):
+        from cogs.gamble import bal, set_cash
+        gid = ctx.guild.id
+        sub = (sub or '').lower()
+        if sub == 'create':
+            if not db.is_house(ctx.author.id):
+                return await ctx.reply(t(gid, 'eco.no_owner'), ephemeral=True)
+            kind = (a or '').lower()
+            try:
+                amount = int(b or 0)
+            except Exception:
+                amount = 0
+            if kind not in ('cash', 'balls') or amount <= 0:
+                return await ctx.reply(t(gid, 'eco.pk_code_use'), ephemeral=True)
+            import secrets as _s
+            c = 'BABKA-' + _s.token_hex(3).upper()
+            with db.conn_ctx() as conn:
+                conn.execute('INSERT OR REPLACE INTO pk_codes (code, kind, amount, uses_left) '
+                             'VALUES (?,?,?,?)', (c, kind, amount, 1))
+            return await ctx.reply(t(gid, 'eco.pk_code_made', code=c), ephemeral=True)
+        c = (sub or '').upper()
+        if not c:
+            return await ctx.reply(t(gid, 'eco.pk_code_use'), ephemeral=True)
+        with db.conn_ctx() as conn:
+            row = conn.execute('SELECT * FROM pk_codes WHERE code=?', (c,)).fetchone()
+            if not row:
+                return await ctx.reply(t(gid, 'eco.pk_code_bad'), ephemeral=True)
+            row = dict(row)
+            if (row['uses_left'] or 0) <= 0:
+                return await ctx.reply(t(gid, 'eco.pk_code_empty'), ephemeral=True)
+            got = conn.execute('SELECT 1 FROM pk_redeemed WHERE code=? AND user_id=?',
+                               (c, str(ctx.author.id))).fetchone()
+            if got:
+                return await ctx.reply(t(gid, 'eco.pk_code_used'), ephemeral=True)
+            conn.execute('UPDATE pk_codes SET uses_left=uses_left-1 WHERE code=?', (c,))
+            conn.execute('INSERT INTO pk_redeemed (code, user_id) VALUES (?,?)', (c, str(ctx.author.id)))
+        if row['kind'] == 'balls':
+            balls_add(gid, ctx.author.id, 'poke', row['amount'])
+            return await ctx.reply(t(gid, 'eco.pk_code_balls', n=row['amount']), ephemeral=True)
+        x = bal(gid, ctx.author.id)
+        set_cash(gid, ctx.author.id, x['cash'] + row['amount'])
+        await ctx.reply(t(gid, 'eco.pk_code_cash', win=cshort(row['amount'])), ephemeral=True)
 
     # ----- battles -----
 

@@ -51,15 +51,18 @@ class Emojis(commands.Cog):
             lines.append(t(gid, 'eco.emoji_warn'))
             return await ctx.reply('\n'.join(lines), ephemeral=True)
         await ctx.reply(t(gid, 'eco.emoji_go'), ephemeral=True)
-        mapping, report = {}, []
+        mapping, report, done, total = {}, [], 0, len(EMOJI_GUILDS)
+        status = await ctx.reply(t(gid, 'eco.emoji_progress', done=0, total=total))
         for g in EMOJI_GUILDS:
             guild = self.bot.get_guild(g)
             if not guild:
                 report.append(t(gid, 'eco.emoji_missing', gid=g))
+                done, report = await self._progress(status, gid, report, done, total)
                 continue
             me = guild.get_member(self.bot.user.id)
             if not me or not me.guild_permissions.manage_expressions:
                 report.append(t(gid, 'eco.emoji_noperm', name=guild.name))
+                done, report = await self._progress(status, gid, report, done, total)
                 continue
             wiped, added = 0, 0
             for e in list(guild.emojis):
@@ -88,6 +91,7 @@ class Emojis(commands.Cog):
                         pass
             mapping[str(g)] = guild_map
             report.append(t(gid, 'eco.emoji_done', name=guild.name, wiped=wiped, added=added))
+            done, report = await self._progress(status, gid, report, done, total)
         try:
             IDS_FILE.parent.mkdir(exist_ok=True)
             IDS_FILE.write_text(json.dumps({'updated': int(time.time()),
@@ -95,6 +99,16 @@ class Emojis(commands.Cog):
         except Exception:
             pass
         await ctx.reply('\n'.join(report))
+
+
+    async def _progress(self, status, gid, report, done, total):
+        done += 1
+        try:
+            await status.edit(content=t(gid, 'eco.emoji_progress', done=done, total=total)
+                                      + '\n' + '\n'.join(report))
+        except Exception:
+            pass
+        return done, report
 
 
 async def setup(bot):

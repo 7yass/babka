@@ -1618,6 +1618,62 @@
       [],
       "[confirm]",
       "Everyone"
+    ],
+    "pokemon": [
+      "economy",
+      "Full monster game on ; prefix: manual + chat auto-spawns, mystery guess-catching, buddy, teams, NPC ladder, trading, market, quests, checklist, shiny chains, eggs, codes.",
+      [],
+      "starter / hunt / guess / box / battle / duel / npc / market / quests / move / stats",
+      "Everyone"
+    ],
+    "items": [
+      "economy",
+      "Your pokemon bag: balls, potions, candy, incense, eggs.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "list": [
+      "economy",
+      "Server shiny + legendary boards.",
+      [],
+      "[shinies|legends]",
+      "Everyone"
+    ],
+    "grazz": [
+      "economy",
+      "Feed a golden razz (3k in ball shop): way better catch odds.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "repel": [
+      "economy",
+      "Repel 5k/30min: wild encounters hit +50% level.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "evolve": [
+      "economy",
+      "Manually evolve an eligible pokemon.",
+      [],
+      "<slot>",
+      "Everyone"
+    ],
+    "streaks": [
+      "economy",
+      "Catch streaks + shiny chain status.",
+      [],
+      "[@user]",
+      "Everyone"
+    ],
+    "code": [
+      "economy",
+      "Event codes: redeem cash/balls. House mints with create.",
+      [],
+      "<code>",
+      "Everyone"
     ]
   },
   "cats": {
