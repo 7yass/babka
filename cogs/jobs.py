@@ -293,6 +293,8 @@ class _JobBoard(discord.ui.LayoutView):
             row.add_item(b)
         if row.children:
             self._box.add_item(row)
+
+    def _mk_join(self, key: str):
         async def _cb(interaction: discord.Interaction):
             set_ctx_lang(interaction.user)
             if interaction.user.id != self.invoker_id:
