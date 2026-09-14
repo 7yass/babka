@@ -49,14 +49,23 @@ with open(Path(__file__).parent / 'lang.json', encoding='utf-8') as f:
 def get_lang(guild_id) -> str:
     if not guild_id:
         return 'en'
+    hit = db._lang_cache.get(str(guild_id))
+    if hit:
+        import time as _t
+        if _t.time() - hit[0] < db._CACHE_TTL:
+            return hit[1]
     with db.conn_ctx() as conn:
         row = conn.execute('SELECT lang FROM lang WHERE guild_id = ?', (str(guild_id),)).fetchone()
-        return 'pl' if row and row['lang'] == 'pl' else 'en'
+        lang = 'pl' if row and row['lang'] == 'pl' else 'en'
+    import time as _t
+    db._lang_cache[str(guild_id)] = (_t.time(), lang)
+    return lang
 
 
 def set_lang(guild_id, lang: str):
     with db.conn_ctx() as conn:
         conn.execute('INSERT OR REPLACE INTO lang (guild_id, lang) VALUES (?, ?)', (str(guild_id), lang))
+    db._lang_cache.pop(str(guild_id), None)
 
 
 def t(guild_id, key: str, **vars) -> str:

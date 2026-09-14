@@ -630,6 +630,7 @@ def init_db():
 _CACHE_TTL = 45
 _prefix_cache = {}
 _settings_cache = {}
+_lang_cache = {}
 
 
 def get_settings(guild_id: str) -> dict:
