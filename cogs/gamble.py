@@ -26,8 +26,8 @@ RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 SLOTS = ['7', '★', '♦', '♣', '●']
 # European roulette reds; 0 is green, rest black
 ROU_REDS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
-# mortals only win ~10% of the spins they'd fairly win; the house always wins
-ROU_RIG = 0.90
+# mortals keep ~20% of the spins they'd fairly win; the house always wins
+ROU_RIG = 0.80
 # single-zero wheel order (clockwise)
 WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30,
                8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7,
@@ -810,14 +810,8 @@ class BJView(discord.ui.LayoutView):
             set_cash(self.gid, self.player_id, b['cash'] + self.bet + profit)
             msg = t(self.gid, 'eco.bj_win', pv=pv, dv=dv, win=cshort(profit))
         elif pv == dv:
-            if god:
-                set_cash(self.gid, self.player_id, b['cash'] + self.bet)  # push refunds stake
-                msg = t(self.gid, 'eco.bj_push', pv=pv)
-            else:
-                msg = t(self.gid, 'eco.bj_lose', pv=pv, dv=dv, bet=cshort(self.bet))  # house wins ties
-                hr = highroller_refund(self.gid, self.player_id, self.bet)
-                if hr:
-                    msg += '\n' + hr
+            set_cash(self.gid, self.player_id, b['cash'] + self.bet)  # push refunds stake
+            msg = t(self.gid, 'eco.bj_push', pv=pv)
         else:
             msg = t(self.gid, 'eco.bj_lose', pv=pv, dv=dv, bet=cshort(self.bet))
             hr = highroller_refund(self.gid, self.player_id, self.bet)
@@ -1178,7 +1172,7 @@ class Gamble(commands.Cog):
         """Win chance for a game of chance. The house (GOD_IDS) always wins."""
         if str(user_id) in GOD_IDS:
             return 1.0
-        base_chance = 0.045  # 4.5% base chance (buffed, still house-favored)
+        base_chance = 0.15  # 15% base chance (~1 win in 7)
         # Higher bet = lower chance. Scale logarithmically.
         import math
         bet_factor = 1 - min(0.95, math.log10(max(1, bet)) * 0.15)
