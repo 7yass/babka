@@ -447,6 +447,8 @@ class Pokemon(commands.Cog):
         self._enc = {}    # (gid, uid) -> encounter dict
         self._battle = {}  # (gid, uid) -> battle state
         self._chatxp_cd = {}
+        self._spawn_count = {}  # gid -> messages since last wild spawn
+        self._wild = {}   # (gid, cid) -> shared channel encounter
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -475,6 +477,74 @@ class Pokemon(commands.Cog):
                 await message.channel.send('\n'.join(msgs))
         except Exception:
             pass
+        # PokeTwo core loop: chat activity spawns a shared wild mon
+        try:
+            await self._maybe_autospawn(message)
+        except Exception:
+            pass
+
+    async def _maybe_autospawn(self, message: discord.Message):
+        gid = str(message.guild.id)
+        cid = str(message.channel.id)
+        if (gid, cid) in self._wild:
+            if self._wild[(gid, cid)].get('exp', 0) < int(time.time()):
+                self._wild.pop((gid, cid), None)
+            else:
+                return
+        n = self._spawn_count.get(gid, 0) + 1
+        if n < 25:
+            self._spawn_count[gid] = n
+            return
+        self._spawn_count[gid] = 0
+        import aiohttp
+        async with aiohttp.ClientSession() as s:
+            for _ in range(12):
+                dex = random.randint(1, 493)
+                row = await dex_get(s, dex)
+                if not row:
+                    continue
+                r = random.random()
+                is_leg = bool(row.get('legendary'))
+                if (is_leg and r < 0.15) or (not is_leg and r < 0.9):
+                    break
+            else:
+                return
+            level = random.randint(5, 40)
+            shiny = random.randint(1, SHINY_ODDS) == 1
+            stats = calc_stats(row, level)
+            self._wild[(gid, cid)] = {'dex': dex, 'level': level, 'shiny': shiny,
+                                      'hp': stats['maxhp'], 'maxhp': stats['maxhp'],
+                                      'exp': int(time.time()) + ENC_TTL}
+            spr = (row.get('sprite') or '').split('|')
+            img = spr[1] if shiny and len(spr) > 1 else spr[0]
+            raw = await fetch_sprite(s, img)
+            sil = silhouette_image(raw) if raw else None
+            import io as _bio
+            try:
+                if sil:
+                    view = self._layout(
+                        message.guild.id, t(message.guild.id, 'eco.pk_wild_title', level=level),
+                        t(message.guild.id, 'eco.pk_autospawn',
+                          types='/'.join(row['types'] or ['?'])),
+                        'attachment://who.png')
+                    await message.channel.send(
+                        view=view, file=discord.File(_bio.BytesIO(sil), 'who.png'))
+                else:
+                    view = self._layout(
+                        message.guild.id, t(message.guild.id, 'eco.pk_wild_title', level=level),
+                        t(message.guild.id, 'eco.pk_autospawn',
+                          types='/'.join(row['types'] or ['?'])))
+                    await message.channel.send(view=view)
+            except Exception:
+                self._wild.pop((gid, cid), None)
+
+    def _get_wild(self, gid, cid):
+        key = (str(gid), str(cid))
+        e = self._wild.get(key)
+        if not e or e.get('exp', 0) < int(time.time()):
+            self._wild.pop(key, None)
+            return None
+        return e
 
     # ----- shared presentation -----
 
@@ -492,7 +562,7 @@ class Pokemon(commands.Cog):
 
     @commands.group(name='pk', description='Pokemony Babki')
     async def pk(self, ctx):
-        await ctx.reply('.pk starter / hunt / catch / guess / box / dex / balls / battle / duel / trade / market / quests / shinyhunt', ephemeral=True)
+        await ctx.reply('.pk starter / hunt / catch / guess / box / info / dex / balls / battle / duel / trade / market / quests / shinyhunt / stats / top', ephemeral=True)
 
     @pk.command(name='starter', description='Wybierz startera')
     async def starter(self, ctx, name: str = ''):
@@ -746,6 +816,8 @@ class Pokemon(commands.Cog):
     def _balls_line(self, gid, uid) -> str:
         b = balls_get(gid, uid)
         parts = [f"{k} x{v} ({BALLS[k][0]}$)" for k, v in b.items()]
+        pots = potions_get(gid, uid)
+        parts += [f"{k} x{v} ({POTIONS[k][0]}$)" for k, v in pots.items() if v]
         with db.conn_ctx() as conn:
             row = conn.execute("SELECT qty FROM pk_balls WHERE guild_id=? AND user_id=? AND ball='incense'",
                                (str(gid), str(uid))).fetchone()
@@ -776,11 +848,13 @@ class Pokemon(commands.Cog):
                 conn.execute('UPDATE pk_balls SET expires=? WHERE guild_id=? AND user_id=? AND ball=?',
                              (int(time.time()) + INCENSE_SECONDS, str(gid), str(ctx.author.id)))
             return await ctx.reply(t(gid, 'eco.pk_incense_on'), ephemeral=True)
-        if ball not in BALLS:
+        catalog = {**{k: v[0] for k, v in BALLS.items()},
+                   **{k: v[0] for k, v in POTIONS.items()}}
+        if ball not in catalog:
             return await ctx.reply(t(gid, 'eco.pk_balls', have=self._balls_line(gid, ctx.author.id)),
                                    ephemeral=True)
         n = max(1, min(99, n or 1))
-        cost = BALLS[ball][0] * n
+        cost = catalog[ball] * n
         b = bal(gid, ctx.author.id)
         if cost > b['cash']:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
@@ -863,6 +937,70 @@ class Pokemon(commands.Cog):
                 conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (left['id'],))
         await ctx.reply(t(gid, 'eco.pk_released', name=name), ephemeral=True)
 
+    @pk.command(name='releaseall', description='Wypuść cały gatunek')
+    async def releaseall(self, ctx, *, name: str = ''):
+        import aiohttp
+        gid = ctx.guild.id
+        mons = my_mons(gid, ctx.author.id)
+        if not mons:
+            return await ctx.reply(t(gid, 'eco.pk_need_starter'), ephemeral=True)
+        target = (name or '').lower().strip()
+        if not target:
+            return await ctx.reply(t(gid, 'eco.pk_releaseall_use'), ephemeral=True)
+        ids, label = [], ''
+        for m in mons:
+            row = _dex_row(m['dex'])
+            nm = (row.get('name') or '').lower()
+            if target in (nm, (m.get('nick') or '').lower()) or nm.startswith(target):
+                ids.append(m['id'])
+                label = row.get('name', '?').capitalize()
+        if not ids:
+            return await ctx.reply(t(gid, 'eco.pk_releaseall_none', name=target[:24]), ephemeral=True)
+        with db.conn_ctx() as conn:
+            conn.execute(f"DELETE FROM pk_mons WHERE id IN ({','.join('?' * len(ids))})", ids)
+            left = conn.execute('SELECT id FROM pk_mons WHERE guild_id=? AND owner_id=? ORDER BY id LIMIT 1',
+                                (str(gid), str(ctx.author.id))).fetchone()
+            if left:
+                conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (left['id'],))
+        await ctx.reply(t(gid, 'eco.pk_released_all', n=len(ids), name=label), ephemeral=True)
+
+    @pk.command(name='stats', description='Statystyki trenera')
+    async def stats(self, ctx, member: discord.Member = None):
+        gid = ctx.guild.id
+        member = member or ctx.author
+        mons = my_mons(gid, member.id)
+        with db.conn_ctx() as conn:
+            catches = conn.execute('SELECT COALESCE(SUM(count),0) c FROM pk_dexcount '
+                                   'WHERE guild_id=? AND user_id=?', (str(gid), str(member.id))).fetchone()['c']
+            dex = conn.execute('SELECT COUNT(DISTINCT dex) c FROM pk_mons WHERE guild_id=? AND owner_id=?',
+                               (str(gid), str(member.id))).fetchone()['c']
+            st = conn.execute('SELECT duels_won, duels_lost FROM pk_stats WHERE guild_id=? AND user_id=?',
+                              (str(gid), str(member.id))).fetchone()
+        shinies = sum(1 for m in mons if m.get('shiny'))
+        total_lv = sum(m['level'] for m in mons)
+        await ctx.reply(view=self._layout(
+            gid, t(gid, 'eco.pk_stats_title', user=member.display_name),
+            t(gid, 'eco.pk_stats', n=len(mons), lv=total_lv, dex=dex, catches=catches,
+              shinies=shinies, w=(st['duels_won'] if st else 0), l=(st['duels_lost'] if st else 0))),
+            ephemeral=True)
+
+    @pk.command(name='top', description='Top trenerów')
+    async def top(self, ctx):
+        gid = ctx.guild.id
+        with db.conn_ctx() as conn:
+            rows = conn.execute('SELECT owner_id, SUM(level) lv, COUNT(*) n FROM pk_mons '
+                                'WHERE guild_id=? GROUP BY owner_id ORDER BY lv DESC LIMIT 10',
+                                (str(gid),)).fetchall()
+        if not rows:
+            return await ctx.reply(t(gid, 'eco.pk_top_empty'), ephemeral=True)
+        lines = []
+        for i, r in enumerate(rows, 1):
+            m = ctx.guild.get_member(int(r['owner_id']))
+            nm = m.display_name if m else r['owner_id']
+            lines.append(f"`{i}` **{nm}** — Lv{r['lv']} ({r['n']})")
+        await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_top_title'), '\n'.join(lines)),
+                        ephemeral=True)
+
     @pk.command(name='dex', description='Pokedex')
     async def dex(self, ctx):
         gid = ctx.guild.id
@@ -886,10 +1024,15 @@ class Pokemon(commands.Cog):
         import aiohttp
         gid = ctx.guild.id
         e = self._get_enc(gid, ctx.author.id)
-        if not e:
-            return await ctx.reply(t(gid, 'eco.pk_noenc'), ephemeral=True)
-        if not e.get('mystery'):
-            return await ctx.reply(t(gid, 'eco.pk_nomystery'), ephemeral=True)
+        wild = None
+        if not e or not e.get('mystery'):
+            wild = self._get_wild(gid, ctx.channel.id)
+            if not wild:
+                return await ctx.reply(
+                    t(gid, 'eco.pk_noenc' if not e else 'eco.pk_nomystery'), ephemeral=True)
+            e, wild = wild, True
+        if not my_mons(gid, ctx.author.id):
+            return await ctx.reply(t(gid, 'eco.pk_need_starter'), ephemeral=True)
         async with aiohttp.ClientSession() as s:
             row = await dex_get(s, e['dex'])
         if (name or '').lower().strip() != (row.get('name') or '').lower():
@@ -901,7 +1044,10 @@ class Pokemon(commands.Cog):
                          'VALUES (?,?,?,?,0,?,?,?)',
                          (str(gid), str(ctx.author.id), e['dex'], e['level'],
                           1 if e['shiny'] else 0, '', 1 if first else 0))
-        self._enc.pop((str(gid), str(ctx.author.id)), None)
+        if wild:
+            self._wild.pop((str(gid), str(ctx.channel.id)), None)
+        else:
+            self._enc.pop((str(gid), str(ctx.author.id)), None)
         msg = t(gid, 'eco.pk_guessed', name=('✨' if e['shiny'] else '') + row['name'].capitalize())
         for extra in await self._catch_progress(gid, ctx.author.id, e['dex'], e['shiny']):
             msg += '\n' + extra
@@ -1116,14 +1262,55 @@ class Pokemon(commands.Cog):
             me = await self._fighter(s, act)
             wild = await self._fighter(s, {'dex': e['dex'], 'level': e['level'],
                                            'shiny': e['shiny'], 'nick': ''})
+            me_spr = await fetch_sprite(s, (me['row'].get('sprite') or '').split('|')[0])
+            w_spr = (wild['row'].get('sprite') or '').split('|')
+            wild_spr = await fetch_sprite(
+                s, w_spr[1] if wild['shiny'] and len(w_spr) > 1 else w_spr[0])
         wild['hp'] = e['hp']
         key = (str(gid), str(user.id))
-        self._battle[key] = {'me': me, 'wild': wild, 'mid': act['id'], 'log': []}
-        view = self._battle_view(gid, user.id, me, wild, [])
+        self._battle[key] = {'me': me, 'wild': wild, 'mid': act['id'], 'log': [],
+                             'me_spr': me_spr, 'wild_spr': wild_spr}
+        await self._send_battle(ix_or_ctx, is_ix, gid, user.id)
+
+    def _scene_file(self, st) -> tuple:
+        import io as _bio
+        try:
+            png = battle_image(st.get('me_spr'), st.get('wild_spr'),
+                               st['me'], st['wild'])
+            return discord.File(_bio.BytesIO(png), 'battle.png')
+        except Exception:
+            return None
+
+    async def _show_battle(self, ix_or_ctx, is_new_ctx: bool, st, view, f):
+        """Send the battle message once, edit it on later turns."""
+        if st.get('msg') is not None:
+            try:
+                if f:
+                    await st['msg'].edit(view=view, attachments=[f])
+                else:
+                    await st['msg'].edit(view=view)
+                return
+            except Exception:
+                pass
+        is_ix = isinstance(ix_or_ctx, discord.Interaction)
         if is_ix:
-            await ix_or_ctx.followup.send(view=view)
+            if f:
+                st['msg'] = await ix_or_ctx.followup.send(view=view, file=f)
+            else:
+                st['msg'] = await ix_or_ctx.followup.send(view=view)
         else:
-            await ix_or_ctx.reply(view=view, mention_author=False)
+            if f:
+                st['msg'] = await ix_or_ctx.reply(view=view, file=f, mention_author=False)
+            else:
+                st['msg'] = await ix_or_ctx.reply(view=view, mention_author=False)
+
+    async def _send_battle(self, ix_or_ctx, is_ix, gid, uid):
+        st = self._battle.get((str(gid), str(uid)))
+        if not st:
+            return
+        me, wild, log = st['me'], st['wild'], st['log']
+        view = self._battle_view(gid, uid, me, wild, log)
+        await self._show_battle(ix_or_ctx, True, st, view, self._scene_file(st))
 
     def _battle_view(self, gid, uid, me, wild, log):
         from discord.ui import ActionRow, Container, TextDisplay
@@ -1135,17 +1322,30 @@ class Pokemon(commands.Cog):
         if log:
             body += '\n' + '\n'.join(log[-4:])
         box.add_item(TextDisplay(body))
+        moves = (me.get('moves') or [])[:4]
         row = ActionRow()
-        for label, cid in (('ATTACK', 'pk_atk'), ('BALL', 'pk_ball'), ('RUN', 'pk_run')):
-            b = discord.ui.Button(label=label, style=discord.ButtonStyle.secondary,
-                                  custom_id=f'{cid}:{uid}')
-            b.callback = self._mk_battle_btn(gid, uid, cid)
+        for i, mv in enumerate(moves):
+            b = discord.ui.Button(
+                label=f"{mv['name'][:16]} {mv['power']}"[:80],
+                style=discord.ButtonStyle.primary, custom_id=f'pkmv:{uid}:{i}')
+            b.callback = self._mk_battle_btn(gid, uid, ('move', i))
             row.add_item(b)
         box.add_item(row)
+        row2 = ActionRow()
+        pots = potions_get(gid, uid)
+        plabel = f"POTION ({pots['potion'] + pots['superpotion']})"
+        for label, cid in ((plabel, 'pk_potion'), ('BALL', 'pk_ball'), ('RUN', 'pk_run')):
+            b = discord.ui.Button(label=label[:80],
+                                  style=discord.ButtonStyle.secondary if label != plabel
+                                  else discord.ButtonStyle.success,
+                                  custom_id=f'{cid}:{uid}')
+            b.callback = self._mk_battle_btn(gid, uid, cid)
+            row2.add_item(b)
+        box.add_item(row2)
         layout.add_item(box)
         return layout
 
-    def _mk_battle_btn(self, gid, uid, what: str):
+    def _mk_battle_btn(self, gid, uid, what):
         async def _cb(ix: discord.Interaction):
             set_ctx_lang(ix.user)
             if ix.user.id != int(uid):
@@ -1154,8 +1354,7 @@ class Pokemon(commands.Cog):
             await self._battle_turn(ix, gid, ix.user, what)
         return _cb
 
-    async def _battle_turn(self, ix: discord.Interaction, gid, user, what: str):
-        import aiohttp
+    async def _battle_turn(self, ix: discord.Interaction, gid, user, what):
         key = (str(gid), str(user.id))
         st = self._battle.get(key)
         if not st:
@@ -1178,39 +1377,94 @@ class Pokemon(commands.Cog):
                 self._battle.pop(key, None)
                 self._enc.pop(key, None)
             return await ix.followup.send(msg)
-        # attack: faster strikes first
-        async with aiohttp.ClientSession():
-            pass
-        order = [(me, wild, True), (wild, me, False)] if me['stats']['spe'] >= wild['stats']['spe'] \
-            else [(wild, me, False), (me, wild, True)]
-        for att, dfn, is_me in order:
-            mv = random.choice(att['moves'])
-            dmg, crit = damage(att['level'], mv, att['stats'], dfn['stats'], att['types'], dfn['types'])
-            dfn['hp'] = max(0, dfn['hp'] - dmg)
-            eff = effectiveness(mv.get('ptype', 'normal'), dfn['types'])
-            tag = ' 💥' if eff > 1 else (' 🛡' if eff < 1 else '')
-            if crit:
-                tag += ' ✨CRIT'
-            who = t(gid, 'eco.pk_you') if is_me else t(gid, 'eco.pk_foe')
-            log.append(t(gid, 'eco.pk_hit', who=who, move=mv['name'], dmg=dmg) + tag)
-            if dfn['hp'] <= 0:
-                break
+        if what == 'pk_potion':
+            pots = potions_get(gid, user.id)
+            use = ('superpotion' if me['hp'] < me['stats']['maxhp'] * 0.5 and pots['superpotion']
+                   else 'potion' if pots['potion'] else 'superpotion' if pots['superpotion'] else None)
+            if not use:
+                log.append(t(gid, 'eco.pk_no_potion'))
+            else:
+                with db.conn_ctx() as conn:
+                    conn.execute('UPDATE pk_balls SET qty=qty-1 WHERE guild_id=? AND user_id=? AND ball=?',
+                                 (str(gid), str(user.id), use))
+                heal = int(me['stats']['maxhp'] * POTIONS[use][1])
+                me['hp'] = min(me['stats']['maxhp'], me['hp'] + heal)
+                log.append(t(gid, 'eco.pk_healed', name=me['name'], hp=heal))
+            # potion costs the turn: wild strikes
+            await self._wild_strike(gid, me, wild, log)
+            return await self._after_turn(ix, gid, user, key, st)
+        # chosen move (or fallback): faster strikes first
+        mv = None
+        if isinstance(what, tuple) and what[0] == 'move':
+            idx = what[1]
+            if 0 <= idx < len(me.get('moves') or []):
+                mv = me['moves'][idx]
+        order = []
+        if me['stats']['spe'] >= wild['stats']['spe']:
+            order = [('me', mv), ('wild', None)]
+        else:
+            order = [('wild', None), ('me', mv)]
+        for side, chosen in order:
+            if side == 'me':
+                if wild['hp'] <= 0:
+                    break
+                use_mv = chosen or random.choice(me['moves'])
+                await self._strike(gid, me, wild, use_mv, True, log)
+            else:
+                if me['hp'] <= 0:
+                    break
+                await self._strike(gid, wild, me, random.choice(wild['moves']), False, log)
+        return await self._after_turn(ix, gid, user, key, st)
+
+    async def _strike(self, gid, att, dfn, mv, is_me: bool, log: list):
+        dmg, crit = damage(att['level'], mv, att['stats'], dfn['stats'],
+                           att['types'], dfn['types'])
+        dfn['hp'] = max(0, dfn['hp'] - dmg)
+        eff = effectiveness(mv.get('ptype', 'normal'), dfn['types'])
+        tag = ' 💥' if eff > 1 else (' 🛡' if eff < 1 else '')
+        if crit:
+            tag += ' ✨CRIT'
+        who = t(gid, 'eco.pk_you') if is_me else t(gid, 'eco.pk_foe')
+        log.append(t(gid, 'eco.pk_hit', who=who, move=mv['name'], dmg=dmg) + tag)
+
+    async def _wild_strike(self, gid, me, wild, log: list):
+        await self._strike(gid, wild, me, random.choice(wild['moves']), False, log)
+
+    async def _after_turn(self, ix: discord.Interaction, gid, user, key, st):
+        me, wild, log = st['me'], st['wild'], st['log']
         if wild['hp'] <= 0:
             self._battle.pop(key, None)
             self._enc.pop(key, None)
             gain = wild['level'] * 10
             msgs = [t(gid, 'eco.pk_ko', name=wild['name'], xp=gain)]
-            ev = await self._gain_xp(gid, user.id, st['mid'], gain)
+            ev = await self._gain_party_xp(gid, user.id, st['mid'], gain)
             msgs.extend(ev)
-            return await ix.followup.send(view=self._layout(
-                gid, t(gid, 'eco.pk_win_title'), '\n'.join(log[-4:] + msgs)))
+            view = self._layout(gid, t(gid, 'eco.pk_win_title'), '\n'.join(log[-4:] + msgs))
+            st['done'] = True
+            await self._show_battle(ix, False, st, view, self._scene_file(st))
+            return
         if me['hp'] <= 0:
             self._battle.pop(key, None)
             self._enc.pop(key, None)
-            return await ix.followup.send(view=self._layout(
-                gid, t(gid, 'eco.pk_lose_title'),
-                '\n'.join(log[-4:] + [t(gid, 'eco.pk_blackout')])))
-        await ix.followup.send(view=self._battle_view(gid, user.id, me, wild, log))
+            view = self._layout(gid, t(gid, 'eco.pk_lose_title'),
+                                '\n'.join(log[-4:] + [t(gid, 'eco.pk_blackout')]))
+            st['done'] = True
+            await self._show_battle(ix, False, st, view, self._scene_file(st))
+            return
+        view = self._battle_view(gid, user.id, me, wild, log)
+        await self._show_battle(ix, False, st, view, self._scene_file(st))
+
+    async def _gain_party_xp(self, gid, uid, active_mid: int, gain: int) -> list:
+        """Full XP to the battler, 25% to the bench."""
+        msgs = await self._gain_xp(gid, uid, active_mid, gain)
+        share = gain // 4
+        if share > 0:
+            for m in my_mons(gid, uid):
+                if m['id'] != active_mid:
+                    msgs.extend(await self._gain_xp(gid, uid, m['id'], share))
+                    if len(msgs) > 5:
+                        break
+        return msgs
 
     async def _gain_xp(self, gid, uid, mid: int, gain: int) -> list:
         """Add XP, level up, evolve. Returns announcement lines."""
@@ -1248,66 +1502,216 @@ class Pokemon(commands.Cog):
     async def battle(self, ctx):
         await self._start_battle(ctx, ctx.guild.id, ctx.author)
 
-    # ----- PvP duels -----
+    # ----- PvP duels (interactive, alternating turns) -----
 
     @pk.command(name='duel', description='Pojedynek trenerów')
     async def duel(self, ctx, member: discord.Member, wager: int = 0):
-        import aiohttp
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal
         gid = ctx.guild.id
         if member.id == ctx.author.id or member.bot:
             return await ctx.reply(t(gid, 'eco.pk_duel_self'), ephemeral=True)
         me_mons = my_mons(gid, ctx.author.id)
         fo_mons = my_mons(gid, member.id)
-        me = next((m for m in me_mons if m['active']), None)
-        fo = next((m for m in fo_mons if m['active']), None)
-        if not me or not fo:
+        if not any(m['active'] for m in me_mons) or not any(m['active'] for m in fo_mons):
             return await ctx.reply(t(gid, 'eco.pk_duel_need'), ephemeral=True)
         wager = max(0, wager or 0)
         if wager:
             if bal(gid, ctx.author.id)['cash'] < wager or bal(gid, member.id)['cash'] < wager:
                 return await ctx.reply(t(gid, 'eco.pk_duel_cash'), ephemeral=True)
-        await ctx.typing()
+        from discord.ui import ActionRow, Container, TextDisplay
+        from discord.ui import LayoutView
+        layout = LayoutView(timeout=90)
+        box = Container(accent_color=0xFF4655)
+        box.add_item(TextDisplay(t(gid, 'eco.pk_duel_challenge', a=ctx.author.display_name,
+                                   b=member.display_name,
+                                   wager=(cshort(wager) if wager else '—'))))
+        row = ActionRow()
+        ok_b = discord.ui.Button(label='ACCEPT', style=discord.ButtonStyle.success)
+        no_b = discord.ui.Button(label='DECLINE', style=discord.ButtonStyle.danger)
+
+        async def _ok(ix: discord.Interaction):
+            set_ctx_lang(ix.user)
+            if ix.user.id != member.id:
+                return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
+            await ix.response.defer()
+            await self._duel_start(ix, gid, ctx.author, member, wager)
+
+        async def _no(ix: discord.Interaction):
+            set_ctx_lang(ix.user)
+            if ix.user.id != member.id:
+                return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
+            await ix.response.send_message(t(gid, 'eco.pk_declined'))
+
+        ok_b.callback = _ok
+        no_b.callback = _no
+        row.add_item(ok_b)
+        row.add_item(no_b)
+        box.add_item(row)
+        layout.add_item(box)
+        await ctx.reply(f'<@{member.id}>', view=layout, mention_author=False)
+
+    async def _duel_start(self, ix: discord.Interaction, gid, u1, u2, wager: int):
+        import aiohttp
+        me_mons = my_mons(gid, u1.id)
+        fo_mons = my_mons(gid, u2.id)
+        me = next((m for m in me_mons if m['active']), None)
+        fo = next((m for m in fo_mons if m['active']), None)
+        if not me or not fo:
+            return await ix.followup.send(t(gid, 'eco.pk_duel_need'), ephemeral=True)
+        if wager:
+            from cogs.gamble import bal
+            if bal(gid, u1.id)['cash'] < wager or bal(gid, u2.id)['cash'] < wager:
+                return await ix.followup.send(t(gid, 'eco.pk_duel_cash'), ephemeral=True)
         async with aiohttp.ClientSession() as s:
             a = await self._fighter(s, me)
             b = await self._fighter(s, fo)
-        log = [t(gid, 'eco.pk_duel_start', a=a['name'], b=b['name'])]
-        first, second = (a, b) if a['stats']['spe'] >= b['stats']['spe'] else (b, a)
-        winner = None
-        for _ in range(60):
-            for att, dfn in ((first, second), (second, first)):
-                mv = random.choice(att['moves'])
-                dmg, crit = damage(att['level'], mv, att['stats'], dfn['stats'], att['types'], dfn['types'])
-                dfn['hp'] = max(0, dfn['hp'] - dmg)
-                if len(log) < 9:
-                    log.append(t(gid, 'eco.pk_hit', who=att['name'], move=mv['name'], dmg=dmg)
-                               + (' ✨CRIT' if crit else ''))
-                if dfn['hp'] <= 0:
-                    winner = att
-                    break
-            if winner:
-                break
-        if winner is None:
-            winner = a if a['hp'] >= b['hp'] else b
-        won_me = winner is a
-        gain = b['level'] * 12 if won_me else a['level'] * 12
-        ev = await self._gain_xp(gid, (ctx.author.id if won_me else member.id),
-                                (me if won_me else fo)['id'], gain)
-        line = t(gid, 'eco.pk_duel_win',
-                 name=ctx.author.display_name if won_me else member.display_name,
-                 xp=gain)
+            a_spr = await fetch_sprite(s, (a['row'].get('sprite') or '').split('|')[0])
+            b_spr = await fetch_sprite(s, (b['row'].get('sprite') or '').split('|')[0])
+        key = (str(gid), str(u1.id), str(u2.id))
+        self._battle[key] = {'duel': True, 'pa': a, 'pb': b,
+                             'u1': u1.id, 'u2': u2.id,
+                             'mid1': me['id'], 'mid2': fo['id'],
+                             'wager': wager, 'turn': u1.id, 'log': [],
+                             'a_spr': a_spr, 'b_spr': b_spr}
+        await self._duel_render(ix, gid, key)
+
+    def _duel_view(self, gid, key, st):
+        from discord.ui import ActionRow, Container, TextDisplay
+        from discord.ui import LayoutView
+        turn_side = 'pa' if st['turn'] == st['u1'] else 'pb'
+        me = st[turn_side]
+        layout = LayoutView(timeout=120)
+        box = Container(accent_color=0xFF4655)
+        body = (f"## {st['pa']['name']} ({st['pa']['hp']}/{st['pa']['stats']['maxhp']}) "
+                f"vs {st['pb']['name']} ({st['pb']['hp']}/{st['pb']['stats']['maxhp']})")
+        if st['log']:
+            body += '\n' + '\n'.join(st['log'][-4:])
+        who = st['u1'] if turn_side == 'pa' else st['u2']
+        body += '\n' + t(gid, 'eco.pk_duel_turn', user=f'<@{who}>')
+        box.add_item(TextDisplay(body))
+        row = ActionRow()
+        for i, mv in enumerate((me.get('moves') or [])[:4]):
+            b = discord.ui.Button(label=f"{mv['name'][:14]} {mv['power']}"[:80],
+                                  style=discord.ButtonStyle.primary,
+                                  custom_id=f'pkd:{key[1]}:{i}')
+            b.callback = self._mk_duel_btn(gid, key, ('move', i))
+            row.add_item(b)
+        box.add_item(row)
+        row2 = ActionRow()
+        for label, cid in (('POTION', 'potion'), ('FORFEIT', 'forfeit')):
+            b = discord.ui.Button(label=label, style=discord.ButtonStyle.secondary,
+                                  custom_id=f'pkd:{key[1]}:{cid}')
+            b.callback = self._mk_duel_btn(gid, key, cid)
+            row2.add_item(b)
+        box.add_item(row2)
+        layout.add_item(box)
+        return layout
+
+    def _mk_duel_btn(self, gid, key, what):
+        async def _cb(ix: discord.Interaction):
+            set_ctx_lang(ix.user)
+            st = self._battle.get(key)
+            if not st or not st.get('duel'):
+                return await ix.response.send_message(t(gid, 'eco.pk_nobattle'), ephemeral=True)
+            if ix.user.id != st['turn']:
+                return await ix.response.send_message(t(gid, 'eco.pk_duel_wait'), ephemeral=True)
+            await ix.response.defer()
+            await self._duel_turn(ix, gid, key, what)
+        return _cb
+
+    async def _duel_turn(self, ix: discord.Interaction, gid, key, what):
+        from cogs.gamble import bal, set_cash
+        st = self._battle.get(key)
+        if not st:
+            return await ix.followup.send(t(gid, 'eco.pk_nobattle'), ephemeral=True)
+        me_side = 'pa' if st['turn'] == st['u1'] else 'pb'
+        fo_side = 'pb' if me_side == 'pa' else 'pa'
+        me, fo = st[me_side], st[fo_side]
+        log = st['log']
+        if what == 'forfeit':
+            self._battle.pop(key, None)
+            return await self._duel_settle(ix, gid, key, st, fo_side, forfeit=True)
+        if what == 'potion':
+            uid = st['turn']
+            pots = potions_get(gid, uid)
+            use = ('superpotion' if me['hp'] < me['stats']['maxhp'] * 0.5 and pots['superpotion']
+                   else 'potion' if pots['potion'] else 'superpotion' if pots['superpotion'] else None)
+            if not use:
+                return await ix.followup.send(t(gid, 'eco.pk_no_potion'), ephemeral=True)
+            with db.conn_ctx() as conn:
+                conn.execute('UPDATE pk_balls SET qty=qty-1 WHERE guild_id=? AND user_id=? AND ball=?',
+                             (str(gid), str(uid), use))
+            heal = int(me['stats']['maxhp'] * POTIONS[use][1])
+            me['hp'] = min(me['stats']['maxhp'], me['hp'] + heal)
+            log.append(t(gid, 'eco.pk_healed', name=me['name'], hp=heal))
+        else:
+            mv = None
+            if isinstance(what, tuple) and what[0] == 'move':
+                idx = what[1]
+                if 0 <= idx < len(me.get('moves') or []):
+                    mv = me['moves'][idx]
+            mv = mv or random.choice(me['moves'])
+            dmg, crit = damage(me['level'], mv, me['stats'], fo['stats'], me['types'], fo['types'])
+            fo['hp'] = max(0, fo['hp'] - dmg)
+            eff = effectiveness(mv.get('ptype', 'normal'), fo['types'])
+            tag = ' 💥' if eff > 1 else (' 🛡' if eff < 1 else '')
+            if crit:
+                tag += ' ✨CRIT'
+            log.append(t(gid, 'eco.pk_hit', who=me['name'], move=mv['name'], dmg=dmg) + tag)
+        if fo['hp'] <= 0:
+            self._battle.pop(key, None)
+            return await self._duel_settle(ix, gid, key, st, me_side)
+        st['turn'] = st['u2'] if me_side == 'pa' else st['u1']
+        st['log'] = log
+        await self._duel_render(ix, gid, key)
+
+    async def _duel_render(self, ix: discord.Interaction, gid, key):
+        st = self._battle.get(key)
+        if not st:
+            return
+        import io as _bio
+        view = self._duel_view(gid, key, st)
+        f = None
+        try:
+            png = battle_image(st.get('a_spr'), st.get('b_spr'), st['pa'], st['pb'])
+            f = discord.File(_bio.BytesIO(png), 'duel.png')
+        except Exception:
+            pass
+        await self._show_battle(ix, False, st, view, f)
+
+    async def _duel_settle(self, ix: discord.Interaction, gid, key, st, winner_side, forfeit=False):
+        from cogs.gamble import bal, set_cash
+        won1 = winner_side == 'pa'
+        uwin = st['u1'] if won1 else st['u2']
+        gain = (st['pb'] if won1 else st['pa'])['level'] * 12
+        ev = await self._gain_party_xp(gid, uwin, st['mid1'] if won1 else st['mid2'], gain)
+        line = t(gid, 'eco.pk_duel_win', name=f'<@{uwin}>', xp=gain)
+        if forfeit:
+            line += '\n' + t(gid, 'eco.pk_duel_forfeit')
+        wager = st.get('wager', 0)
         if wager:
-            w = bal(gid, ctx.author.id)
-            v = bal(gid, member.id)
-            if won_me:
-                set_cash(gid, ctx.author.id, w['cash'] + wager)
-                set_cash(gid, member.id, max(0, v['cash'] - wager))
+            w1 = bal(gid, st['u1'])
+            w2 = bal(gid, st['u2'])
+            if won1:
+                set_cash(gid, st['u1'], w1['cash'] + wager)
+                set_cash(gid, st['u2'], max(0, w2['cash'] - wager))
             else:
-                set_cash(gid, member.id, v['cash'] + wager)
-                set_cash(gid, ctx.author.id, max(0, w['cash'] - wager))
+                set_cash(gid, st['u2'], w2['cash'] + wager)
+                set_cash(gid, st['u1'], max(0, w1['cash'] - wager))
             line += '\n' + t(gid, 'eco.pk_duel_wager', win=cshort(wager))
-        await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_duel_title'),
-                                          '\n'.join(log + ev + [line])), mention_author=False)
+        with db.conn_ctx() as conn:
+            conn.execute('INSERT OR IGNORE INTO pk_stats (guild_id, user_id, duels_won, duels_lost) '
+                         'VALUES (?,?,0,0)', (str(gid), str(uwin)))
+            conn.execute('UPDATE pk_stats SET duels_won=duels_won+1 WHERE guild_id=? AND user_id=?',
+                         (str(gid), str(uwin)))
+            loser = st['u2'] if won1 else st['u1']
+            conn.execute('INSERT OR IGNORE INTO pk_stats (guild_id, user_id, duels_won, duels_lost) '
+                         'VALUES (?,?,0,0)', (str(gid), str(loser)))
+            conn.execute('UPDATE pk_stats SET duels_lost=duels_lost+1 WHERE guild_id=? AND user_id=?',
+                         (str(gid), str(loser)))
+        await ix.followup.send(view=self._layout(
+            gid, t(gid, 'eco.pk_duel_title'),
+            '\n'.join(st['log'][-6:] + ev + [line])))
 
     # ----- trading -----
 

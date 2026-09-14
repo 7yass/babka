@@ -390,6 +390,10 @@ def init_db():
             dex INTEGER DEFAULT 1, level INTEGER DEFAULT 5,
             xp INTEGER DEFAULT 0, shiny INTEGER DEFAULT 0, nick TEXT DEFAULT '',
             price INTEGER DEFAULT 0, created INTEGER DEFAULT 0)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS pk_stats (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL,
+            duels_won INTEGER DEFAULT 0, duels_lost INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id))''')
         c.execute('''CREATE TABLE IF NOT EXISTS suggest_cfg (
             guild_id TEXT PRIMARY KEY, panel_channel TEXT,
             panel_message TEXT, inbox_channel TEXT)''')
