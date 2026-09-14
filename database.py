@@ -1,4 +1,10 @@
-"""Babka Danka (Python) — SQLite schema + helpers. Mirrors the Node bot tables."""
+"""Babka Danka (Python) — SQLite schema + helpers. Mirrors the Node bot tables.
+
+Local-first: plain SQLite file by default. Set TURSO_URL + TURSO_TOKEN and
+install `libsql` to run as an embedded replica (same file, same SQL, cloud
+sync every 60s). No data transfer needed — the live file just starts syncing.
+"""
+import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -6,7 +12,125 @@ from pathlib import Path
 DB_PATH = Path(__file__).parent / 'data.db'
 
 
+class _Row:
+    """sqlite3.Row lookalike: row['x'], dict(row), tuple(row), row[0]."""
+    __slots__ = ('_keys', '_vals')
+
+    def __init__(self, keys, vals):
+        self._keys = keys
+        self._vals = vals
+
+    def keys(self):
+        return self._keys
+
+    def __getitem__(self, k):
+        if isinstance(k, str):
+            return self._vals[self._keys.index(k)]
+        return self._vals[k]
+
+    def __iter__(self):
+        return iter(self._vals)
+
+    def __len__(self):
+        return len(self._vals)
+
+
+class _Cursor:
+    def __init__(self, cur):
+        self._cur = cur
+        self._keys = []
+
+    @property
+    def lastrowid(self):
+        try:
+            return self._cur.lastrowid
+        except Exception:
+            return None
+
+    @property
+    def rowcount(self):
+        try:
+            return self._cur.rowcount
+        except Exception:
+            return -1
+
+    @property
+    def description(self):
+        try:
+            return self._cur.description
+        except Exception:
+            return None
+
+    def execute(self, *a, **k):
+        res = self._cur.execute(*a, **k)
+        if res is not None:
+            self._cur = res
+        try:
+            desc = self._cur.description
+            self._keys = [d[0] for d in desc] if desc else []
+        except Exception:
+            self._keys = []
+        return self
+
+    def _wrap(self, row):
+        if row is None:
+            return None
+        return _Row(self._keys, tuple(row))
+
+    def fetchone(self):
+        return self._wrap(self._cur.fetchone())
+
+    def fetchall(self):
+        return [self._wrap(r) for r in self._cur.fetchall()]
+
+    def __iter__(self):
+        for r in self._cur:
+            yield self._wrap(r)
+
+
+class _Conn:
+    """Thin proxy: same surface our code uses (execute/commit/close)."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, *a, **k):
+        return _Cursor(self._conn).execute(*a, **k)
+
+    def commit(self):
+        return self._conn.commit()
+
+    def close(self):
+        return self._conn.close()
+
+
+def _turso_env():
+    url = os.getenv('TURSO_URL', '')
+    tok = os.getenv('TURSO_TOKEN', '')
+    return (url, tok) if url and tok else (None, None)
+
+
+def db_mode() -> str:
+    url, _ = _turso_env()
+    if not url:
+        return 'local'
+    try:
+        import libsql  # noqa
+        return 'turso'
+    except Exception:
+        return 'local (libsql missing)'
+
+
 def get_conn():
+    url, tok = _turso_env()
+    if url and tok:
+        try:
+            import libsql
+            conn = libsql.connect(str(DB_PATH), sync_url=url, auth_token=tok,
+                                  sync_interval=60)
+            return _Conn(conn)
+        except Exception as e:
+            print(f'[-] Turso connect failed ({e}), using local SQLite')
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     try:
@@ -19,8 +143,9 @@ def get_conn():
 
 
 def backup_to(path) -> None:
-    """Online-safe snapshot using the sqlite backup API."""
-    src = get_conn()
+    """Online-safe snapshot using the sqlite backup API (reads the local
+    file directly, so it works in both local and turso-replica mode)."""
+    src = sqlite3.connect(DB_PATH, timeout=10)
     try:
         dst = sqlite3.connect(path)
         try:
