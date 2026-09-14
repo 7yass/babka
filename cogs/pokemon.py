@@ -2106,7 +2106,7 @@ class Pokemon(commands.Cog):
         gid = ctx.guild.id
         secs = [
             (t(gid, 'eco.pk_h_catch'), 'starter · hunt · pokemon · catch · guess · hint · balls'),
-            (t(gid, 'eco.pk_h_box'), 'box · mon · active · name · dex · release · releaseall · lock'),
+            (t(gid, 'eco.pk_h_box'), 'box · mon · active · name · dex · release · releaseall · keep'),
             (t(gid, 'eco.pk_h_battle'), 'battle · duel · npc · team · buddy · moves · candy'),
             (t(gid, 'eco.pk_h_prog'), 'quests · target · checklist · shinyhunt · streaks · stats · trainers'),
             (t(gid, 'eco.pk_h_trade'), 'trade · market · sell · buy · unlist · swap'),

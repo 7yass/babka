@@ -74,18 +74,13 @@ COGS = [
 
 
 @bot.before_invoke
-async def _pin_user_lang(ctx):
+async def _pre_invoke(ctx):
+    # NOTE: discord.py keeps a SINGLE before_invoke hook — everything lives here.
     try:
         from lang import set_ctx_lang
         set_ctx_lang(getattr(ctx, 'author', None))
     except Exception:
         pass
-
-
-@bot.before_invoke
-async def _prefix_gate(ctx):
-    """Pokemon lives on ';', everything else on the guild prefix.
-    The help center answers on both (its pokemon entries live there)."""
     try:
         cog = getattr(getattr(ctx, 'cog', None), 'qualified_name', '')
         is_pk = cog == 'Pokemon' or (cog == 'Help' and (ctx.prefix or '') == ';')
