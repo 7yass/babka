@@ -551,7 +551,7 @@ class Levels(commands.Cog):
                                 print(f'[voice] announce failed: {e}')
 
     # ---- commands ----
-    @commands.command(name='rank', description='Karta gracza')
+    @commands.hybrid_command(name='rank', description='Karta gracza')
     async def rank(self, ctx, member: discord.Member = None):
         import aiohttp
         import asyncio as _aio
@@ -601,7 +601,7 @@ class Levels(commands.Cog):
             __import__('lang').get_lang(ctx.guild.id), avatar, None, accent, style, custom_bg, names)
         await ctx.reply(file=card, mention_author=False)
 
-    @commands.command(name='leaderboard', description='Ranking XP', aliases=['lb', 'top'])
+    @commands.hybrid_command(name='leaderboard', description='Ranking XP', aliases=['lb', 'top'])
     async def leaderboard(self, ctx):
         from lang import t as _t
         await ctx.defer()

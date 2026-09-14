@@ -878,7 +878,7 @@ class Gamble(commands.Cog):
         finally:
             self._rou_warming = False
 
-    @commands.command(name='bal', description='Twoja kasa')
+    @commands.hybrid_command(name='bal', description='Twoja kasa')
     async def balance(self, ctx, member: discord.Member = None):
         import aiohttp
         import asyncio as _aio
@@ -1090,7 +1090,7 @@ class Gamble(commands.Cog):
         await ctx.reply(view=_game_layout(t(gid, 'eco.tribute_title'),
                                           thanks + '\n' + t(gid, 'eco.tribute_total', total=total)))
 
-    @commands.command(name='blackjack', description='Oczko', aliases=['bj'])
+    @commands.hybrid_command(name='blackjack', description='Oczko', aliases=['bj'])
     async def blackjack(self, ctx, bet: int):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
@@ -1156,7 +1156,7 @@ class Gamble(commands.Cog):
         bet_factor = 1 - min(0.95, math.log10(max(1, bet)) * 0.15)
         return base_chance * bet_factor
 
-    @commands.command(name='slots', description='Maszynka')
+    @commands.hybrid_command(name='slots', description='Maszynka')
     async def slots(self, ctx, bet: int):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
@@ -1216,7 +1216,7 @@ class Gamble(commands.Cog):
                                               'attachment://slots.png'),
                             file=discord.File(__import__('io').BytesIO(png), 'slots.png'))
 
-    @commands.command(name='coinflip', description='Orzeł czy reszka', aliases=['moneta'])
+    @commands.hybrid_command(name='coinflip', description='Orzeł czy reszka', aliases=['moneta'])
     async def coinflip(self, ctx, bet: int, side: str):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
@@ -1268,7 +1268,7 @@ class Gamble(commands.Cog):
                                               'attachment://coin.png'),
                             file=discord.File(__import__('io').BytesIO(png), 'coin.png'))
 
-    @commands.command(name='roulette', description='Ruletka', aliases=['ruletka'])
+    @commands.hybrid_command(name='roulette', description='Ruletka', aliases=['ruletka'])
     async def roulette(self, ctx, bet: int, choice: str):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
@@ -1409,7 +1409,7 @@ class Gamble(commands.Cog):
         b.callback = _cb
         return b
 
-    @commands.command(name='poker', description='Video poker: Jacks or better')
+    @commands.hybrid_command(name='poker', description='Video poker: Jacks or better')
     async def poker(self, ctx, bet: int):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
@@ -1493,7 +1493,7 @@ class Gamble(commands.Cog):
             conn.execute('DELETE FROM bounties WHERE guild_id=?', (str(gid),))
         await ctx.reply(t(gid, 'eco.reset_done'))
 
-    @commands.command(name='rich', description='Najbogatsi', aliases=['baltop'])
+    @commands.hybrid_command(name='rich', description='Najbogatsi', aliases=['baltop'])
     async def rich(self, ctx):
         gid = ctx.guild.id
         await ctx.defer()

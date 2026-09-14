@@ -435,25 +435,6 @@ class Voice(commands.Cog):
             return
 
     # ---------- commands ----------
-    @commands.group(name='voicemaster', description='Pokoje gÅ‚osowe')
-    async def voicemaster(self, ctx):
-        await ctx.reply('.voicemaster setup / interface / icon / icons / disable / panel', ephemeral=True)
-
-    @voicemaster.command(name='setup', description='Ustaw lobby')
-    @staff_or('manage_guild')
-    async def setup_lobby(self, ctx, voice: discord.VoiceChannel, category: discord.CategoryChannel = None,
-                          name: str = "{user}'s pv", interface: discord.TextChannel = None):
-        with db.conn_ctx() as conn:
-            conn.execute('INSERT OR REPLACE INTO voicemaster (guild_id, master_channel_id, category_id, default_name) VALUES (?,?,?,?)',
-                         (str(ctx.guild.id), str(voice.id), str(category.id) if category else None, name))
-            if interface:
-                conn.execute('UPDATE voicemaster SET interface_channel_id=? WHERE guild_id=?',
-                             (str(interface.id), str(ctx.guild.id)))
-        cat = t(ctx.guild.id, 'vm.live_cat', cat=category.name) if category else ''
-        await ctx.reply(t(ctx.guild.id, 'vm.live', ch=voice.mention, cat=cat, name=name), ephemeral=True)
-        if interface:
-            await self._post_interface(ctx.guild, interface)
-
     async def _post_interface(self, guild: discord.Guild, channel: discord.TextChannel):
         with db.conn_ctx() as conn:
             old = conn.execute('SELECT interface_message_id FROM voicemaster WHERE guild_id=?',
@@ -471,61 +452,6 @@ class Voice(commands.Cog):
                          (str(channel.id), str(msg.id), str(guild.id)))
             return msg
 
-    @voicemaster.command(name='interface', description='Postaw panel sterowania')
-    @staff_or('manage_guild')
-    async def interface_cmd(self, ctx, channel: discord.TextChannel = None):
-        channel = channel or ctx.channel
-        msg = await self._post_interface(ctx.guild, channel)
-        if not msg:
-            return await ctx.reply(t(ctx.guild.id, 'info.post_fail'), ephemeral=True)
-        await ctx.reply(t(ctx.guild.id, 'vm.iface_set', ch=channel.mention), ephemeral=True)
-
-    @voicemaster.command(name='icon', description='Ikonka panelu')
-    @staff_or('manage_guild')
-    async def icon(self, ctx, key: str, emoji: str = None):
-        gid = ctx.guild.id
-        key = key.lower()
-        if key not in ICON_KEYS:
-            return await ctx.reply(t(gid, 'vm.icon_keys', keys=', '.join(ICON_KEYS)), ephemeral=True)
-        with db.conn_ctx() as conn:
-            if emoji:
-                try:
-                    from discord import PartialEmoji
-                    PartialEmoji.from_str(emoji)
-                except Exception:
-                    return await ctx.reply(t(gid, 'vm.icon_bad'), ephemeral=True)
-                conn.execute('INSERT OR REPLACE INTO vm_icons (guild_id, key, emoji) VALUES (?,?,?)',
-                             (str(gid), key, emoji))
-                # refresh the live panel so icons apply instantly
-                with db.conn_ctx() as c2:
-                    vmr = c2.execute('SELECT interface_channel_id, interface_message_id FROM voicemaster WHERE guild_id=?',
-                                     (str(gid),)).fetchone()
-                if vmr and vmr['interface_channel_id'] and vmr['interface_message_id']:
-                    try:
-                        ch = ctx.guild.get_channel(int(vmr['interface_channel_id']))
-                        msg = await ch.fetch_message(int(vmr['interface_message_id']))
-                        await msg.edit(view=interface_layout(ctx.guild))
-                    except Exception:
-                        pass
-                return await ctx.reply(t(gid, 'vm.icon_set', key=key), ephemeral=True)
-            conn.execute('DELETE FROM vm_icons WHERE guild_id=? AND key=?', (str(gid), key))
-            return await ctx.reply(t(gid, 'vm.icon_cleared', key=key), ephemeral=True)
-
-    @voicemaster.command(name='icons', description='Lista ikonek')
-    async def icons(self, ctx):
-        icons = get_icons(ctx.guild.id)
-        if not icons:
-            return await ctx.reply(t(ctx.guild.id, 'vm.icons_empty'), ephemeral=True)
-        await ctx.reply(embed=ok(t(ctx.guild.id, 'vm.icons_title') + '\n' +
-                        '\n'.join(f'• **{k}** {v}' for k, v in sorted(icons.items()))), ephemeral=True)
-
-    @voicemaster.command(name='disable', description='WyÅ‚Ä…cz voice')
-    @staff_or('manage_guild')
-    async def disable(self, ctx):
-        with db.conn_ctx() as conn:
-            conn.execute('DELETE FROM voicemaster WHERE guild_id=?', (str(ctx.guild.id),))
-        await ctx.reply(t(ctx.guild.id, 'vm.off'), ephemeral=True)
-
     def _my_room(self, guild: discord.Guild, user_id) -> discord.VoiceChannel | None:
         with db.conn_ctx() as conn:
             rows = conn.execute('SELECT channel_id FROM temp_vcs WHERE guild_id=? AND owner_id=?',
@@ -536,7 +462,7 @@ class Voice(commands.Cog):
                 return ch
         return None
 
-    @voicemaster.command(name='party', description='Tryb imprezy: twój pokój bez limitu')
+    @commands.command(name='party', description='Tryb imprezy: twój pokój bez limitu')
     async def party(self, ctx):
         gid = ctx.guild.id
         room = self._my_room(ctx.guild, ctx.author.id)
@@ -548,7 +474,7 @@ class Voice(commands.Cog):
             return await ctx.reply(t(gid, 'vm.fail'), ephemeral=True)
         await ctx.reply(t(gid, 'vm.party', ch=room.mention))
 
-    @voicemaster.command(name='bring', description='ÅšciÄ…gnij rolÄ™ na swojÄ… gÅ‚osówkÄ™')
+    @commands.command(name='bring', description='ÅšciÄ…gnij rolÄ™ na swojÄ… gÅ‚osówkÄ™')
     @staff_or('move_members')
     async def bring(self, ctx, role: discord.Role):
         gid = ctx.guild.id
@@ -607,8 +533,8 @@ class Voice(commands.Cog):
                 pass
         await ctx.reply(t(gid, 'vm.vault_off'))
 
-    @voicemaster.command(name='panel', description='Kontrole twojego pokoju')
-    async def panel(self, ctx):
+    @commands.command(name='vcpanel', description='Panel pokoju')
+    async def vcpanel(self, ctx):
         vc = ctx.author.voice.channel if ctx.author.voice else None
         if not vc:
             return await ctx.reply(t(ctx.guild.id, 'vm.no_vc'), ephemeral=True)
@@ -635,8 +561,14 @@ class Voice(commands.Cog):
 
     @commands.command(name='vcs', description='Voice za jednym zamachem')
     @staff_or('manage_guild')
-    async def vcs(self, ctx, lobby_name: str, interface_name: str):
-        """`.vcs Stworz-Kanal interface` — creates both channels, wires everything, done."""
+    async def vcs(self, ctx, lobby_name: str, interface_name: str = 'interface'):
+        """`.vcs Stworz-Kanal interface` — creates both channels, wires everything, done.
+        `.vcs off` disables voice rooms."""
+        gid = ctx.guild.id
+        if lobby_name.strip().lower() == 'off':
+            with db.conn_ctx() as conn:
+                conn.execute('DELETE FROM voicemaster WHERE guild_id=?', (str(gid),))
+            return await ctx.reply(t(gid, 'vm.off'), ephemeral=True)
         gid = ctx.guild.id
         lobby_name = lobby_name.strip()[:90]
         slug = re.sub(r'[^a-z0-9-_]', '', interface_name.strip().lower().replace(' ', '-'))[:90] or 'interface'
@@ -661,25 +593,6 @@ class Voice(commands.Cog):
         await self._post_interface(ctx.guild, iface)
         await ctx.reply(t(gid, 'vm.vcs_ok', lobby=lobby.mention, iface=iface.mention), ephemeral=True)
 
-    @commands.command(name='vcsetup', description='Szybki setup voice')
-    @staff_or('manage_guild')
-    async def vcsetup(self, ctx, voice: discord.VoiceChannel = None, interface: discord.TextChannel = None):
-        lobby = voice or (ctx.author.voice.channel if ctx.author.voice else None)
-        if not lobby:
-            return await ctx.reply(t(ctx.guild.id, 'vm.setup_use'), ephemeral=True)
-        with db.conn_ctx() as conn:
-            conn.execute('INSERT OR REPLACE INTO voicemaster (guild_id, master_channel_id, default_name) VALUES (?,?,?)',
-                         (str(ctx.guild.id), str(lobby.id), "{user}'s pv"))
-            if interface:
-                conn.execute('UPDATE voicemaster SET interface_channel_id=? WHERE guild_id=?',
-                             (str(interface.id), str(ctx.guild.id)))
-        await ctx.reply(t(ctx.guild.id, 'vm.live', ch=lobby.mention, cat='', name="{user}'s pv"), ephemeral=True)
-        if interface:
-            await self._post_interface(ctx.guild, interface)
-
-    @commands.command(name='vcpanel', description='Panel pokoju')
-    async def vcpanel(self, ctx):
-        await self.panel.callback(self, ctx)
 
 
 class _LimitSelect(discord.ui.Select):

@@ -109,7 +109,7 @@ class Ship(commands.Cog):
         e.set_image(url='attachment://ship.png')
         await ctx.reply(embed=e, file=discord.File(__import__('io').BytesIO(png), 'ship.png'))
 
-    @commands.command(name='shiplb', description='Top pary', aliases=['ships'])
+    @commands.hybrid_command(name='shiplb', description='Top pary', aliases=['ships'])
     async def shiplb(self, ctx):
         gid = ctx.guild.id
         with db.conn_ctx() as conn:

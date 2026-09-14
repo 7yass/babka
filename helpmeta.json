@@ -66,29 +66,12 @@
       "",
       "Manage Server"
     ],
-    "vcsetup": [
-      "voice",
-      "Voice lobby setup and configuration: `.vcsetup [#channel|off]`.",
-      [
-        "vc"
-      ],
-      "[#channel|off]",
-      "Manage Server"
-    ],
     "vcpanel": [
       "voice",
       "Drop your room control panel into the room chat: `.vcpanel`. Lock, rename, kick from buttons.",
       [],
       "",
       "Everyone"
-    ],
-    "voicemaster": [
-      "voice",
-      "Voice rooms system: temp rooms, control panel, limits. `.voicemaster setup/interface/...`.",
-      [],
-      "<subcommand>",
-      "Manage Server",
-      false
     ],
     "ban": [
       "moderation",
@@ -971,7 +954,7 @@
     ],
     "vcs": [
       "voice",
-      "One-command voice setup: `.vcs <lobby> <panel>` creates lobby + interface channels fully wired.",
+      "Voice rooms in one shot: .vcs <lobby> <panel> creates everything. .vcs off disables.",
       [],
       "<lobby> <panel>",
       "Manage Server",

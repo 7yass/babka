@@ -332,7 +332,7 @@ class Jobs(commands.Cog):
             pass
         return True, t(gid, 'job.hired', job=JOBS[key]['label'])
 
-    @commands.group(name='job', description='Twoja kariera')
+    @commands.hybrid_group(name='job', description='Twoja kariera')
     async def job(self, ctx):
         await ctx.reply('.job list / join / show / leave / my', ephemeral=True)
 
@@ -409,7 +409,7 @@ class Jobs(commands.Cog):
                                             fans=j.get('fans', 0), level=lv, shifts=j.get('shifts', 0),
                                             nxt=nxt_txt)), ephemeral=True)
 
-    @commands.command(name='work', description='Idź do roboty')
+    @commands.hybrid_command(name='work', description='Idź do roboty')
     async def work(self, ctx):
         from cogs.levels import get_user
         from cogs.gamble import bal, set_cash

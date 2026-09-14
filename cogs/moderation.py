@@ -588,6 +588,17 @@ class Moderation(commands.Cog):
         await ctx.reply(embed=ok('\n'.join(f"• <@{r['user_id']}> (`{r['user_id']}`) — {r['reason']}" for r in rows)),
                         ephemeral=True)
 
+    # standalone twins (prefix + slash) — the mod group stays prefix-only
+    @commands.hybrid_command(name='kick', description='Wykop typa')
+    @staff_or('kick_members')
+    async def kick_top(self, ctx, member: discord.Member, *, reason: str = 'No reason'):
+        return await self.kick.callback(self, ctx, member, reason=reason)
+
+    @commands.hybrid_command(name='ban', description='Ban dla typa')
+    @staff_or('ban_members')
+    async def ban_top(self, ctx, member: discord.Member, *, reason: str = 'No reason'):
+        return await self.ban.callback(self, ctx, member, reason=reason)
+
 
 async def setup(bot):
     await bot.add_cog(Moderation(bot))
