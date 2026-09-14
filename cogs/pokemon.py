@@ -661,11 +661,8 @@ class Pokemon(commands.Cog):
 
     # ----- starters / collection -----
 
-    @commands.group(name='pk', description='Pokemony Babki')
-    async def pk(self, ctx):
-        await ctx.reply(';pk starter / hunt / catch / guess / box / info / dex / balls / battle / duel / npc / trade / market / quests / buddy / team / stats / top', ephemeral=True)
 
-    @pk.command(name='starter', description='Wybierz startera')
+    @commands.command(name='starter', description='Wybierz startera')
     async def starter(self, ctx, name: str = ''):
         import aiohttp
         gid = ctx.guild.id
@@ -688,7 +685,7 @@ class Pokemon(commands.Cog):
             gid, t(gid, 'eco.pk_starter_title'),
             t(gid, 'eco.pk_starter', name=row['name'].capitalize()), spr))
 
-    @pk.command(name='hunt', description='Poluj na dzikie')
+    @commands.command(name='hunt', description='Poluj na dzikie')
     async def hunt(self, ctx):
         import aiohttp
         gid = ctx.guild.id
@@ -797,7 +794,7 @@ class Pokemon(commands.Cog):
             return None
         return e
 
-    @pk.command(name='catch', description='Rzuć ball')
+    @commands.command(name='catch', description='Rzuć ball')
     async def catch(self, ctx, ball: str = 'poke'):
         gid = ctx.guild.id
         ball = (ball or 'poke').lower()
@@ -954,7 +951,7 @@ class Pokemon(commands.Cog):
             parts.append('incense ON')
         return ' · '.join(parts)
 
-    @pk.group(name='balls', description='Balle')
+    @commands.group(name='balls', description='Balle')
     async def balls(self, ctx):
         await ctx.reply(t(ctx.guild.id, 'eco.pk_balls', have=self._balls_line(ctx.guild.id, ctx.author.id)),
                         ephemeral=True)
@@ -1004,7 +1001,7 @@ class Pokemon(commands.Cog):
             balls_add(gid, ctx.author.id, ball, n)
         await ctx.reply(t(gid, 'eco.pk_balls_bought', n=n, ball=ball), ephemeral=True)
 
-    @pk.command(name='box', description='Twoje pokemony')
+    @commands.command(name='box', description='Twoje pokemony')
     async def box(self, ctx, page: int = 1):
         gid = ctx.guild.id
         mons = my_mons(gid, ctx.author.id)
@@ -1021,7 +1018,7 @@ class Pokemon(commands.Cog):
         await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_box_title', user=ctx.author.display_name),
                                           '\n'.join(lines)), ephemeral=True)
 
-    @pk.command(name='info', description='Staty pokemona')
+    @commands.command(name='mon', description='Staty pokemona')
     async def info(self, ctx, slot: int):
         import aiohttp
         gid = ctx.guild.id
@@ -1042,7 +1039,7 @@ class Pokemon(commands.Cog):
                  moves=', '.join(f"{x['name']}({x['power']})" for x in moves))
         await ctx.reply(view=await self._mage(gid, mon_name(m), desc, img))
 
-    @pk.command(name='active', description='Wybierz wojownika')
+    @commands.command(name='active', description='Wybierz wojownika')
     async def active(self, ctx, slot: int):
         gid = ctx.guild.id
         m = get_mon(gid, ctx.author.id, slot or 0)
@@ -1054,7 +1051,7 @@ class Pokemon(commands.Cog):
             conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (m['id'],))
         await ctx.reply(t(gid, 'eco.pk_active', name=mon_name(m)), ephemeral=True)
 
-    @pk.command(name='nick', description='Przezwij pokemona')
+    @commands.command(name='name', description='Przezwij pokemona')
     async def nick(self, ctx, slot: int, *, name: str = ''):
         gid = ctx.guild.id
         m = get_mon(gid, ctx.author.id, slot or 0)
@@ -1064,7 +1061,7 @@ class Pokemon(commands.Cog):
             conn.execute('UPDATE pk_mons SET nick=? WHERE id=?', (name[:24], m['id']))
         await ctx.reply(t(gid, 'eco.pk_nicked', name=(name[:24] or mon_name(m))), ephemeral=True)
 
-    @pk.command(name='release', description='Wypuść pokemona')
+    @commands.command(name='release', description='Wypuść pokemona')
     async def release(self, ctx, slot: int):
         from cogs.gamble import bal, set_cash
         gid = ctx.guild.id
@@ -1085,7 +1082,7 @@ class Pokemon(commands.Cog):
                 conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (left['id'],))
         await ctx.reply(t(gid, 'eco.pk_released_cash', name=name, win=cshort(val)), ephemeral=True)
 
-    @pk.command(name='releaseall', description='Wypuść cały gatunek')
+    @commands.command(name='releaseall', description='Wypuść cały gatunek')
     async def releaseall(self, ctx, *, name: str = ''):
         import aiohttp
         gid = ctx.guild.id
@@ -1129,7 +1126,7 @@ class Pokemon(commands.Cog):
             msg += ' ' + t(gid, 'eco.pk_releaseall_skip', n=skipped_n)
         await ctx.reply(msg, ephemeral=True)
 
-    @pk.command(name='stats', description='Statystyki trenera')
+    @commands.command(name='trainer', description='Statystyki trenera')
     async def stats(self, ctx, member: discord.Member = None):
         gid = ctx.guild.id
         member = member or ctx.author
@@ -1149,7 +1146,7 @@ class Pokemon(commands.Cog):
               shinies=shinies, w=(st['duels_won'] if st else 0), l=(st['duels_lost'] if st else 0))),
             ephemeral=True)
 
-    @pk.command(name='top', description='Top trenerów')
+    @commands.command(name='trainers', description='Top trenerów')
     async def top(self, ctx):
         gid = ctx.guild.id
         with db.conn_ctx() as conn:
@@ -1166,7 +1163,7 @@ class Pokemon(commands.Cog):
         await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_top_title'), '\n'.join(lines)),
                         ephemeral=True)
 
-    @pk.command(name='dex', description='Pokedex')
+    @commands.command(name='dex', description='Pokedex')
     async def dex(self, ctx):
         gid = ctx.guild.id
         with db.conn_ctx() as conn:
@@ -1183,7 +1180,7 @@ class Pokemon(commands.Cog):
             t(gid, 'eco.pk_dex', names=', '.join(names) if names else '—', total=total)),
             ephemeral=True)
 
-    @pk.command(name='guess', description='Zgadnij tajemniczego')
+    @commands.command(name='guess', description='Zgadnij tajemniczego')
     async def guess(self, ctx, *, name: str = ''):
         """PokeTwo-style: name a mystery encounter to catch it free."""
         import aiohttp
@@ -1219,7 +1216,7 @@ class Pokemon(commands.Cog):
         msg += '\n' + self._catch_meta(gid, ctx.author.id, e['dex'])
         await ctx.reply(msg, mention_author=False)
 
-    @pk.command(name='hint', description='Podpowiedź do tajemniczego')
+    @commands.command(name='hint', description='Podpowiedź do tajemniczego')
     async def hint(self, ctx):
         import aiohttp
         gid = ctx.guild.id
@@ -1235,7 +1232,7 @@ class Pokemon(commands.Cog):
                           hint=''.join('_' if i in blanks else ch for i, ch in enumerate(nm))),
                         ephemeral=True)
 
-    @pk.command(name='shinyhunt', description='Łów shiny łańcuchem')
+    @commands.command(name='shinyhunt', description='Łów shiny łańcuchem')
     async def shinyhunt(self, ctx, *, name: str = ''):
         import aiohttp
         gid = ctx.guild.id
@@ -1273,7 +1270,7 @@ class Pokemon(commands.Cog):
         await ctx.reply(t(gid, 'eco.pk_hunt_set',
                           name=(row.get('name') or f'#{dex}').capitalize()), ephemeral=True)
 
-    @pk.command(name='quests', description='Misje regionów')
+    @commands.command(name='quests', description='Misje regionów')
     async def quests(self, ctx):
         gid = ctx.guild.id
         prog = self._region_progress(gid, ctx.author.id)
@@ -1298,7 +1295,7 @@ class Pokemon(commands.Cog):
         await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_quests_title'), '\n'.join(lines)),
                         ephemeral=True)
 
-    @pk.command(name='sell', description='Wystaw na targ')
+    @commands.command(name='sell', description='Wystaw na targ')
     async def sell(self, ctx, slot: int, price: int):
         gid = ctx.guild.id
         m = get_mon(gid, ctx.author.id, slot or 0)
@@ -1327,7 +1324,7 @@ class Pokemon(commands.Cog):
         await ctx.reply(t(gid, 'eco.pk_listed', name=mon_name(m), price=cshort(price), lid=lid),
                         ephemeral=True)
 
-    @pk.command(name='market', description='Targ pokemonów')
+    @commands.command(name='market', description='Targ pokemonów')
     async def market(self, ctx, page: int = 1):
         gid = ctx.guild.id
         with db.conn_ctx() as conn:
@@ -1350,7 +1347,7 @@ class Pokemon(commands.Cog):
         await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_market_title'), '\n'.join(lines)),
                         ephemeral=True)
 
-    @pk.command(name='buy', description='Kup z targu')
+    @commands.command(name='buy', description='Kup z targu')
     async def buy(self, ctx, listing: int):
         from cogs.gamble import bal, set_cash
         gid = ctx.guild.id
@@ -1381,7 +1378,7 @@ class Pokemon(commands.Cog):
                           name=(r['nick'] or (row.get('name') or '?').capitalize()),
                           price=cshort(r['price'])), ephemeral=True)
 
-    @pk.command(name='unlist', description='Zdejmij z targu')
+    @commands.command(name='unlist', description='Zdejmij z targu')
     async def unlist(self, ctx, listing: int):
         gid = ctx.guild.id
         with db.conn_ctx() as conn:
@@ -1398,7 +1395,7 @@ class Pokemon(commands.Cog):
             conn.execute('DELETE FROM pk_market WHERE id=?', (r['id'],))
         await ctx.reply(t(gid, 'eco.pk_unlisted'), ephemeral=True)
 
-    @pk.command(name='lock', description='Zabezpiecz pokemona')
+    @commands.command(name='keep', description='Zabezpiecz pokemona')
     async def lock(self, ctx, slot: int):
         gid = ctx.guild.id
         m = get_mon(gid, ctx.author.id, slot or 0)
@@ -1410,7 +1407,7 @@ class Pokemon(commands.Cog):
         await ctx.reply(t(gid, 'eco.pk_unlocked' if m.get('locked') else 'eco.pk_locked2',
                           name=mon_name(m)), ephemeral=True)
 
-    @pk.command(name='buddy', description='Kumpel')
+    @commands.command(name='buddy', description='Kumpel')
     async def buddy(self, ctx, slot: int = 0, *, name: str = ''):
         """No buddy: shows. Slot: sets buddy. Extra text: renames buddy."""
         gid = ctx.guild.id
@@ -1444,9 +1441,9 @@ class Pokemon(commands.Cog):
         await ctx.reply(t(gid, 'eco.pk_buddy_set', name=mon_name(m)) + (('\n' + extra) if extra else ''),
                         ephemeral=True)
 
-    @pk.command(name='team', description='Drużyna na pojedynki')
+    @commands.command(name='team', description='Drużyna na pojedynki')
     async def team(self, ctx, a: int = 0, b: int = 0, c: int = 0):
-        """.pk team — show. `.pk team 1 2 3` — set duel team by box slots."""
+        """;team — show. `;team 1 2 3` — set duel team by box slots."""
         gid = ctx.guild.id
         mons = my_mons(gid, ctx.author.id)
         if not mons:
@@ -1470,7 +1467,7 @@ class Pokemon(commands.Cog):
                          (str(gid), str(ctx.author.id), *picks))
         await ctx.reply(t(gid, 'eco.pk_team_set', n=len([p for p in picks if p])), ephemeral=True)
 
-    @pk.command(name='candy', description='Rare candy +1 level')
+    @commands.command(name='candy', description='Rare candy +1 level')
     async def candy(self, ctx):
         import aiohttp
         gid = ctx.guild.id
@@ -1490,7 +1487,7 @@ class Pokemon(commands.Cog):
         msgs = await self._gain_xp(gid, ctx.author.id, act['id'], act['level'] ** 3 - (act['xp'] or 0))
         await ctx.reply('\n'.join(msgs) if msgs else t(gid, 'eco.pk_candy_use', name=mon_name(act)))
 
-    @pk.command(name='eggs', description='Jajka')
+    @commands.command(name='eggs', description='Jajka')
     async def eggs(self, ctx):
         gid = ctx.guild.id
         with db.conn_ctx() as conn:
@@ -1506,7 +1503,7 @@ class Pokemon(commands.Cog):
                                           '\n'.join(lines) + '\n' + t(gid, 'eco.pk_eggs_hint')),
                         ephemeral=True)
 
-    @pk.command(name='hatch', description='Wykluj jajko')
+    @commands.command(name='hatch', description='Wykluj jajko')
     async def hatch(self, ctx):
         import aiohttp
         gid = ctx.guild.id
@@ -1543,7 +1540,7 @@ class Pokemon(commands.Cog):
             t(gid, 'eco.pk_hatched', name=('✨' if shiny else '') + row['name'].capitalize(),
               level=level), img))
 
-    @pk.command(name='swap', description='Losowa wymiana')
+    @commands.command(name='swap', description='Losowa wymiana')
     async def swap(self, ctx, slot: int):
         import aiohttp
         gid = ctx.guild.id
@@ -1584,7 +1581,7 @@ class Pokemon(commands.Cog):
             t(gid, 'eco.pk_swapped', old=old,
               name=('✨' if shiny else '') + row['name'].capitalize(), level=level), img))
 
-    @pk.command(name='target', description='Dzienny cel')
+    @commands.command(name='target', description='Dzienny cel')
     async def target(self, ctx):
         gid = ctx.guild.id
         d = daily_row(gid, ctx.author.id)
@@ -1597,7 +1594,7 @@ class Pokemon(commands.Cog):
               state=t(gid, 'eco.pk_target_done') if d['claimed'] else t(gid, 'eco.pk_target_open'))),
             ephemeral=True)
 
-    @pk.command(name='checklist', description='Dzienne zadania')
+    @commands.command(name='checklist', description='Dzienne zadania')
     async def checklist(self, ctx, action: str = ''):
         from cogs.gamble import bal, set_cash
         gid = ctx.guild.id
@@ -1906,13 +1903,13 @@ class Pokemon(commands.Cog):
                 conn.execute('UPDATE pk_mons SET level=?, xp=? WHERE id=?', (lv, xp, mid))
         return msgs
 
-    @pk.command(name='battle', description='Walcz z dzikim')
+    @commands.command(name='battle', description='Walcz z dzikim')
     async def battle(self, ctx):
         await self._start_battle(ctx, ctx.guild.id, ctx.author)
 
     # ----- PvP duels (interactive, alternating turns) -----
 
-    @pk.command(name='duel', description='Pojedynek trenerów')
+    @commands.command(name='duel', description='Pojedynek trenerów')
     async def duel(self, ctx, member: discord.Member, wager: int = 0):
         from cogs.gamble import bal
         gid = ctx.guild.id
@@ -2203,7 +2200,7 @@ class Pokemon(commands.Cog):
             gid, t(gid, 'eco.pk_duel_title'),
             '\n'.join(st['log'][-6:] + ev + [line])))
 
-    @pk.command(name='move', description='Info o ruchu')
+    @commands.command(name='move', description='Info o ruchu')
     async def move(self, ctx, *, name: str = ''):
         import aiohttp
         gid = ctx.guild.id
@@ -2218,7 +2215,7 @@ class Pokemon(commands.Cog):
             t(gid, 'eco.pk_move', power=mv['power'], ptype=mv['ptype'], acc=mv['acc'])),
             ephemeral=True)
 
-    @pk.command(name='moves', description='Ruchy pokemona')
+    @commands.command(name='moves', description='Ruchy pokemona')
     async def moves(self, ctx, slot: int):
         import aiohttp
         gid = ctx.guild.id
@@ -2232,7 +2229,7 @@ class Pokemon(commands.Cog):
             '\n'.join(t(gid, 'eco.pk_move_row', name=x['name'], power=x['power'],
                          ptype=x['ptype'], acc=x['acc']) for x in ms)), ephemeral=True)
 
-    @pk.command(name='npc', description='Walcz z NPC')
+    @commands.command(name='npc', description='Walcz z NPC')
     async def npc(self, ctx, who: str = ''):
         gid = ctx.guild.id
         team = team_get(gid, ctx.author.id)
@@ -2323,7 +2320,7 @@ class Pokemon(commands.Cog):
         else:
             st['msg'] = await ctx.reply(view=view, mention_author=False)
 
-    @pk.command(name='trade', description='Wymień pokemona')
+    @commands.command(name='trade', description='Wymień pokemona')
     async def trade(self, ctx, member: discord.Member, yours: int, theirs: int):
         gid = ctx.guild.id
         if member.id == ctx.author.id or member.bot:

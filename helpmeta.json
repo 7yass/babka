@@ -1351,13 +1351,6 @@
       "",
       "Everyone"
     ],
-    "pokemon": [
-      "economy",
-      "Full monster game on ; prefix: starter, chat auto-spawns, mystery guess-catching, buddy, teams, balls+potions+candy+eggs, levels, evolution, button wild battles with scenes, interactive team PvP duels, NPC ladder, trading, market, release-for-coins, wonder swap, region quests, daily target, checklist, shiny chains, stats.",
-      [],
-      "starter / hunt / guess / box / battle / duel / npc / trade / market / quests / buddy / team / move / stats / top",
-      "Everyone"
-    ],
     "val": [
       "info",
       "Valorant tracker: rank, RR, peak and last match for Name#Tag (needs free Henrik key).",
@@ -1365,6 +1358,258 @@
         "valorant"
       ],
       "Name#Tag",
+      "Everyone"
+    ],
+    "starter": [
+      "economy",
+      "Pick your starter + 10 balls. One per trainer.",
+      [],
+      "<bulbasaur|charmander|squirtle|pikachu|eevee|turtwig>",
+      "Everyone"
+    ],
+    "hunt": [
+      "economy",
+      "Spawn a wild encounter (60s cooldown). FIGHT it or THROW BALL.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "catch": [
+      "economy",
+      "Throw a ball at your encounter. Weaker foes catch easier.",
+      [],
+      "[poke|great|ultra|master]",
+      "Everyone"
+    ],
+    "guess": [
+      "economy",
+      "Name a ??? silhouette to catch it FREE.",
+      [],
+      "<name>",
+      "Everyone"
+    ],
+    "hint": [
+      "economy",
+      "Reveal half the letters of a mystery silhouette.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "box": [
+      "economy",
+      "Your caught pokemon, 10 per page.",
+      [],
+      "[page]",
+      "Everyone"
+    ],
+    "mon": [
+      "economy",
+      "Full stats card of one pokemon: level, types, moves, XP.",
+      [],
+      "<slot>",
+      "Everyone"
+    ],
+    "active": [
+      "economy",
+      "Set your lead battler.",
+      [],
+      "<slot>",
+      "Everyone"
+    ],
+    "name": [
+      "economy",
+      "Rename one of your pokemon.",
+      [],
+      "<slot> <name>",
+      "Everyone"
+    ],
+    "release": [
+      "economy",
+      "Release for coins (rarity x level, shiny x5). Locked are safe.",
+      [],
+      "<slot>",
+      "Everyone"
+    ],
+    "releaseall": [
+      "economy",
+      "Release every matching species for coins. Skips locked.",
+      [],
+      "<species>",
+      "Everyone"
+    ],
+    "dex": [
+      "economy",
+      "Your pokedex completion.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "balls": [
+      "economy",
+      "Ball/potion/candy/egg stash. `.balls buy` stocks up.",
+      [],
+      "buy",
+      "Everyone"
+    ],
+    "battle": [
+      "economy",
+      "Turn-based wild battle: 4 moves, potions, ball, run.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "duel": [
+      "economy",
+      "Interactive team duel (up to 3v3) with wager. Accept to play.",
+      [],
+      "@user [wager]",
+      "Everyone"
+    ],
+    "trade": [
+      "economy",
+      "Swap pokemon 1:1 with accept/decline buttons.",
+      [],
+      "@user <yours> <theirs>",
+      "Everyone"
+    ],
+    "market": [
+      "economy",
+      "Player market: browse listings.",
+      [],
+      "[page]",
+      "Everyone"
+    ],
+    "sell": [
+      "economy",
+      "List a pokemon for cash (max 3, 5% fee).",
+      [],
+      "<slot> <price>",
+      "Everyone"
+    ],
+    "buy": [
+      "economy",
+      "Buy a market listing by ID.",
+      [],
+      "<id>",
+      "Everyone"
+    ],
+    "unlist": [
+      "economy",
+      "Take your listing back to the box.",
+      [],
+      "<id>",
+      "Everyone"
+    ],
+    "buddy": [
+      "economy",
+      "Companion: bonus XP + hearts. Slot sets, text renames.",
+      [],
+      "[slot] [name]",
+      "Everyone"
+    ],
+    "team": [
+      "economy",
+      "Your duel squad. Bare shows, slots set it.",
+      [],
+      "[a] [b] [c]",
+      "Everyone"
+    ],
+    "candy": [
+      "economy",
+      "Feed a rare candy: instant +1 level.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "eggs": [
+      "economy",
+      "Your eggs + hatch cycles.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "hatch": [
+      "economy",
+      "Hatch a ready egg (warmed by catches).",
+      [],
+      "",
+      "Everyone"
+    ],
+    "keep": [
+      "economy",
+      "Lock/unlock a pokemon from release/market/trade.",
+      [],
+      "<slot>",
+      "Everyone"
+    ],
+    "swap": [
+      "economy",
+      "Wonder swap: lose yours, random new (1% shiny).",
+      [],
+      "<slot>",
+      "Everyone"
+    ],
+    "target": [
+      "economy",
+      "Daily catch target: +7.5k on catch.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "checklist": [
+      "economy",
+      "Daily trio: 5 catches / 3 battles / 1 duel. Claim the prize.",
+      [],
+      "[claim]",
+      "Everyone"
+    ],
+    "shinyhunt": [
+      "economy",
+      "Chain a species: odds 1/256 down to 1/32.",
+      [],
+      "[name]",
+      "Everyone"
+    ],
+    "quests": [
+      "economy",
+      "Region catch tracks with cash tiers + Master badges.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "move": [
+      "economy",
+      "Move lookup: power, type, accuracy.",
+      [],
+      "<name>",
+      "Everyone"
+    ],
+    "moves": [
+      "economy",
+      "Your pokemon's 4-move kit in detail.",
+      [],
+      "<slot>",
+      "Everyone"
+    ],
+    "npc": [
+      "economy",
+      "NPC ladder: joey/finn/cyntia, once a day each, cash + badge.",
+      [],
+      "[joey|finn|cyntia]",
+      "Everyone"
+    ],
+    "trainer": [
+      "economy",
+      "Your trainer card: box, levels, dex, duels.",
+      [],
+      "[@user]",
+      "Everyone"
+    ],
+    "trainers": [
+      "economy",
+      "Strongest trainers by total levels.",
+      [],
+      "",
       "Everyone"
     ]
   },
