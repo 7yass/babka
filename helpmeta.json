@@ -1353,9 +1353,9 @@
     ],
     "pokemon": [
       "economy",
-      "Full monster game: starter, chat auto-spawns, mystery guess-catching, balls+potions, levels, evolution, button wild battles with scenes, interactive PvP duels with wagers, trading, market, region quests, shiny chains, incense, stats, pokedex.",
+      "Full monster game: starter, chat auto-spawns, mystery guess-catching, buddy, teams, balls+potions+candy+eggs, levels, evolution, button wild battles with scenes, interactive team PvP duels, trading, market, release-for-coins, wonder swap, region quests, daily target, checklist, shiny chains, stats.",
       [],
-      "starter / hunt / guess / catch / box / battle / duel / trade / market / quests / stats / top",
+      "starter / hunt / guess / box / battle / duel / trade / market / quests / buddy / team / stats / top",
       "Everyone"
     ],
     "val": [

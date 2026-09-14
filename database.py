@@ -394,6 +394,23 @@ def init_db():
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL,
             duels_won INTEGER DEFAULT 0, duels_lost INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS pk_buddy (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, mid INTEGER DEFAULT 0,
+            hearts INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS pk_team (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL,
+            s1 INTEGER DEFAULT 0, s2 INTEGER DEFAULT 0, s3 INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS pk_eggs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id TEXT NOT NULL,
+            owner_id TEXT NOT NULL, cycles INTEGER DEFAULT 20)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS pk_daily (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, day INTEGER DEFAULT 0,
+            target INTEGER DEFAULT 0, claimed INTEGER DEFAULT 0,
+            catches INTEGER DEFAULT 0, battles INTEGER DEFAULT 0,
+            duels INTEGER DEFAULT 0, checklist INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id))''')
         c.execute('''CREATE TABLE IF NOT EXISTS suggest_cfg (
             guild_id TEXT PRIMARY KEY, panel_channel TEXT,
             panel_message TEXT, inbox_channel TEXT)''')
@@ -422,7 +439,8 @@ def init_db():
                     'ALTER TABLE eco ADD COLUMN gamble_hr INTEGER DEFAULT 0',
                     'ALTER TABLE eco ADD COLUMN cookie_n INTEGER DEFAULT 0',
                     'ALTER TABLE eco ADD COLUMN cookie_day INTEGER DEFAULT 0',
-                    'ALTER TABLE pk_balls ADD COLUMN expires INTEGER DEFAULT 0'):
+                    'ALTER TABLE pk_balls ADD COLUMN expires INTEGER DEFAULT 0',
+                    'ALTER TABLE pk_mons ADD COLUMN locked INTEGER DEFAULT 0'):
             try:
                 c.execute(col)
             except Exception:
