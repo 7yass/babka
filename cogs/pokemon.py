@@ -513,6 +513,15 @@ def balls_take(gid, uid, ball: str) -> bool:
         return True
 
 
+def best_ball(gid, uid):
+    """Nicest ball the user actually owns (master first)."""
+    b = balls_get(gid, uid)
+    for name in ('master', 'ultra', 'great', 'poke'):
+        if b.get(name, 0) > 0:
+            return name
+    return ''
+
+
 def potions_get(gid, uid) -> dict:
     out = {p: 0 for p in POTIONS}
     with db.conn_ctx() as conn:
@@ -881,7 +890,9 @@ class Pokemon(commands.Cog):
         row = ActionRow()
         fight = discord.ui.Button(label='FIGHT', style=discord.ButtonStyle.danger,
                                   custom_id=f'pkfight:{uid}')
-        ball = discord.ui.Button(label='THROW BALL', style=discord.ButtonStyle.success,
+        best = best_ball(gid, uid)
+        ball = discord.ui.Button(label=f'THROW {best.upper()}' if best else 'THROW BALL',
+                                 style=discord.ButtonStyle.success,
                                  custom_id=f'pkball:{uid}')
 
         async def _fight(ix: discord.Interaction):
@@ -896,7 +907,7 @@ class Pokemon(commands.Cog):
             if ix.user.id != int(uid):
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
             await ix.response.defer()
-            await self._throw(ix, gid, ix.user, 'poke')
+            await self._throw(ix, gid, ix.user, best_ball(gid, ix.user.id) or 'poke')
 
         fight.callback = _fight
         ball.callback = _ball
@@ -917,11 +928,15 @@ class Pokemon(commands.Cog):
         return e
 
     @commands.command(name='catch', description='Rzuć ball')
-    async def catch(self, ctx, ball: str = 'poke'):
+    async def catch(self, ctx, ball: str = ''):
         gid = ctx.guild.id
-        ball = (ball or 'poke').lower()
+        ball = (ball or '').lower() or best_ball(gid, ctx.author.id)
         if ball not in BALLS:
             return await ctx.reply(t(gid, 'eco.pk_balls', have=self._balls_line(gid, ctx.author.id)),
+                                   ephemeral=True)
+        if not ball:
+            return await ctx.reply(t(gid, 'eco.pk_noball', ball='—') + '\n' +
+                                   t(gid, 'eco.pk_balls', have=self._balls_line(gid, ctx.author.id)),
                                    ephemeral=True)
         e = self._get_enc(gid, ctx.author.id)
         if not e:
