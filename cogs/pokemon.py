@@ -1800,12 +1800,17 @@ class Pokemon(commands.Cog):
         await self._show_battle(ix_or_ctx, True, st, view, self._scene_file(st))
 
     def _battle_view(self, gid, uid, st):
-        from discord.ui import ActionRow, Container, TextDisplay
+        from discord.ui import ActionRow, Container, TextDisplay, MediaGallery
         from discord.ui import LayoutView
+        from discord.ui.media_gallery import MediaGalleryItem
         me = st['me']
         layout = LayoutView(timeout=180)
         box = Container(accent_color=0xFF4655)
         box.add_item(TextDisplay(self._vs_wild_body(gid, uid, st)))
+        box.add_item(MediaGallery(MediaGalleryItem(media='attachment://battle.png')))
+        b = balls_get(gid, uid)
+        box.add_item(TextDisplay(
+            f"-# ⚪ Balls: poke x{b['poke']} · great x{b['great']} · ultra x{b['ultra']} · master x{b['master']}"))
         moves = (me.get('moves') or [])[:4]
         row = ActionRow()
         for i, mv in enumerate(moves):
@@ -1973,7 +1978,8 @@ class Pokemon(commands.Cog):
                 conn.execute('UPDATE pk_daily SET battles=battles+1 WHERE guild_id=? AND user_id=?',
                              (str(gid), str(user.id)))
             self._buddy_heart(gid, user.id)
-            view = self._layout(gid, t(gid, 'eco.pk_win_title'), '\n'.join(log[-4:] + msgs))
+            view = self._layout(gid, t(gid, 'eco.pk_win_title'), '\n'.join(log[-4:] + msgs),
+                                'attachment://battle.png')
             st['done'] = True
             await self._show_battle(ix, False, st, view, self._scene_file(st))
             return
@@ -1981,7 +1987,8 @@ class Pokemon(commands.Cog):
             self._battle.pop(key, None)
             self._enc.pop(key, None)
             view = self._layout(gid, t(gid, 'eco.pk_lose_title'),
-                                '\n'.join(log[-4:] + [t(gid, 'eco.pk_blackout')]))
+                                '\n'.join(log[-4:] + [t(gid, 'eco.pk_blackout')]),
+                                'attachment://battle.png')
             st['done'] = True
             await self._show_battle(ix, False, st, view, self._scene_file(st))
             return
@@ -2129,13 +2136,18 @@ class Pokemon(commands.Cog):
         return a, b
 
     def _duel_view(self, gid, key, st):
-        from discord.ui import ActionRow, Container, TextDisplay
+        from discord.ui import ActionRow, Container, TextDisplay, MediaGallery
         from discord.ui import LayoutView
+        from discord.ui.media_gallery import MediaGalleryItem
         a, b = self._duel_pair(st)
         turn_side = a if st['turn'] == st['u1'] else b
         layout = LayoutView(timeout=120)
         box = Container(accent_color=0xFF4655)
         box.add_item(TextDisplay(self._vs_duel_body(gid, st)))
+        box.add_item(MediaGallery(MediaGalleryItem(media='attachment://battle.png')))
+        bb = balls_get(gid, st['turn'])
+        box.add_item(TextDisplay(
+            f"-# ⚪ Balls: poke x{bb['poke']} · great x{bb['great']} · ultra x{bb['ultra']} · master x{bb['master']}"))
         row = ActionRow()
         for i, mv in enumerate((turn_side.get('moves') or [])[:4]):
             b = discord.ui.Button(label=f"{mv['name'][:14]} {mv['power']}"[:80],
@@ -2326,14 +2338,20 @@ class Pokemon(commands.Cog):
         won1 = winner_side == 't1'
         is_npc = bool(st.get('npc'))
         uwin = st['u1'] if won1 else st['u2']
-        fin = st['t1'][st['i1']] if won1 else st['t2'][st['i2']]
-        fin_mid = (st['m1'] if won1 else st['m2'])[st['i1'] if won1 else st['i2']]
-        foe = st['t2'][st['i2']] if won1 else st['t1'][st['i1']]
+        wteam, wmid, lteam = ((st['t1'], st['m1'], st['t2']) if won1
+                              else (st['t2'], st['m2'], st['t1']))
+        widx = min(st['i1'] if won1 else st['i2'], len(wteam) - 1)
+        lidx = min(st['i2'] if won1 else st['i1'], len(lteam) - 1)
+        fin = wteam[max(0, widx)]
+        fin_mid = (wmid + [0])[max(0, widx)]
+        foe = lteam[max(0, lidx)]
         if is_npc and not won1:
             # NPC takes no prisoners and no prizes
             await ix.followup.send(view=self._layout(
                 gid, t(gid, 'eco.pk_duel_title'),
-                '\n'.join(st['log'][-6:] + [t(gid, 'eco.pk_npc_lose', name=st['npc'])])))
+                '\n'.join(st['log'][-6:] + [t(gid, 'eco.pk_npc_lose', name=st['npc'])]),
+                'attachment://battle.png'),
+                file=self._duel_final_file(st))
             return
         gain = foe['level'] * 12
         ev = await self._gain_party_xp(gid, uwin, fin_mid, gain)
@@ -2382,7 +2400,18 @@ class Pokemon(commands.Cog):
                          (str(gid), str(loser)))
         await ix.followup.send(view=self._layout(
             gid, t(gid, 'eco.pk_duel_title'),
-            '\n'.join(st['log'][-6:] + ev + [line])))
+            '\n'.join(st['log'][-6:] + ev + [line]),
+            'attachment://battle.png'),
+            file=self._duel_final_file(st))
+
+    def _duel_final_file(self, st):
+        import io as _bio
+        try:
+            a, b = self._duel_pair(st)
+            png = battle_image(st['s1'][st['i1']], st['s2'][st['i2']], a, b)
+            return discord.File(_bio.BytesIO(png), 'battle.png')
+        except Exception:
+            return None
 
     @commands.command(name='move', description='Info o ruchu')
     async def move(self, ctx, *, name: str = ''):
