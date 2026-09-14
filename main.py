@@ -13,12 +13,13 @@ GUILD_ID = int(os.getenv('GUILD_ID', 0) or 0)
 
 
 def dynamic_prefix(bot, message):
+    """Guild prefix + ';' for Pokemon. Gated in before_invoke."""
     if not message.guild:
-        return '.'
+        return ('.', ';')
     try:
-        return db.get_prefix(message.guild.id)
+        return (db.get_prefix(message.guild.id), ';')
     except Exception:
-        return '.'
+        return ('.', ';')
 
 
 intents = discord.Intents.all()
@@ -76,6 +77,25 @@ async def _pin_user_lang(ctx):
     try:
         from lang import set_ctx_lang
         set_ctx_lang(getattr(ctx, 'author', None))
+    except Exception:
+        pass
+
+
+@bot.before_invoke
+async def _prefix_gate(ctx):
+    """Pokemon lives on ';', everything else on the guild prefix."""
+    try:
+        is_pk = getattr(getattr(ctx, 'cog', None), 'qualified_name', '') == 'Pokemon'
+        if (ctx.prefix or '') == ';' and not is_pk:
+            raise commands.CheckFailure()
+        if (ctx.prefix or '') != ';' and is_pk:
+            try:
+                await ctx.reply('Pokémon moved to `;` — try `;pk ...`', delete_after=10)
+            except Exception:
+                pass
+            raise commands.CheckFailure()
+    except commands.CheckFailure:
+        raise
     except Exception:
         pass
 

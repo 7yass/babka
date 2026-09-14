@@ -393,6 +393,7 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS pk_stats (
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL,
             duels_won INTEGER DEFAULT 0, duels_lost INTEGER DEFAULT 0,
+            leg_streak INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id))''')
         c.execute('''CREATE TABLE IF NOT EXISTS pk_buddy (
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL, mid INTEGER DEFAULT 0,
@@ -411,6 +412,10 @@ def init_db():
             catches INTEGER DEFAULT 0, battles INTEGER DEFAULT 0,
             duels INTEGER DEFAULT 0, checklist INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS pk_npc (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, npc TEXT NOT NULL,
+            day INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, npc))''')
         c.execute('''CREATE TABLE IF NOT EXISTS suggest_cfg (
             guild_id TEXT PRIMARY KEY, panel_channel TEXT,
             panel_message TEXT, inbox_channel TEXT)''')
@@ -440,7 +445,8 @@ def init_db():
                     'ALTER TABLE eco ADD COLUMN cookie_n INTEGER DEFAULT 0',
                     'ALTER TABLE eco ADD COLUMN cookie_day INTEGER DEFAULT 0',
                     'ALTER TABLE pk_balls ADD COLUMN expires INTEGER DEFAULT 0',
-                    'ALTER TABLE pk_mons ADD COLUMN locked INTEGER DEFAULT 0'):
+                    'ALTER TABLE pk_mons ADD COLUMN locked INTEGER DEFAULT 0',
+                    'ALTER TABLE pk_stats ADD COLUMN leg_streak INTEGER DEFAULT 0'):
             try:
                 c.execute(col)
             except Exception:

@@ -34,6 +34,13 @@ CHECKLIST_NEED = {'catches': 5, 'battles': 3, 'duels': 1}
 CHECKLIST_REWARD = 15000
 DAILY_TARGET_REWARD = 7500
 
+# NPC ladder: (key, display name, level, team size, prize)
+NPCS = [
+    ('joey', 'Youngster Joey', 10, 1, 2000),
+    ('finn', 'Bug Catcher Finn', 25, 2, 8000),
+    ('cyntia', 'Champion Cyntia', 50, 3, 40000),
+]
+
 
 def buddy_get(gid, uid) -> dict:
     with db.conn_ctx() as conn:
@@ -92,6 +99,34 @@ def release_value(mon: dict) -> int:
     if mon.get('shiny'):
         val *= 5
     return val
+
+
+def rarity_of(dex: int) -> str:
+    row = _dex_row(dex)
+    if row.get('legendary'):
+        return 'Legendary'
+    rate = row.get('rate') or 45
+    if rate <= 20:
+        return 'Rare'
+    if rate <= 100:
+        return 'Uncommon'
+    return 'Common'
+
+
+def leg_streak_bump(gid, uid, legendary: bool) -> int:
+    """Consecutive legendary catches. Returns current streak."""
+    with db.conn_ctx() as conn:
+        conn.execute('INSERT OR IGNORE INTO pk_stats (guild_id, user_id, duels_won, duels_lost) '
+                     'VALUES (?,?,0,0)', (str(gid), str(uid)))
+        if legendary:
+            conn.execute('UPDATE pk_stats SET leg_streak=leg_streak+1 WHERE guild_id=? AND user_id=?',
+                         (str(gid), str(uid)))
+        else:
+            conn.execute('UPDATE pk_stats SET leg_streak=0 WHERE guild_id=? AND user_id=?',
+                         (str(gid), str(uid)))
+        row = conn.execute('SELECT leg_streak FROM pk_stats WHERE guild_id=? AND user_id=?',
+                           (str(gid), str(uid))).fetchone()
+        return (row['leg_streak'] if row else 0) or 0
 STARTERS = {'bulbasaur': 1, 'charmander': 4, 'squirtle': 7,
             'pikachu': 25, 'eevee': 133, 'turtwig': 387}
 
@@ -525,7 +560,8 @@ class Pokemon(commands.Cog):
             pfx = _db.get_prefix(message.guild.id) or '.'
         except Exception:
             pfx = '.'
-        if (message.content or '').startswith(pfx):
+        content = message.content or ''
+        if content.startswith(pfx) or content.startswith(';'):
             return
         key = (str(message.guild.id), str(message.author.id))
         if int(time.time()) - self._chatxp_cd.get(key, 0) < 60:
@@ -627,7 +663,7 @@ class Pokemon(commands.Cog):
 
     @commands.group(name='pk', description='Pokemony Babki')
     async def pk(self, ctx):
-        await ctx.reply('.pk starter / hunt / catch / guess / box / info / dex / balls / battle / duel / trade / market / quests / shinyhunt / stats / top', ephemeral=True)
+        await ctx.reply(';pk starter / hunt / catch / guess / box / info / dex / balls / battle / duel / npc / trade / market / quests / buddy / team / stats / top', ephemeral=True)
 
     @pk.command(name='starter', description='Wybierz startera')
     async def starter(self, ctx, name: str = ''):
@@ -805,6 +841,7 @@ class Pokemon(commands.Cog):
                     ball=ball, level=e['level'])
             for extra in await self._catch_progress(gid, uid, e['dex'], e['shiny']):
                 msg += '\n' + extra
+            msg += '\n' + self._catch_meta(gid, uid, e['dex'])
             return True, msg
         # break out with a bit of damage? no — it just stares back
         return False, t(gid, 'eco.pk_broke', name=row['name'].capitalize(), ball=ball)
@@ -894,6 +931,13 @@ class Pokemon(commands.Cog):
         if ready:
             lines.append(t(gid, 'eco.pk_egg_ready'))
         return lines
+
+    def _catch_meta(self, gid, uid, dex: int) -> str:
+        row = _dex_row(dex)
+        streak = leg_streak_bump(gid, uid, bool(row.get('legendary')))
+        b = balls_get(gid, uid)
+        return t(gid, 'eco.pk_catchmeta', rarity=rarity_of(dex), streak=streak,
+                 balls=f"poke {b['poke']} | great {b['great']} | ultra {b['ultra']} | master {b['master']}")
 
     def _balls_line(self, gid, uid) -> str:
         b = balls_get(gid, uid)
@@ -1172,6 +1216,7 @@ class Pokemon(commands.Cog):
         msg = t(gid, 'eco.pk_guessed', name=('✨' if e['shiny'] else '') + row['name'].capitalize())
         for extra in await self._catch_progress(gid, ctx.author.id, e['dex'], e['shiny']):
             msg += '\n' + extra
+        msg += '\n' + self._catch_meta(gid, ctx.author.id, e['dex'])
         await ctx.reply(msg, mention_author=False)
 
     @pk.command(name='hint', description='Podpowiedź do tajemniczego')
@@ -2047,7 +2092,36 @@ class Pokemon(commands.Cog):
                     self._battle.pop(key, None)
                     return await self._duel_settle(ix, gid, key, st, 't2')
                 log.append(t(gid, 'eco.pk_duel_send', name=st['t1'][st['i1']]['name']))
-        st['turn'] = st['u2'] if side == 't1' else st['u1']
+        nxt = st['u2'] if side == 't1' else st['u1']
+        if isinstance(nxt, str) and nxt.startswith('npc:'):
+            # NPC acts instantly: random strike, no potions, no mercy
+            a, b = (st['t2'][st['i2']], st['t1'][st['i1']]) if side == 't1' \
+                else (st['t1'][st['i1']], st['t2'][st['i2']])
+            mv = random.choice(a['moves'])
+            dmg, crit = damage(a['level'], mv, a['stats'], b['stats'], a['types'], b['types'])
+            b['hp'] = max(0, b['hp'] - dmg)
+            eff = effectiveness(mv.get('ptype', 'normal'), b['types'])
+            tag = ' 💥' if eff > 1 else (' 🛡' if eff < 1 else '')
+            if crit:
+                tag += ' ✨CRIT'
+            log.append(t(gid, 'eco.pk_hit', who=a['name'], move=mv['name'], dmg=dmg) + tag)
+            if b['hp'] <= 0:
+                log.append(t(gid, 'eco.pk_duel_faint', name=b['name']))
+                if side == 't1':
+                    st['i1'] += 1
+                    if st['i1'] >= len(st['t1']):
+                        self._battle.pop(key, None)
+                        return await self._duel_settle(ix, gid, key, st, 't2')
+                    log.append(t(gid, 'eco.pk_duel_send', name=st['t1'][st['i1']]['name']))
+                else:
+                    st['i2'] += 1
+                    if st['i2'] >= len(st['t2']):
+                        self._battle.pop(key, None)
+                        return await self._duel_settle(ix, gid, key, st, 't1')
+                    log.append(t(gid, 'eco.pk_duel_send', name=st['t2'][st['i2']]['name']))
+            st['turn'] = st['u1'] if side == 't1' else st['u2']
+        else:
+            st['turn'] = nxt
         st['log'] = log
         await self._duel_render(ix, gid, key)
 
@@ -2069,10 +2143,17 @@ class Pokemon(commands.Cog):
     async def _duel_settle(self, ix: discord.Interaction, gid, key, st, winner_side, forfeit=False):
         from cogs.gamble import bal, set_cash
         won1 = winner_side == 't1'
+        is_npc = bool(st.get('npc'))
         uwin = st['u1'] if won1 else st['u2']
         fin = st['t1'][st['i1']] if won1 else st['t2'][st['i2']]
         fin_mid = (st['m1'] if won1 else st['m2'])[st['i1'] if won1 else st['i2']]
         foe = st['t2'][st['i2']] if won1 else st['t1'][st['i1']]
+        if is_npc and not won1:
+            # NPC takes no prisoners and no prizes
+            await ix.followup.send(view=self._layout(
+                gid, t(gid, 'eco.pk_duel_title'),
+                '\n'.join(st['log'][-6:] + [t(gid, 'eco.pk_npc_lose', name=st['npc'])])))
+            return
         gain = foe['level'] * 12
         ev = await self._gain_party_xp(gid, uwin, fin_mid, gain)
         with db.conn_ctx() as conn:
@@ -2082,6 +2163,21 @@ class Pokemon(commands.Cog):
         line = t(gid, 'eco.pk_duel_win', name=f'<@{uwin}>', xp=gain)
         if forfeit:
             line += '\n' + t(gid, 'eco.pk_duel_forfeit')
+        if is_npc and won1:
+            import time as _t
+            prize = st.get('prize', 0)
+            b = bal(gid, uwin)
+            set_cash(gid, uwin, b['cash'] + prize)
+            line += '\n' + t(gid, 'eco.pk_npc_win', prize=cshort(prize))
+            with db.conn_ctx() as conn:
+                conn.execute('INSERT OR REPLACE INTO pk_npc (guild_id, user_id, npc, day) VALUES (?,?,?,?)',
+                             (str(gid), str(uwin), st.get('npckey', ''), int(_t.time()) // 86400))
+            if st.get('npckey') == 'cyntia':
+                with db.conn_ctx() as c2:
+                    c2.execute('INSERT OR IGNORE INTO achievements (guild_id, user_id, akey, unlocked_at) '
+                               'VALUES (?,?,?,?)',
+                               (str(gid), str(uwin), 'npc_champ', int(_t.time())))
+                line += '\n' + t(gid, 'eco.pk_npc_badge')
         wager = st.get('wager', 0)
         if wager:
             w1 = bal(gid, st['u1'])
@@ -2107,7 +2203,125 @@ class Pokemon(commands.Cog):
             gid, t(gid, 'eco.pk_duel_title'),
             '\n'.join(st['log'][-6:] + ev + [line])))
 
-    # ----- trading -----
+    @pk.command(name='move', description='Info o ruchu')
+    async def move(self, ctx, *, name: str = ''):
+        import aiohttp
+        gid = ctx.guild.id
+        if not (name or '').strip():
+            return await ctx.reply(t(gid, 'eco.pk_move_use'), ephemeral=True)
+        async with aiohttp.ClientSession() as s:
+            mv = await move_get(s, (name or '').lower().strip().replace(' ', '-'))
+        if not mv:
+            return await ctx.reply(t(gid, 'eco.pk_move_no', name=(name or '?')[:24]), ephemeral=True)
+        await ctx.reply(view=self._layout(
+            gid, t(gid, 'eco.pk_move_title', name=mv['name']),
+            t(gid, 'eco.pk_move', power=mv['power'], ptype=mv['ptype'], acc=mv['acc'])),
+            ephemeral=True)
+
+    @pk.command(name='moves', description='Ruchy pokemona')
+    async def moves(self, ctx, slot: int):
+        import aiohttp
+        gid = ctx.guild.id
+        m = get_mon(gid, ctx.author.id, slot or 0)
+        if not m:
+            return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
+        async with aiohttp.ClientSession() as s:
+            ms = await moveset_for(s, m['dex'])
+        await ctx.reply(view=self._layout(
+            gid, t(gid, 'eco.pk_moves_title', name=mon_name(m)),
+            '\n'.join(t(gid, 'eco.pk_move_row', name=x['name'], power=x['power'],
+                         ptype=x['ptype'], acc=x['acc']) for x in ms)), ephemeral=True)
+
+    @pk.command(name='npc', description='Walcz z NPC')
+    async def npc(self, ctx, who: str = ''):
+        gid = ctx.guild.id
+        team = team_get(gid, ctx.author.id)
+        if not team:
+            return await ctx.reply(t(gid, 'eco.pk_duel_need'), ephemeral=True)
+        if not (who or '').strip():
+            import time as _t
+            today = int(_t.time()) // 86400
+            lines = []
+            with db.conn_ctx() as conn:
+                for key, name, lv, size, prize in NPCS:
+                    row = conn.execute('SELECT day FROM pk_npc WHERE guild_id=? AND user_id=? AND npc=?',
+                                       (str(gid), str(ctx.author.id), key)).fetchone()
+                    done = row and (row['day'] or 0) == today
+                    lines.append(t(gid, 'eco.pk_npc_row', n=key, name=name, lv=lv, size=size,
+                                   prize=cshort(prize),
+                                   state=t(gid, 'eco.pk_npc_done') if done else t(gid, 'eco.pk_npc_open')))
+            return await ctx.reply(view=self._layout(
+                gid, t(gid, 'eco.pk_npc_title'),
+                '\n'.join(lines) + '\n' + t(gid, 'eco.pk_npc_use')), ephemeral=True)
+        key = (who or '').lower().strip()
+        npc = next((x for x in NPCS if x[0] == key or x[0].startswith(key)), None)
+        if not npc:
+            return await ctx.reply(t(gid, 'eco.pk_npc_unknown'), ephemeral=True)
+        import time as _t2
+        today = int(_t2.time()) // 86400
+        with db.conn_ctx() as conn:
+            row = conn.execute('SELECT day FROM pk_npc WHERE guild_id=? AND user_id=? AND npc=?',
+                               (str(gid), str(ctx.author.id), npc[0])).fetchone()
+            if row and (row['day'] or 0) == today:
+                return await ctx.reply(t(gid, 'eco.pk_npc_cool'), ephemeral=True)
+        await self._npc_start(ctx, gid, ctx.author, npc)
+
+    async def _npc_start(self, ctx, gid, user, npc):
+        import aiohttp
+        key, name, lv, size, prize = npc
+        team = team_get(gid, user.id)[:3]
+        async with aiohttp.ClientSession() as s:
+            f1, s1, m1 = [], [], []
+            for m in team:
+                f = await self._fighter(s, m)
+                f1.append(f)
+                m1.append(m['id'])
+                s1.append(await fetch_sprite(s, (f['row'].get('sprite') or '').split('|')[0]))
+            f2, s2, awaited = [], [], None
+            for _ in range(size):
+                for _try in range(12):
+                    dex = random.randint(1, 493)
+                    row = await dex_get(s, dex)
+                    if not row:
+                        continue
+                    if row.get('legendary') and key != 'cyntia':
+                        continue
+                    break
+                else:
+                    continue
+                f = await self._fighter(
+                    s, {'dex': dex, 'level': max(1, lv + random.randint(-3, 3)),
+                        'shiny': 0, 'nick': ''})
+                f2.append(f)
+                s2.append(await fetch_sprite(s, (f['row'].get('sprite') or '').split('|')[0]))
+        if not f2:
+            return await ctx.reply(t(gid, 'eco.pk_api'), ephemeral=True)
+        bkey = (str(gid), str(user.id), f'npc:{key}')
+        self._battle[bkey] = {'duel': True, 'npc': name, 'prize': prize, 'npckey': key,
+                              't1': f1, 't2': f2, 'm1': m1, 'm2': [],
+                              'i1': 0, 'i2': 0, 's1': s1, 's2': s2,
+                              'u1': user.id, 'u2': f'npc:{key}',
+                              'wager': 0, 'turn': user.id, 'log': [
+                                  t(gid, 'eco.pk_npc_start', name=name)]}
+        await self._duel_render_ctx(ctx, gid, bkey)
+
+    async def _duel_render_ctx(self, ctx, gid, key):
+        import io as _bio
+        st = self._battle.get(key)
+        if not st:
+            return
+        view = self._duel_view(gid, key, st)
+        f = None
+        try:
+            a, b = self._duel_pair(st)
+            png = battle_image(st['s1'][st['i1']], st['s2'][st['i2']], a, b)
+            f = discord.File(_bio.BytesIO(png), 'duel.png')
+        except Exception:
+            pass
+        if f:
+            st['msg'] = await ctx.reply(view=view, file=f, mention_author=False)
+        else:
+            st['msg'] = await ctx.reply(view=view, mention_author=False)
 
     @pk.command(name='trade', description='Wymień pokemona')
     async def trade(self, ctx, member: discord.Member, yours: int, theirs: int):

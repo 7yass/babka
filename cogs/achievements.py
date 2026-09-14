@@ -25,6 +25,7 @@ BADGES = {
     'region_johto': ('🟡', 'JOHTO', 'Johto Master', 'Finish the Johto quest track.'),
     'region_hoenn': ('🟢', 'HOENN', 'Hoenn Master', 'Finish the Hoenn quest track.'),
     'region_sinnoh': ('🔵', 'SINNOH', 'Sinnoh Master', 'Finish the Sinnoh quest track.'),
+    'npc_champ': ('🏆', 'CHAMP', 'Champion Slayer', 'Beat Champion Cyntia.'),
 }
 
 
