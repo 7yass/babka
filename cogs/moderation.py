@@ -18,6 +18,21 @@ UNICODE_EMOJI_RE = re.compile(
 MSG_LINK_RE = re.compile(r'(?:discord(?:app)?\.com/channels/\d+/)?(\d{15,25})(?:/(\d{15,25}))?/?$')
 
 
+async def _safe_reply(ctx, *args, **kwargs):
+    """ctx.reply, falling back to channel.send when the invoking
+    message was wiped (purge/clear delete it, breaking the reference)."""
+    try:
+        return await ctx.reply(*args, **kwargs)
+    except Exception:
+        pass
+    kwargs.pop('ephemeral', None)
+    kwargs.pop('mention_author', None)
+    try:
+        return await ctx.channel.send(*args, **kwargs)
+    except Exception:
+        return None
+
+
 async def _find_msg(ctx, ref: str):
     """Resolve a message ID or link to a Message."""
     ref = (ref or '').strip().strip('<>')
@@ -297,7 +312,7 @@ class Moderation(commands.Cog):
                 if len(batch) < 100:
                     break
                 await asyncio.sleep(1.2)
-            return await ctx.reply(t(gid, 'clear.wiped', n=deleted), ephemeral=True)
+            return await _safe_reply(ctx, t(gid, 'clear.wiped', n=deleted), ephemeral=True)
 
         def check(m):
             if target and m.author.id != target.id:
@@ -310,7 +325,7 @@ class Moderation(commands.Cog):
 
         if not target and not bots and not match:
             batch = await ch.purge(limit=min(max(amount, 1), 100))
-            return await ctx.reply(t(gid, 'clear.deleted', n=len(batch)), ephemeral=True)
+            return await _safe_reply(ctx, t(gid, 'clear.deleted', n=len(batch)), ephemeral=True)
         pool = []
         last = None
         while len(pool) < min(max(amount * 5, 200), 500):
@@ -340,7 +355,7 @@ class Moderation(commands.Cog):
             label = t(gid, 'clear.f_match', q=match)
         else:
             label = ''
-        await ctx.reply(t(gid, 'clear.deleted2', n=deleted, label=label), ephemeral=True)
+        await _safe_reply(ctx, t(gid, 'clear.deleted2', n=deleted, label=label), ephemeral=True)
 
     # ---------- purge suite ----------
     @commands.group(name='purge', description='Czyszczenie PRO')
@@ -360,13 +375,13 @@ class Moderation(commands.Cog):
                     break
                 await asyncio.sleep(1.2)
             await _purge_log(ctx.guild, ctx.channel, deleted, ctx.author)
-            return await ctx.reply(embed=ok(t(gid, 'pg.nuked', n=deleted)))
+            return await _safe_reply(ctx, embed=ok(t(gid, 'pg.nuked', n=deleted)))
         try:
             batch = await ctx.channel.purge(limit=min(max(amount, 1), 100))
         except Exception:
-            return await ctx.reply(t(gid, 'pg.failed'), ephemeral=True)
+            return await _safe_reply(ctx, t(gid, 'pg.failed'), ephemeral=True)
         await _purge_log(ctx.guild, ctx.channel, len(batch), ctx.author)
-        await ctx.reply(t(gid, 'pg.deleted', n=len(batch)), ephemeral=True)
+        await _safe_reply(ctx, t(gid, 'pg.deleted', n=len(batch)), ephemeral=True)
 
     async def _purge_filtered(self, ctx, filt, amount: int, cap: int = 500):
         gid = ctx.guild.id
@@ -374,7 +389,7 @@ class Moderation(commands.Cog):
         hits = [m for m in pool if filt(m)][:min(max(amount, 1), cap)]
         deleted = await _wipe(hits, ctx.channel)
         await _purge_log(ctx.guild, ctx.channel, deleted, ctx.author)
-        await ctx.reply(t(gid, 'pg.deleted', n=deleted), ephemeral=True)
+        await _safe_reply(ctx, t(gid, 'pg.deleted', n=deleted), ephemeral=True)
 
     @purge.command(name='nuke', description='WyczyÅ›Ä‡ CAÅY kanaÅ‚')
     @staff_or('manage_messages')
@@ -390,42 +405,42 @@ class Moderation(commands.Cog):
                 break
             await asyncio.sleep(1.2)
         await _purge_log(ctx.guild, ctx.channel, deleted, ctx.author)
-        await ctx.reply(embed=ok(t(ctx.guild.id, 'pg.nuked', n=deleted)))
+        await _safe_reply(ctx, embed=ok(t(ctx.guild.id, 'pg.nuked', n=deleted)))
 
     @purge.command(name='after', description='UsuÅ„ N po wiadomoÅ›ci')
     @staff_or('manage_messages')
     async def purge_after(self, ctx, message: str, amount: int):
         ref = await _find_msg(ctx, message)
         if not ref:
-            return await ctx.reply(t(ctx.guild.id, 'pg.no_msg'), ephemeral=True)
+            return await _safe_reply(ctx, t(ctx.guild.id, 'pg.no_msg'), ephemeral=True)
         msgs = [m async for m in ctx.channel.history(limit=min(max(amount, 1), 500), after=ref, oldest_first=True)]
         deleted = await _wipe(msgs, ctx.channel)
         await _purge_log(ctx.guild, ctx.channel, deleted, ctx.author)
-        await ctx.reply(t(ctx.guild.id, 'pg.deleted', n=deleted), ephemeral=True)
+        await _safe_reply(ctx, t(ctx.guild.id, 'pg.deleted', n=deleted), ephemeral=True)
 
     @purge.command(name='before', description='UsuÅ„ N przed wiadomoÅ›ciÄ…')
     @staff_or('manage_messages')
     async def purge_before(self, ctx, message: str, amount: int):
         ref = await _find_msg(ctx, message)
         if not ref:
-            return await ctx.reply(t(ctx.guild.id, 'pg.no_msg'), ephemeral=True)
+            return await _safe_reply(ctx, t(ctx.guild.id, 'pg.no_msg'), ephemeral=True)
         msgs = [m async for m in ctx.channel.history(limit=min(max(amount, 1), 500), before=ref)]
         deleted = await _wipe(msgs, ctx.channel)
         await _purge_log(ctx.guild, ctx.channel, deleted, ctx.author)
-        await ctx.reply(t(ctx.guild.id, 'pg.deleted', n=deleted), ephemeral=True)
+        await _safe_reply(ctx, t(ctx.guild.id, 'pg.deleted', n=deleted), ephemeral=True)
 
     @purge.command(name='between', description='UsuÅ„ miÄ™dzy wiadomoÅ›ciami')
     @staff_or('manage_messages')
     async def purge_between(self, ctx, start: str, end: str):
         a, b = await _find_msg(ctx, start), await _find_msg(ctx, end)
         if not a or not b:
-            return await ctx.reply(t(ctx.guild.id, 'pg.no_msg'), ephemeral=True)
+            return await _safe_reply(ctx, t(ctx.guild.id, 'pg.no_msg'), ephemeral=True)
         if a.created_at > b.created_at:
             a, b = b, a
         msgs = [m async for m in ctx.channel.history(limit=500, after=a, before=b)]
         deleted = await _wipe(msgs, ctx.channel)
         await _purge_log(ctx.guild, ctx.channel, deleted, ctx.author)
-        await ctx.reply(t(ctx.guild.id, 'pg.deleted', n=deleted), ephemeral=True)
+        await _safe_reply(ctx, t(ctx.guild.id, 'pg.deleted', n=deleted), ephemeral=True)
 
     @purge.command(name='bots', description='UsuÅ„ od botów')
     @staff_or('manage_messages')
