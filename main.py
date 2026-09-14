@@ -84,14 +84,16 @@ async def _pin_user_lang(ctx):
 
 @bot.before_invoke
 async def _prefix_gate(ctx):
-    """Pokemon lives on ';', everything else on the guild prefix."""
+    """Pokemon lives on ';', everything else on the guild prefix.
+    The help center answers on both (its pokemon entries live there)."""
     try:
-        is_pk = getattr(getattr(ctx, 'cog', None), 'qualified_name', '') == 'Pokemon'
+        cog = getattr(getattr(ctx, 'cog', None), 'qualified_name', '')
+        is_pk = cog == 'Pokemon' or (cog == 'Help' and (ctx.prefix or '') == ';')
         if (ctx.prefix or '') == ';' and not is_pk:
             raise commands.CheckFailure()
-        if (ctx.prefix or '') != ';' and is_pk:
+        if (ctx.prefix or '') != ';' and cog == 'Pokemon':
             try:
-                await ctx.reply('Pokémon moved to `;` — try `;pk ...`', delete_after=10)
+                await ctx.reply('Pokémon moved to `;` — try `;hunt ...`', delete_after=10)
             except Exception:
                 pass
             raise commands.CheckFailure()

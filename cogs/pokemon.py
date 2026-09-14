@@ -542,6 +542,31 @@ def pix_url(dex: int, shiny: bool = False, back: bool = False) -> str:
     return f'{base}/{"shiny/" if shiny else ""}{dex}.png'
 
 
+TYPE_EMOJI = {'fire': 'fire', 'water': 'water', 'grass': 'leaf',
+              'electric': 'bolt', 'ice': 'snow', 'fighting': 'fist',
+              'normal': 'type_normal', 'poison': 'type_poison',
+              'ground': 'type_ground', 'flying': 'type_flying',
+              'psychic': 'type_psychic', 'bug': 'type_bug',
+              'ghost': 'type_ghost', 'dragon': 'type_dragon',
+              'dark': 'type_dark', 'steel': 'type_steel',
+              'fairy': 'type_fairy'}
+
+
+def types_str(gid, types: list) -> str:
+    """Types with custom emoji where deployed, plain text fallback."""
+    out = []
+    for t in (types or ['?']):
+        e = em(gid, TYPE_EMOJI.get(t, ''))
+        out.append(f'{e} {t}' if e else t)
+    return '/'.join(out)
+
+
+def move_str(gid, mv: dict) -> str:
+    e = em(gid, TYPE_EMOJI.get(mv.get('ptype', ''), ''))
+    base = f"{mv['name']}({mv['power']})"
+    return f'{e} {base}' if e else base
+
+
 def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict) -> bytes:
     """Game-style pixel battle: grass arena, platforms, nearest-neighbor
     pixel sprites, classic status boxes with HP bars."""
@@ -715,7 +740,7 @@ class Pokemon(commands.Cog):
                     view = self._layout(
                         message.guild.id, t(message.guild.id, 'eco.pk_wild_title', level=level),
                         t(message.guild.id, 'eco.pk_autospawn',
-                          types='/'.join(row['types'] or ['?'])),
+                          types=types_str(gid, row["types"])),
                         'attachment://who.png')
                     await message.channel.send(
                         view=view, file=discord.File(_bio.BytesIO(sil), 'who.png'))
@@ -723,7 +748,7 @@ class Pokemon(commands.Cog):
                     view = self._layout(
                         message.guild.id, t(message.guild.id, 'eco.pk_wild_title', level=level),
                         t(message.guild.id, 'eco.pk_autospawn',
-                          types='/'.join(row['types'] or ['?'])))
+                          types=types_str(gid, row["types"])))
                     await message.channel.send(view=view)
             except Exception:
                 self._wild.pop((gid, cid), None)
@@ -830,7 +855,7 @@ class Pokemon(commands.Cog):
                 import io as _bio
                 view = self._layout(gid, t(gid, 'eco.pk_wild_title', level=level),
                                     t(gid, 'eco.pk_mystery',
-                                      types='/'.join(row['types'] or ['?'])) +
+                                      types=types_str(gid, row["types"])) +
                                     (('\n🧪 ' + t(gid, 'eco.pk_incensed')) if inc else ''),
                                     'attachment://who.png')
                 self._attach_enc_buttons(view, gid, ctx.author.id)
@@ -846,7 +871,7 @@ class Pokemon(commands.Cog):
             flags += '\n🧪 ' + t(gid, 'eco.pk_repelled')
         view = await self._mage(gid, t(gid, 'eco.pk_wild_title', level=level),
                                 t(gid, 'eco.pk_wild', name=name,
-                                  types='/'.join(row['types'] or ['?']),
+                                  types=types_str(gid, row["types"]),
                                   hint=t(gid, 'eco.pk_wild_hint')) + flags, pix)
         self._attach_enc_buttons(view, gid, ctx.author.id)
         await ctx.reply(view=view, mention_author=False)
@@ -1251,11 +1276,11 @@ class Pokemon(commands.Cog):
         nxt = XP_NEXT(m['level'])
         spr = (row.get('sprite') or '').split('|')
         img = spr[1] if m['shiny'] and len(spr) > 1 else spr[0]
-        desc = t(gid, 'eco.pk_info', level=m['level'], types='/'.join(row['types'] or ['?']),
+        desc = t(gid, 'eco.pk_info', level=m['level'], types=types_str(gid, row["types"]),
                  hp=stats['maxhp'], atk=stats['atk'], dfn=stats['dfn'],
                  spa=stats['spa'], spd=stats['spd'], spe=stats['spe'],
                  xp=m['xp'], nxt=nxt,
-                 moves=', '.join(f"{x['name']}({x['power']})" for x in moves))
+                 moves=', '.join(move_str(gid, x) for x in moves))
         await ctx.reply(view=await self._mage(gid, mon_name(m), desc, img))
 
     @commands.command(name='active', description='Wybierz wojownika')
@@ -1883,14 +1908,14 @@ class Pokemon(commands.Cog):
                 if sil:
                     view = self._layout(
                         gid, t(gid, 'eco.pk_wild_title', level=level),
-                        t(gid, 'eco.pk_autospawn', types='/'.join(row['types'] or ['?'])),
+                        t(gid, 'eco.pk_autospawn', types=types_str(gid, row["types"])),
                         'attachment://who.png')
                     await ctx.reply(view=view, file=discord.File(_bio.BytesIO(sil), 'who.png'),
                                     mention_author=False)
                 else:
                     await ctx.reply(view=self._layout(
                         gid, t(gid, 'eco.pk_wild_title', level=level),
-                        t(gid, 'eco.pk_autospawn', types='/'.join(row['types'] or ['?'])),
+                        t(gid, 'eco.pk_autospawn', types=types_str(gid, row["types"])),
                         spr), mention_author=False)
             except Exception:
                 self._wild.pop((str(gid), str(ctx.channel.id)), None)
