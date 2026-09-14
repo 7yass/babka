@@ -477,28 +477,45 @@ async def fetch_sprite(session, url: str):
     return None
 
 
+def pix_url(dex: int, shiny: bool = False, back: bool = False) -> str:
+    """Classic pixel sprites, no API call needed."""
+    base = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon'
+    if back:
+        return f'{base}/back/{"shiny/" if shiny else ""}{dex}.png'
+    return f'{base}/{"shiny/" if shiny else ""}{dex}.png'
+
+
 def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict) -> bytes:
-    """VS scene: sprites facing off with HP bars, names, levels."""
+    """Game-style pixel battle: grass arena, platforms, nearest-neighbor
+    pixel sprites, classic status boxes with HP bars."""
     import io as _io
     from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
     from pathlib import Path as _P
-    W, H = 900, 380
-    img = _Img.new('RGB', (W, H), (12, 12, 15))
+    W, H = 900, 420
+    img = _Img.new('RGB', (W, H), (24, 28, 40))
     d = _Dr.Draw(img)
+    for y in range(300):
+        tt = y / 300
+        d.line([(0, y), (W, y)],
+               fill=(int(24 + 10 * tt), int(28 + 26 * tt), int(40 + 30 * tt)))
+    for y in range(300, H):
+        tt = (y - 300) / (H - 300)
+        d.line([(0, y), (W, y)],
+               fill=(int(52 - 12 * tt), int(110 - 24 * tt), int(66 - 14 * tt)))
+    d.ellipse([40, 292, 400, 318], fill=(38, 84, 50), outline=(30, 66, 40), width=3)
+    d.ellipse([500, 200, 860, 226], fill=(38, 84, 50), outline=(30, 66, 40), width=3)
+    d.ellipse([52, 296, 388, 312], fill=(48, 100, 60))
+    d.ellipse([512, 204, 848, 220], fill=(48, 100, 60))
     try:
         _a = _P(__file__).parent.parent / 'assets'
-        f_big = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 30)
-        f_mid = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 22)
-        f_hp = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 18)
+        f_mid = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 20)
+        f_hp = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 17)
     except Exception:
-        f_big = f_mid = f_hp = _F.load_default()
+        f_mid = f_hp = _F.load_default()
 
-    def _paste(raw, box, flip=False):
-        x, y, s = box
+    def _paste(raw, x, y, s):
         try:
-            sp = _Img.open(_io.BytesIO(raw)).convert('RGBA').resize((s, s))
-            if flip:
-                sp = sp.transpose(_Img.FLIP_LEFT_RIGHT)
+            sp = _Img.open(_io.BytesIO(raw)).convert('RGBA').resize((s, s), _Img.NEAREST)
             canvas = img.convert('RGBA')
             canvas.paste(sp, (x, y), sp)
             img.paste(canvas.convert('RGB'))
@@ -506,35 +523,37 @@ def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict) -> bytes:
         except Exception:
             return False
 
-    def _plate(x, y, s):
-        d.ellipse([x - 8, y + s - 46, x + s + 8, y + s - 18], fill=(28, 28, 33),
-                  outline=(70, 70, 78), width=2)
-
-    _plate(70, 60, 220)
-    _plate(610, 60, 220)
     if p1_img:
-        _paste(p1_img, (70, 60, 220), flip=True)
+        _paste(p1_img, 110, 96, 200)
     else:
-        d.ellipse([70, 60, 290, 280], outline=(90, 90, 98), width=3)
+        d.ellipse([110, 96, 310, 296], outline=(90, 90, 98), width=3)
     if p2_img:
-        _paste(p2_img, (610, 60, 220))
+        _paste(p2_img, 600, 8, 190)
     else:
-        d.ellipse([610, 60, 830, 280], outline=(90, 90, 98), width=3)
-    try:
-        vw = d.textlength('VS', font=f_big)
-        d.text(((W - vw) / 2, 150), 'VS', font=f_big, fill=(250, 200, 60))
-    except Exception:
-        d.text((430, 150), 'VS', font=f_big, fill=(250, 200, 60))
+        d.ellipse([600, 8, 790, 198], outline=(90, 90, 98), width=3)
 
-    def _bar(x, y, w, frac, name, level):
-        d.text((x, y), f'{name[:16]} Lv{level}', font=f_mid, fill=(255, 255, 255))
-        d.rounded_rectangle([x, y + 32, x + w, y + 46], radius=7, fill=(42, 42, 46))
-        fw = max(14, int(w * max(0.0, min(1.0, frac))))
+    def _statusbox(x, y, name, level, frac, hp_txt):
+        bw, bh = 300, 78
+        d.rounded_rectangle([x, y, x + bw, y + bh], radius=10, fill=(16, 18, 24),
+                            outline=(250, 200, 60), width=2)
+        d.text((x + 14, y + 8), f'{name[:15]}  Lv{level}', font=f_mid, fill=(255, 255, 255))
+        bx, by, bw2 = x + 14, y + 38, bw - 28
+        d.rounded_rectangle([bx, by, bx + bw2, by + 14], radius=7, fill=(66, 44, 40))
+        fw = max(12, int(bw2 * max(0.0, min(1.0, frac))))
         col = (87, 242, 135) if frac > 0.5 else ((250, 200, 60) if frac > 0.2 else (255, 90, 90))
-        d.rounded_rectangle([x, y + 32, x + fw, y + 46], radius=7, fill=col)
+        d.rounded_rectangle([bx, by, bx + fw, by + 14], radius=7, fill=col)
+        try:
+            w = d.textlength(hp_txt, font=f_hp)
+            d.text((x + bw - w - 12, y + 56), hp_txt, font=f_hp, fill=(220, 220, 225))
+        except Exception:
+            pass
 
-    _bar(70, 292, 300, p1['hp'] / max(1, p1['stats']['maxhp']), p1['name'], p1['level'])
-    _bar(530, 292, 300, p2['hp'] / max(1, p2['stats']['maxhp']), p2['name'], p2['level'])
+    _statusbox(560, 316, p2['name'], p2['level'],
+               p2['hp'] / max(1, p2['stats']['maxhp']),
+               f"{p2['hp']}/{p2['stats']['maxhp']}")
+    _statusbox(40, 316, p1['name'], p1['level'],
+               p1['hp'] / max(1, p1['stats']['maxhp']),
+               f"{p1['hp']}/{p1['stats']['maxhp']}")
     buf = _io.BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()
@@ -616,9 +635,7 @@ class Pokemon(commands.Cog):
             self._wild[(gid, cid)] = {'dex': dex, 'level': level, 'shiny': shiny,
                                       'hp': stats['maxhp'], 'maxhp': stats['maxhp'],
                                       'exp': int(time.time()) + ENC_TTL}
-            spr = (row.get('sprite') or '').split('|')
-            img = spr[1] if shiny and len(spr) > 1 else spr[0]
-            raw = await fetch_sprite(s, img)
+            raw = await fetch_sprite(s, pix_url(dex, shiny))
             sil = silhouette_image(raw) if raw else None
             import io as _bio
             try:
@@ -730,8 +747,9 @@ class Pokemon(commands.Cog):
                           'exp': int(time.time()) + ENC_TTL}
         spr = (row.get('sprite') or '').split('|')
         img = spr[1] if shiny and len(spr) > 1 else spr[0]
+        pix = pix_url(dex, shiny)
         if mystery:
-            raw = await fetch_sprite(s, img)
+            raw = await fetch_sprite(s, pix)
             sil = silhouette_image(raw) if raw else None
             if sil:
                 import io as _bio
@@ -750,7 +768,7 @@ class Pokemon(commands.Cog):
                                 t(gid, 'eco.pk_wild', name=name,
                                   types='/'.join(row['types'] or ['?']),
                                   hint=t(gid, 'eco.pk_wild_hint')) +
-                                (('\n🧪 ' + t(gid, 'eco.pk_incensed')) if inc else ''), img)
+                                (('\n🧪 ' + t(gid, 'eco.pk_incensed')) if inc else ''), pix)
         self._attach_enc_buttons(view, gid, ctx.author.id)
         await ctx.reply(view=view, mention_author=False)
 
@@ -1655,10 +1673,8 @@ class Pokemon(commands.Cog):
             me = await self._fighter(s, act)
             wild = await self._fighter(s, {'dex': e['dex'], 'level': e['level'],
                                            'shiny': e['shiny'], 'nick': ''})
-            me_spr = await fetch_sprite(s, (me['row'].get('sprite') or '').split('|')[0])
-            w_spr = (wild['row'].get('sprite') or '').split('|')
-            wild_spr = await fetch_sprite(
-                s, w_spr[1] if wild['shiny'] and len(w_spr) > 1 else w_spr[0])
+            me_spr = await fetch_sprite(s, pix_url(me['dex'], bool(me['shiny']), back=True))
+            wild_spr = await fetch_sprite(s, pix_url(e['dex'], bool(wild['shiny'])))
         wild['hp'] = e['hp']
         key = (str(gid), str(user.id))
         self._battle[key] = {'me': me, 'wild': wild, 'mid': act['id'], 'log': [],
@@ -1971,12 +1987,12 @@ class Pokemon(commands.Cog):
                 f = await self._fighter(s, m)
                 f1.append(f)
                 m1.append(m['id'])
-                s1.append(await fetch_sprite(s, (f['row'].get('sprite') or '').split('|')[0]))
+                s1.append(await fetch_sprite(s, pix_url(f['dex'], bool(f['shiny']), back=True)))
             for m in t2:
                 f = await self._fighter(s, m)
                 f2.append(f)
                 m2.append(m['id'])
-                s2.append(await fetch_sprite(s, (f['row'].get('sprite') or '').split('|')[0]))
+                s2.append(await fetch_sprite(s, pix_url(f['dex'], bool(f['shiny']))))
         key = (str(gid), str(u1.id), str(u2.id))
         self._battle[key] = {'duel': True, 't1': f1, 't2': f2, 'm1': m1, 'm2': m2,
                              'i1': 0, 'i2': 0, 's1': s1, 's2': s2,
@@ -2273,7 +2289,7 @@ class Pokemon(commands.Cog):
                 f = await self._fighter(s, m)
                 f1.append(f)
                 m1.append(m['id'])
-                s1.append(await fetch_sprite(s, (f['row'].get('sprite') or '').split('|')[0]))
+                s1.append(await fetch_sprite(s, pix_url(f['dex'], bool(f['shiny']), back=True)))
             f2, s2, awaited = [], [], None
             for _ in range(size):
                 for _try in range(12):
@@ -2290,7 +2306,7 @@ class Pokemon(commands.Cog):
                     s, {'dex': dex, 'level': max(1, lv + random.randint(-3, 3)),
                         'shiny': 0, 'nick': ''})
                 f2.append(f)
-                s2.append(await fetch_sprite(s, (f['row'].get('sprite') or '').split('|')[0]))
+                s2.append(await fetch_sprite(s, pix_url(f['dex'], bool(f['shiny']))))
         if not f2:
             return await ctx.reply(t(gid, 'eco.pk_api'), ephemeral=True)
         bkey = (str(gid), str(user.id), f'npc:{key}')
