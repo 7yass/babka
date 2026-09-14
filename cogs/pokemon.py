@@ -28,7 +28,7 @@ POTIONS = {
     'superpotion': (3000, 1.0),
 }
 STARTERS = {'bulbasaur': 1, 'charmander': 4, 'squirtle': 7,
-            'pikachu': 25, 'eevee': 133}
+            'pikachu': 25, 'eevee': 133, 'turtwig': 387}
 
 # PokeTwo-style regions + quest tracks (catch milestones per region)
 REGIONS = {'kanto': (1, 151), 'johto': (152, 251),
@@ -1182,10 +1182,12 @@ class Pokemon(commands.Cog):
             else [(wild, me, False), (me, wild, True)]
         for att, dfn, is_me in order:
             mv = random.choice(att['moves'])
-            dmg = damage(att['level'], mv, att['stats'], dfn['stats'], att['types'], dfn['types'])
+            dmg, crit = damage(att['level'], mv, att['stats'], dfn['stats'], att['types'], dfn['types'])
             dfn['hp'] = max(0, dfn['hp'] - dmg)
             eff = effectiveness(mv.get('ptype', 'normal'), dfn['types'])
             tag = ' 💥' if eff > 1 else (' 🛡' if eff < 1 else '')
+            if crit:
+                tag += ' ✨CRIT'
             who = t(gid, 'eco.pk_you') if is_me else t(gid, 'eco.pk_foe')
             log.append(t(gid, 'eco.pk_hit', who=who, move=mv['name'], dmg=dmg) + tag)
             if dfn['hp'] <= 0:
@@ -1272,10 +1274,11 @@ class Pokemon(commands.Cog):
         for _ in range(60):
             for att, dfn in ((first, second), (second, first)):
                 mv = random.choice(att['moves'])
-                dmg = damage(att['level'], mv, att['stats'], dfn['stats'], att['types'], dfn['types'])
+                dmg, crit = damage(att['level'], mv, att['stats'], dfn['stats'], att['types'], dfn['types'])
                 dfn['hp'] = max(0, dfn['hp'] - dmg)
                 if len(log) < 9:
-                    log.append(t(gid, 'eco.pk_hit', who=att['name'], move=mv['name'], dmg=dmg))
+                    log.append(t(gid, 'eco.pk_hit', who=att['name'], move=mv['name'], dmg=dmg)
+                               + (' ✨CRIT' if crit else ''))
                 if dfn['hp'] <= 0:
                     winner = att
                     break

