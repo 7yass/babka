@@ -1327,6 +1327,46 @@
       [],
       "100",
       "Everyone"
+    ],
+    "achievements": [
+      "economy",
+      "Auto-awarded badges (level, cash, shifts, fame). Shown on your profile card.",
+      [
+        "badges",
+        "ach"
+      ],
+      "[@user]",
+      "Everyone"
+    ],
+    "stocks": [
+      "economy",
+      "Fake stock exchange: 6 joke stocks, prices drift every 15 min + every view.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "stockbuy": [
+      "economy",
+      "Buy shares with cash: .stockbuy <SYM> <cash>. Buys whole shares only.",
+      [],
+      "<SYM> <cash>",
+      "Everyone"
+    ],
+    "stocksell": [
+      "economy",
+      "Sell shares for current price with P/L shown: .stocksell <SYM> <qty|all>.",
+      [],
+      "<SYM> <qty|all>",
+      "Everyone"
+    ],
+    "portfolio": [
+      "economy",
+      "Your holdings with live value and P/L.",
+      [
+        "portfel"
+      ],
+      "",
+      "Everyone"
     ]
   },
   "cats": {

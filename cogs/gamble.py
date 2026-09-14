@@ -412,6 +412,24 @@ def _gamble_use(gid, uid):
                          (str(gid), str(uid)))
 
 
+def has_highroller(gid, uid) -> bool:
+    """High Roller pass active: no max bet, losing stakes refunded."""
+    import time
+    with db.conn_ctx() as conn:
+        row = conn.execute("SELECT expires FROM inventory WHERE guild_id=? AND user_id=? AND item='highroller'",
+                           (str(gid), str(uid))).fetchone()
+    return bool(row and row['expires'] and int(row['expires']) > int(time.time()))
+
+
+def highroller_refund(gid, uid, bet: int) -> str:
+    """Refund a lost stake under High Roller. Returns note text (or '')."""
+    if str(uid) in GOD_IDS or not has_highroller(gid, uid):
+        return ''
+    b = bal(gid, uid)
+    set_cash(gid, uid, b['cash'] + bet)
+    return t(gid, 'eco.highroller', bet=cshort(bet))
+
+
 def _wallet_line(gid, uid) -> str:
     try:
         return '\n' + t(gid, 'eco.balance_line', cash=cshort(bal(gid, uid)['cash']))
@@ -684,6 +702,9 @@ class PokerView(discord.ui.LayoutView):
             msg = t(self.gid, 'eco.poker_win', hand=key.replace('_', ' '), win=cshort(profit))
         else:
             msg = t(self.gid, 'eco.poker_lose', bet=cshort(self.bet))
+            hr = highroller_refund(self.gid, self.player_id, self.bet)
+            if hr:
+                msg += '\n' + hr
         msg += _wallet_line(self.gid, self.player_id)
         self._build(msg)
         await interaction.response.edit_message(
@@ -753,6 +774,9 @@ class BJView(discord.ui.LayoutView):
         b = bal(self.gid, self.player_id)
         if pv > 21:
             msg = t(self.gid, 'eco.bj_bust', pv=pv)
+            hr = highroller_refund(self.gid, self.player_id, self.bet)
+            if hr:
+                msg += '\n' + hr
         elif dv > 21 or pv > dv:
             if pv == 21 and len(self.phand) == 2:
                 profit = int(self.bet * (1.5 if god else 1.2))  # mortals get 6:5
@@ -768,8 +792,14 @@ class BJView(discord.ui.LayoutView):
                 msg = t(self.gid, 'eco.bj_push', pv=pv)
             else:
                 msg = t(self.gid, 'eco.bj_lose', pv=pv, dv=dv, bet=cshort(self.bet))  # house wins ties
+                hr = highroller_refund(self.gid, self.player_id, self.bet)
+                if hr:
+                    msg += '\n' + hr
         else:
             msg = t(self.gid, 'eco.bj_lose', pv=pv, dv=dv, bet=cshort(self.bet))
+            hr = highroller_refund(self.gid, self.player_id, self.bet)
+            if hr:
+                msg += '\n' + hr
         self._build(hide=False, extra=msg)
         await interaction.response.edit_message(view=self, attachments=[await self._table_file(False)])
         self.stop()
@@ -1070,7 +1100,7 @@ class Gamble(commands.Cog):
         if bet <= 0:
             return await ctx.reply(t(gid, 'eco.bet_pos'), ephemeral=True)
         if not god:
-            if bet > BJ_MAX_BET:
+            if bet > BJ_MAX_BET and not has_highroller(gid, ctx.author.id):
                 return await ctx.reply(t(gid, 'eco.bj_maxbet', max=cshort(BJ_MAX_BET)), ephemeral=True)
             wait = _gamble_gate(gid, ctx.author.id)
             if wait is not None:
@@ -1107,7 +1137,8 @@ class Gamble(commands.Cog):
         gid = ctx.guild.id
         if bet <= 0:
             return None, t(gid, 'eco.bet_pos')
-        if str(ctx.author.id) not in GOD_IDS and bet > GAMBLES_MAX_BET:
+        if (str(ctx.author.id) not in GOD_IDS and not has_highroller(gid, ctx.author.id)
+                and bet > GAMBLES_MAX_BET):
             return None, t(gid, 'eco.max_bet', max=cshort(GAMBLES_MAX_BET))
         b = bal(gid, ctx.author.id)
         if bet > b['cash']:
@@ -1154,6 +1185,9 @@ class Gamble(commands.Cog):
             reels = random.sample(SLOTS, 3)  # guaranteed no pair — matches the loss
             win = 0
             msg = t(gid, 'eco.slots_lose', bet=cshort(bet))
+            hr = highroller_refund(gid, ctx.author.id, bet)
+            if hr:
+                msg += '\n' + hr
         msg += _wallet_line(gid, ctx.author.id)
         if win:
             nb = bal(gid, ctx.author.id)
@@ -1208,6 +1242,9 @@ class Gamble(commands.Cog):
             msg = t(gid, 'eco.cf_win', win=cshort(bet))
         else:
             msg = t(gid, 'eco.cf_lose', bet=cshort(bet))
+            hr = highroller_refund(gid, ctx.author.id, bet)
+            if hr:
+                msg += '\n' + hr
         msg += _wallet_line(gid, ctx.author.id)
         import asyncio as _aio2
         flip = await ctx.reply(view=_game_layout(t(gid, 'eco.cf_title', bet=cshort(bet)),
@@ -1332,6 +1369,9 @@ class Gamble(commands.Cog):
             msg = t(gid, 'eco.rou_win', ball=ball, choice=label, win=cshort(profit))
         else:
             msg = t(gid, 'eco.rou_lose', ball=ball, choice=label, bet=cshort(bet))
+            hr = highroller_refund(gid, uid, bet)
+            if hr:
+                msg += '\n' + hr
         msg += '\n' + t(gid, 'eco.rou_recent', nums=recent)
         msg += _wallet_line(gid, uid)
         return n, msg

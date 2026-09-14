@@ -492,6 +492,12 @@ class Jobs(commands.Cog):
                 await sync_job_role(ctx.guild, ctx.author, key, title)
             except Exception:
                 pass
+            try:
+                from cogs.achievements import maybe_award, BADGES as _B
+                for _ak in maybe_award(gid, ctx.author.id):
+                    extra += '\n' + t(gid, 'eco.ach_unlock', emoji=_B[_ak][0], name=_B[_ak][2])
+            except Exception:
+                pass
             msg = t(gid, 'eco.work_done', job=f"{job['label']}: {flavor}", pay=cshort(pay))
             if extra.strip():
                 msg += '\n' + extra.strip()

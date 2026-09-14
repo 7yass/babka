@@ -64,6 +64,8 @@ COGS = [
     'cogs.shop',
     'cogs.crime',
     'cogs.profile',
+    'cogs.achievements',
+    'cogs.stocks',
 ]
 
 

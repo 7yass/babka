@@ -13,11 +13,12 @@ def profile_card(name: str, level: int, xp: int, need: int, rank: int,
                  tier_name: str, stars: int, tier_color: tuple,
                  cash: int, bank: int, streak: int,
                  job_txt: str, role_txt: str, is_staff: bool,
+                 badges: list = None,
                  avatar_bytes: bytes = None, bg_bytes: bytes = None) -> bytes:
     import io as _io
     from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F, ImageFilter as _Fl
     from pathlib import Path as _P
-    W, H = 900, 430
+    W, H = 900, 478
     GOLD = (250, 200, 60)
     INK = (255, 255, 255)
     FAINT = (96, 96, 104)
@@ -45,9 +46,11 @@ def profile_card(name: str, level: int, xp: int, need: int, rank: int,
         f_lab = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 15)
         f_val = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 26)
         f_sub = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 22)
+        f_badge = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 13)
         f_xp = _F.truetype(str(_a / 'DejaVuSans.ttf'), 17)
     except Exception:
         f_name = f_pill = f_lab = f_val = f_sub = f_xp = _F.load_default()
+        f_badge = f_xp
 
     def tracked(xy, text, font, fill, tracking=3):
         x, y = xy
@@ -143,8 +146,26 @@ def profile_card(name: str, level: int, xp: int, need: int, rank: int,
     tracked((dx + half, 296), 'TOP ROLE', f_lab, FAINT)
     d.text((dx + half, 318), fit(role_txt, f_sub, W - 40 - (dx + half)), font=f_sub, fill=INK)
 
+    # badges strip
+    tracked((dx, 350), 'BADGES', f_lab, FAINT)
+    _bx = dx
+    for _b in (badges or [])[:5]:
+        try:
+            _tw = d.textlength(_b, font=f_badge) + 18
+        except Exception:
+            _tw = len(_b) * 8 + 18
+        if _bx + _tw > W - 120:
+            break
+        d.rounded_rectangle([_bx, 368, _bx + _tw, 368 + 24], radius=12,
+                            outline=(250, 200, 60), width=1, fill=(26, 24, 16))
+        d.text((_bx + 9, 372), _b, font=f_badge, fill=(250, 200, 60))
+        _bx += _tw + 8
+    _extra = len(badges or []) - 5
+    if _extra > 0:
+        d.text((_bx, 372), f'+{_extra}', font=f_badge, fill=DIM)
+
     # xp bar
-    bx, bw, bh, by = dx, W - dx - 40, 12, 372
+    bx, bw, bh, by = dx, W - dx - 40, 12, 420
     d.rounded_rectangle([bx, by, bx + bw, by + bh], radius=bh // 2, fill=(42, 42, 46))
     fw = max(bh, int(bw * max(0.0, min(1.0, xp / need if need else 0))))
     bar = _Img.new('RGB', (fw, bh), (240, 240, 246))
@@ -154,7 +175,7 @@ def profile_card(name: str, level: int, xp: int, need: int, rank: int,
     kx = bx + fw - bh // 2
     d.ellipse([kx - bh // 2, by - 3, kx + bh // 2, by + bh + 3],
               fill=(255, 255, 255), outline=(30, 30, 34), width=2)
-    d.text((W - 40, 350), f'{cshort(xp)} / {cshort(need)} XP', font=f_xp, fill=DIM, anchor='ra')
+    d.text((W - 40, 398), f'{cshort(xp)} / {cshort(need)} XP', font=f_xp, fill=DIM, anchor='ra')
 
     buf = _io.BytesIO()
     img.save(buf, 'PNG')
@@ -175,7 +196,12 @@ class Profile(commands.Cog):
         from cogs.levels import get_user, get_rank, xp_needed, TIER_COLORS, _tier_key
         from cogs.gamble import bal
         from cogs.jobs import get_job, JOBS, JOB_ALIAS, job_title, ladder_of
+        from cogs.achievements import badge_shorts, maybe_award
         from utils.cards import tier_for, get_tier_names
+        try:
+            maybe_award(gid, member.id)
+        except Exception:
+            pass
 
         data = get_user(gid, member.id)
         rank = get_rank(gid, member.id)
@@ -195,6 +221,10 @@ class Profile(commands.Cog):
         roles.sort(key=lambda r: r.position, reverse=True)
         role_txt = roles[0].name if roles else '—'
         is_staff = any(str(r.id) == STAFF_ROLE_ID for r in getattr(member, 'roles', []))
+        try:
+            badges = badge_shorts(gid, member.id)
+        except Exception:
+            badges = []
 
         async def grab(session, url):
             try:
@@ -224,7 +254,7 @@ class Profile(commands.Cog):
             data['level'], data['xp'], need, rank,
             tier_name, stars, tier_color,
             b['cash'], b.get('bank') or 0, b.get('daily_streak') or 0,
-            job_txt, role_txt, is_staff, avatar, banner)
+            job_txt, role_txt, is_staff, badges, avatar, banner)
         await ctx.reply(file=discord.File(__import__('io').BytesIO(png), 'profile.png'),
                         mention_author=False)
 

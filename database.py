@@ -339,6 +339,21 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS fit_links (
             guild_id TEXT NOT NULL, u1 TEXT NOT NULL, u2 TEXT NOT NULL,
             PRIMARY KEY (guild_id, u1))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS achievements (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, akey TEXT NOT NULL,
+            unlocked_at INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, akey))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS stocks (
+            guild_id TEXT NOT NULL, symbol TEXT NOT NULL, price INTEGER DEFAULT 100,
+            updated_at INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, symbol))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS stock_hist (
+            guild_id TEXT NOT NULL, symbol TEXT NOT NULL, price INTEGER DEFAULT 0,
+            ts INTEGER DEFAULT 0)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS portfolio (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, symbol TEXT NOT NULL,
+            qty INTEGER DEFAULT 0, spent INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, symbol))''')
         c.execute('''CREATE TABLE IF NOT EXISTS suggest_cfg (
             guild_id TEXT PRIMARY KEY, panel_channel TEXT,
             panel_message TEXT, inbox_channel TEXT)''')

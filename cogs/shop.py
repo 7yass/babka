@@ -21,6 +21,7 @@ ITEMS = {
     'curse': {'price': 400000, 'use': 'shop.u_curse'},
     'megabox': {'price': 400000, 'use': 'shop.u_megabox'},
     'force': {'price': 500000, 'use': 'shop.u_force'},
+    'highroller': {'price': 2000000, 'use': 'shop.u_highroller'},
     'bail': {'price': 40000, 'use': 'shop.u_bail'},
     'vip': {'price': 5000000, 'use': 'shop.u_vip'},
 }
@@ -31,6 +32,7 @@ BUY_MAP = {
     'xpboost': ('xpboost', 24 * 3600),
     'shield': ('shield', 24 * 3600),
     'curse': ('curse', 0),
+    'highroller': ('highroller', 10 * 60),
 }
 BAIL_COST = 40000
 VIP_ROLE = 'Babka VIP'
@@ -81,7 +83,7 @@ class Shop(commands.Cog):
         ('Power', ['xpboost']),
         ('Boxes', ['lootbox', 'megabox']),
         ('Freedom', ['bail']),
-        ('Prestige', ['vip']),
+        ('Prestige', ['highroller', 'vip']),
     ]
 
     def _shop_layout(self, gid, uid, cash: int):
@@ -202,6 +204,11 @@ class Shop(commands.Cog):
         inv_item, dur = BUY_MAP[item]
         exp = int(time.time()) + dur if dur else 0
         inv_add(gid, ctx.author.id, inv_item, 1, exp)
+        try:
+            from cogs.achievements import maybe_award
+            maybe_award(gid, ctx.author.id)
+        except Exception:
+            pass
         await ctx.reply(t(gid, 'shop.bought', item=item), ephemeral=True)
 
     # (cash_lo, cash_hi, weight) normal prizes per box; then item/jackpot rolls.
