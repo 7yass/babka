@@ -6,7 +6,7 @@ import discord
 from discord.ext import commands, tasks
 
 import database as db
-from lang import t
+from lang import t, set_ctx_lang
 from utils.embeds import WHITE, ok
 from utils.checks import staff_or
 from utils.common import parse_duration
@@ -90,6 +90,7 @@ class Polls(commands.Cog):
 
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
+        set_ctx_lang(interaction.user)
         if interaction.type != discord.InteractionType.component:
             return
         cid = interaction.data.get('custom_id', '')

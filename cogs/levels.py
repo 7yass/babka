@@ -598,7 +598,7 @@ class Levels(commands.Cog):
             custom_bg = _BG_CACHE[style['bg_url']][1]
         card = await self.bot.loop.run_in_executor(
             None, rank_card, member, data, get_rank(ctx.guild.id, member.id),
-            __import__('lang').get_lang(ctx.guild.id), avatar, None, accent, style, custom_bg, names)
+            __import__('lang').cur_lang(ctx.guild.id), avatar, None, accent, style, custom_bg, names)
         await ctx.reply(file=card, mention_author=False)
 
     @commands.hybrid_command(name='leaderboard', description='Ranking XP', aliases=['lb', 'top'])

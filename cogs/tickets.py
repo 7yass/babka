@@ -11,7 +11,7 @@ import discord
 from discord.ext import commands, tasks
 
 import database as db
-from lang import t
+from lang import t, set_ctx_lang
 from utils.embeds import WHITE, foot, ok
 from utils.checks import staff_or, is_staff
 
@@ -82,6 +82,7 @@ def control_view() -> discord.ui.View:
 
 
 async def _safe_open(interaction: discord.Interaction, type_id=None):
+    set_ctx_lang(interaction.user)
     """open_ticket wrapper: never let Discord see a silent timeout."""
     try:
         return await open_ticket(interaction, type_id)
@@ -96,6 +97,7 @@ async def _safe_open(interaction: discord.Interaction, type_id=None):
 
 
 async def open_ticket(interaction: discord.Interaction, type_id=None):
+    set_ctx_lang(interaction.user)
     gid = interaction.guild_id
     c = cfg(gid)
     if not c.get('category_id'):
@@ -233,6 +235,7 @@ class AddModal(discord.ui.Modal):
         self.add_item(self.uid)
 
     async def on_submit(self, interaction: discord.Interaction):
+        set_ctx_lang(interaction.user)
         gid = interaction.guild_id
         raw = self.uid.value.strip().strip('<@!>')
         member = interaction.guild.get_member(int(raw)) if raw.isdigit() else None
@@ -294,6 +297,7 @@ class Tickets(commands.Cog):
 
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
+        set_ctx_lang(interaction.user)
         gid = interaction.guild_id
         if interaction.type == discord.InteractionType.modal_submit:
             if (interaction.data.get('custom_id') or '') == 'tix_add_modal':

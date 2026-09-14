@@ -60,9 +60,16 @@ def set_lang(guild_id, lang: str):
 
 
 def t(guild_id, key: str, **vars) -> str:
-    member = _ctx_member.get()
-    lang = resolve_lang(guild_id, member) if member is not None else get_lang(guild_id)
+    lang = cur_lang(guild_id)
     s = (STR.get(lang) or {}).get(key, STR['en'].get(key, key))
     for k, v in vars.items():
         s = s.replace('{' + k + '}', str(v))
     return s
+
+
+def cur_lang(guild_id) -> str:
+    """Context-aware language: pinned member roles win, else server lang."""
+    member = _ctx_member.get()
+    if member is not None:
+        return resolve_lang(guild_id, member)
+    return get_lang(guild_id)

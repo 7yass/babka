@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 
 import database as db
-from lang import t, STR, get_lang
+from lang import t, STR, get_lang, cur_lang, set_ctx_lang
 
 META = json.loads((Path(__file__).parent.parent / 'helpmeta.json').read_text(encoding='utf-8'))
 COMMAND_META = META['meta']       # name -> [module, desc_en, aliases, example, perms, slashonly]
@@ -24,7 +24,7 @@ PERM_PL = {'Everyone': 'Wszyscy', 'Manage Server': 'Zarządzanie serwerem', 'Adm
 
 
 def L(gid, key, fallback):
-    lang = get_lang(gid)
+    lang = cur_lang(gid)
     return (STR.get(lang) or {}).get(key, fallback)
 
 
@@ -79,7 +79,7 @@ def command_layout(gid, author, name, prefix):
         code = f"{t(gid, 'hc.syntax')}  {usage} {example}\n" + (f"{t(gid, 'hc.example')} {usage} {clean}" if clean else '')
     else:
         code = f"{t(gid, 'hc.syntax')}  {usage}"
-    if get_lang(gid) == 'pl':
+    if cur_lang(gid) == 'pl':
         module = MOD_PL.get(module, module)
         perms = PERM_PL.get(perms, perms)
     else:
@@ -112,6 +112,7 @@ class HelpSelect(discord.ui.Select):
                 pass
 
     async def _run(self, interaction: discord.Interaction):
+        set_ctx_lang(interaction.user)
         invoker_id = getattr(self.view, 'invoker_id', None)
         if interaction.user.id != invoker_id:
             return await interaction.response.send_message(t(interaction.guild_id, 'hc.notyours'), ephemeral=True)

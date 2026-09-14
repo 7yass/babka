@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands, tasks
 
 import database as db
-from lang import t
+from lang import t, set_ctx_lang
 from utils.embeds import WHITE, foot
 from utils.checks import staff_or
 from utils.common import log_to_mod
@@ -44,6 +44,7 @@ class CaptchaModal(discord.ui.Modal):
         self.add_item(self.q)
 
     async def on_submit(self, interaction: discord.Interaction):
+        set_ctx_lang(interaction.user)
         cfg = vcfg(self.gid)
         try:
             ok = int(self.q.value.strip()) == self.answer
@@ -112,6 +113,7 @@ class Verify(commands.Cog):
 
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
+        set_ctx_lang(interaction.user)
         if interaction.type != discord.InteractionType.component:
             return
         cid = interaction.data.get('custom_id', '')
