@@ -2061,6 +2061,21 @@ class Pokemon(commands.Cog):
         set_cash(gid, ctx.author.id, x['cash'] + row['amount'])
         await ctx.reply(t(gid, 'eco.pk_code_cash', win=cshort(row['amount'])), ephemeral=True)
 
+    @commands.command(name='phelp', description='Pomoc pokemon')
+    async def phelp(self, ctx):
+        gid = ctx.guild.id
+        secs = [
+            (t(gid, 'eco.pk_h_catch'), 'starter · hunt · pokemon · catch · guess · hint · balls'),
+            (t(gid, 'eco.pk_h_box'), 'box · mon · active · name · dex · release · releaseall · lock'),
+            (t(gid, 'eco.pk_h_battle'), 'battle · duel · npc · team · buddy · moves · candy'),
+            (t(gid, 'eco.pk_h_prog'), 'quests · target · checklist · shinyhunt · streaks · stats · trainers'),
+            (t(gid, 'eco.pk_h_trade'), 'trade · market · sell · buy · unlist · swap'),
+            (t(gid, 'eco.pk_h_extra'), 'eggs · hatch · move · items · list · code · evolve · grazz · repel'),
+        ]
+        body = '\n'.join(f'**{title}**\n`{cmds}`' for title, cmds in secs)
+        body += '\n' + t(gid, 'eco.pk_h_note')
+        await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_h_title'), body), ephemeral=True)
+
     # ----- battles -----
 
     async def _fighter(self, session, mon: dict, level: int = None):

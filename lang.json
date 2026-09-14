@@ -389,6 +389,14 @@
     "eco.pk_hunt_none": "No hunt target. `;shinyhunt <name>` to start a chain.",
     "eco.pk_hunt_status": "Hunting **{name}** — chain **{streak}**, shiny odds 1/{denom}.",
     "eco.pk_hunt_unknown": "Never seen `{name}`. Encounter it first, then hunt it.",
+    "eco.pk_h_title": "Pokemon guide",
+    "eco.pk_h_catch": "Catching",
+    "eco.pk_h_box": "Collection",
+    "eco.pk_h_battle": "Battles",
+    "eco.pk_h_prog": "Progress",
+    "eco.pk_h_trade": "Trading",
+    "eco.pk_h_extra": "Extras",
+    "eco.pk_h_note": "All on `;` prefix. `.help <command>` for detail.",
     "eco.pk_hunt_set": "Now hunting **{name}**. Chain reset — go catch.",
     "eco.pk_chain": "Chain x{n} — shiny odds rising.",
     "eco.pk_chain_reset": "SHINY! Chain reset.",
@@ -1465,6 +1473,14 @@
     "eco.pk_hunt_none": "Brak celu. `;shinyhunt <nazwa>` zaczyna łańcuch.",
     "eco.pk_hunt_status": "Polujesz na **{name}** — łańcuch **{streak}**, shiny 1/{denom}.",
     "eco.pk_hunt_unknown": "Nigdy nie widziałeś `{name}`. Najpierw spotkaj, potem poluj.",
+    "eco.pk_h_title": "Poradnik pokemon",
+    "eco.pk_h_catch": "Łapanie",
+    "eco.pk_h_box": "Kolekcja",
+    "eco.pk_h_battle": "Walki",
+    "eco.pk_h_prog": "Postęp",
+    "eco.pk_h_trade": "Wymiany",
+    "eco.pk_h_extra": "Dodatki",
+    "eco.pk_h_note": "Wszystko na prefixie `;`. `.help <komenda>` po detale.",
     "eco.pk_hunt_set": "Polujesz na **{name}**. Łańcuch zresetowany — łap.",
     "eco.pk_chain": "Łańcuch x{n} — szansa na shiny rośnie.",
     "eco.pk_chain_reset": "SHINY! Łańcuch zresetowany.",
@@ -2376,6 +2392,7 @@
     "hc_d_repel": "Repel 5k/30min: dzikie +50% levelu.",
     "hc_d_evolve": "Ręczna ewolucja.",
     "hc_d_streaks": "Twoje serie.",
-    "hc_d_code": "Kody eventowe: odbierz kasę/balle."
+    "hc_d_code": "Kody eventowe: odbierz kasę/balle.",
+    "hc_d_phelp": "Pełny poradnik komend pokemon."
   }
 }
