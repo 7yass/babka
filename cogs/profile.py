@@ -236,18 +236,28 @@ class Profile(commands.Cog):
                 return None
             return None
 
-        async with aiohttp.ClientSession() as session:
-            avatar_task = _aio.ensure_future(
-                grab(session, str(member.display_avatar.with_size(256).url)))
+        async def _fetch_all():
+            async with aiohttp.ClientSession() as session:
+                avatar_task = _aio.ensure_future(
+                    grab(session, str(member.display_avatar.with_size(256).url)))
+                try:
+                    u = await _aio.wait_for(self.bot.fetch_user(member.id), timeout=3)
+                    banner_url = str(u.banner.with_size(1024).url) if u and u.banner else None
+                except Exception:
+                    banner_url = None
+                if banner_url:
+                    return await _aio.gather(grab(session, banner_url), avatar_task)
+                return None, await avatar_task
+
+        try:
+            banner, avatar = await _aio.wait_for(_fetch_all(), timeout=7)
+        except Exception:
+            banner, avatar = None, None
+        if avatar is None:
             try:
-                u = await self.bot.fetch_user(member.id)
-                banner_url = str(u.banner.with_size(1024).url) if u and u.banner else None
+                avatar = await _aio.wait_for(member.display_avatar.read(), timeout=4)
             except Exception:
-                banner_url = None
-            if banner_url:
-                banner, avatar = await _aio.gather(grab(session, banner_url), avatar_task)
-            else:
-                banner, avatar = None, await avatar_task
+                avatar = None
 
         png = await self.bot.loop.run_in_executor(
             None, profile_card, member.display_name,

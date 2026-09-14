@@ -574,7 +574,7 @@ class Levels(commands.Cog):
                 avatar_task = _aio.ensure_future(
                     grab(session, str(member.display_avatar.with_size(256).url)))
                 try:
-                    u = await self.bot.fetch_user(member.id)
+                    u = await _aio.wait_for(self.bot.fetch_user(member.id), timeout=3)
                     banner_url = str(u.banner.with_size(512).url) if u and u.banner else None
                     accent = u.accent_color.to_rgb() if u and u.accent_color else None
                 except Exception as e:
@@ -586,7 +586,15 @@ class Levels(commands.Cog):
                     banner, avatar = None, await avatar_task
                 return avatar, banner, accent
 
-        avatar, banner, accent = await _fetch_all()
+        try:
+            avatar, banner, accent = await _aio.wait_for(_fetch_all(), timeout=7)
+        except Exception:
+            avatar, banner, accent = None, None, None
+        if avatar is None:
+            try:
+                avatar = await _aio.wait_for(member.display_avatar.read(), timeout=4)
+            except Exception:
+                avatar = None
         from utils.cards import get_style, fetch_bytes, get_skin, apply_skin, get_tier_names
         style = apply_skin(get_style(ctx.guild.id, 'rank'), get_skin(ctx.guild.id, data['level']))
         names = get_tier_names(ctx.guild.id)

@@ -909,25 +909,35 @@ class Gamble(commands.Cog):
         async def grab(session, url):
             try:
                 async with session.get(url, headers={'User-Agent': 'Mozilla/5.0'},
-                                       timeout=aiohttp.ClientTimeout(total=4)) as r:
+                                       timeout=aiohttp.ClientTimeout(total=3)) as r:
                     if r.status == 200:
                         return await r.read()
             except Exception:
                 return None
             return None
 
-        async with aiohttp.ClientSession() as session:
-            avatar_task = _aio.ensure_future(
-                grab(session, str(member.display_avatar.with_size(256).url)))
+        async def _fetch_all():
+            async with aiohttp.ClientSession() as session:
+                avatar_task = _aio.ensure_future(
+                    grab(session, str(member.display_avatar.with_size(256).url)))
+                try:
+                    u = await _aio.wait_for(self.bot.fetch_user(member.id), timeout=3)
+                    banner_url = str(u.banner.with_size(512).url) if u and u.banner else None
+                except Exception:
+                    banner_url = None
+                if banner_url:
+                    return await _aio.gather(grab(session, banner_url), avatar_task)
+                return None, await avatar_task
+
+        try:
+            banner, av = await _aio.wait_for(_fetch_all(), timeout=7)
+        except Exception:
+            banner, av = None, None
+        if av is None:
             try:
-                u = await self.bot.fetch_user(member.id)
-                banner_url = str(u.banner.with_size(512).url) if u and u.banner else None
+                av = await _aio.wait_for(member.display_avatar.read(), timeout=4)
             except Exception:
-                banner_url = None
-            if banner_url:
-                banner, av = await _aio.gather(grab(session, banner_url), avatar_task)
-            else:
-                banner, av = None, await avatar_task
+                av = None
         png = await self.bot.loop.run_in_executor(
             None, wallet_card, member.display_name, b['cash'], b.get('daily_streak') or 0, av,
             b.get('bank') or 0, banner)

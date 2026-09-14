@@ -91,8 +91,9 @@ class _Cursor:
 class _Conn:
     """Thin proxy: same surface our code uses (execute/commit/close)."""
 
-    def __init__(self, conn):
+    def __init__(self, conn, persistent: bool = False):
         self._conn = conn
+        self._persistent = persistent
 
     def cursor(self):
         return _Cursor(self._conn.cursor())
@@ -104,7 +105,9 @@ class _Conn:
         return self._conn.commit()
 
     def close(self):
-        return self._conn.close()
+        if not self._persistent:
+            return self._conn.close()
+        return None
 
 
 def _turso_env():
@@ -124,14 +127,21 @@ def db_mode() -> str:
         return 'local (libsql missing)'
 
 
+_TURSO_CONN = None
+
+
 def get_conn():
+    """One shared cloud connection (connect+sync handshake happens once),
+    throwaway connections for local mode."""
+    global _TURSO_CONN
     url, tok = _turso_env()
     if url and tok:
-        try:
+        if _TURSO_CONN is None:
             import libsql
-            conn = libsql.connect(str(DB_PATH), sync_url=url, auth_token=tok,
-                                  sync_interval=60)
-            return _Conn(conn)
+            _TURSO_CONN = libsql.connect(str(DB_PATH), sync_url=url, auth_token=tok,
+                                         sync_interval=60)
+        try:
+            return _Conn(_TURSO_CONN, persistent=True)
         except Exception as e:
             msg = str(e)
             if 'metadata' in msg:
@@ -140,6 +150,7 @@ def get_conn():
                       'point TURSO_URL/TOKEN at it, delete data.db*, restart.')
             else:
                 print(f'[-] Turso connect failed ({e}), using local SQLite')
+            _TURSO_CONN = None
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     try:

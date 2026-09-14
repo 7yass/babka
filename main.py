@@ -178,17 +178,6 @@ async def main():
     db.init_db()
     print(_banner())
     _daily_backup.start()
-    if os.getenv('WEBPANEL_ENABLED', '0') == '1':
-        try:
-            import threading
-            from webpanel.app import app as panel_app
-            _host = os.getenv('WEBPANEL_HOST', '0.0.0.0')
-            _port = int(os.getenv('WEBPANEL_PORT', 8080) or 8080)
-            threading.Thread(target=panel_app.run, daemon=True,
-                             kwargs={'host': _host, 'port': _port}).start()
-            print(f'  [+] Webpanel live on {_host}:{_port}')
-        except Exception as e:
-            print(f'  [-] Webpanel failed: {e}')
     async with bot:
         failed = []
         for i, cog in enumerate(COGS, start=1):
