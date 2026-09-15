@@ -637,6 +637,7 @@ def init_db():
                     'ALTER TABLE eco ADD COLUMN cookie_day INTEGER DEFAULT 0',
                     'ALTER TABLE pk_balls ADD COLUMN expires INTEGER DEFAULT 0',
                     'ALTER TABLE pk_mons ADD COLUMN locked INTEGER DEFAULT 0',
+                    'ALTER TABLE pk_mons ADD COLUMN fav INTEGER DEFAULT 0',
                     'ALTER TABLE pk_stats ADD COLUMN leg_streak INTEGER DEFAULT 0',
                     'ALTER TABLE pk_stats ADD COLUMN catch_streak INTEGER DEFAULT 0',
                     'ALTER TABLE pk_stats ADD COLUMN best_streak INTEGER DEFAULT 0'):

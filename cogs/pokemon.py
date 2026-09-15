@@ -130,6 +130,8 @@ def leg_streak_bump(gid, uid, legendary: bool) -> int:
         return (row['leg_streak'] if row else 0) or 0
 STARTERS = {'bulbasaur': 1, 'charmander': 4, 'squirtle': 7,
             'pikachu': 25, 'eevee': 133, 'turtwig': 387}
+STARTER_TYPES = {1: 'grass', 4: 'fire', 7: 'water',
+                 25: 'electric', 133: 'normal', 387: 'grass'}
 
 # PokeTwo-style regions + quest tracks (catch milestones per region)
 REGIONS = {'kanto': (1, 151), 'johto': (152, 251),
@@ -666,6 +668,107 @@ def _picker_emoji_name(m: dict, active: bool) -> str:
     return TYPE_EMOJI.get(types[0], '') if types else ''
 
 
+# Encounter shares under the real hunt algorithm (300k-trial sim, dex 1-493).
+RARITY_RATE = {'common': 30, 'uncommon': 29, 'rare': 39, 'legendary': 2}
+TIER_WORD = {
+    'en': {'common': 'Common', 'uncommon': 'Uncommon', 'rare': 'Rare', 'legendary': 'Legendary'},
+    'pl': {'common': 'Zwykły', 'uncommon': 'Niecodzienny', 'rare': 'Rzadki', 'legendary': 'Legendarny'},
+}
+CATCH_COINS_LVL, CATCH_COINS_NEW, CATCH_COINS_SHINY = 10, 250, 1000
+BALL_FLEET = {'poke': 'pokeball', 'great': 'greatball', 'ultra': 'ultraball', 'master': 'masterball'}
+
+
+def showdown_gif(name: str, shiny: bool = False) -> str:
+    """Animated Gen-5 sprite URL. '' when unmappable (caller falls back)."""
+    slug = ''.join(c for c in (name or '').lower() if c.isascii() and c.isalnum())
+    if not slug:
+        return ''
+    base = 'https://play.pokemonshowdown.com/sprites'
+    return f"{base}/{'ani-shiny' if shiny else 'ani'}/{slug}.gif"
+
+
+def streak_get(gid, uid) -> dict:
+    with db.conn_ctx() as conn:
+        row = conn.execute('SELECT catch_streak, best_streak FROM pk_stats WHERE guild_id=? AND user_id=?',
+                           (str(gid), str(uid))).fetchone()
+    if not row:
+        return {'catch_streak': 0, 'best_streak': 0}
+    return {'catch_streak': row['catch_streak'] or 0, 'best_streak': row['best_streak'] or 0}
+
+
+def _tier_word(gid, rk: str) -> str:
+    try:
+        from lang import get_lang
+        lang = get_lang(gid)
+    except Exception:
+        lang = 'en'
+    return TIER_WORD.get(lang, TIER_WORD['en']).get(rk, rk.title())
+
+
+def _rarity_line(gid, row: dict, shiny: bool) -> str:
+    rk, _, _ = rarity_of(row, False)
+    _, re, _ = rarity_of(row, shiny, gid)
+    pre = 'Shiny ' if shiny else ''
+    return t(gid, 'eco.pk_rarity_line', emo=re, tier=f'{pre}{_tier_word(gid, rk)}',
+             pct=RARITY_RATE.get(rk, 0))
+
+
+def _balls_left_line(gid, uid) -> str:
+    b = balls_get(gid, uid)
+    parts = []
+    for key, label in (('poke', 'Pokeballs'), ('great', 'Greatballs'),
+                       ('ultra', 'Ultraballs'), ('master', 'Masterballs')):
+        parts.append(f"{em(gid, BALL_FLEET[key], key)}: {b.get(key, 0)}")
+    return f"{t(gid, 'eco.pk_balls_left')}\n" + '\n'.join(parts)
+
+
+BOX_SORTS = ['rarity', 'level', 'dex', 'new']
+_BOX_RANK = {'shiny': 0, 'legendary': 1, 'rare': 2, 'uncommon': 3, 'common': 4}
+
+
+def _box_tier(mon: dict, row: dict) -> str:
+    if mon.get('shiny'):
+        return 'shiny'
+    return rarity_of(row, False)[0]
+
+
+def _box_match(mon: dict, row: dict, filt: str) -> bool:
+    """Row filter for ;box. Unknown filters are lenient (no filtering)."""
+    f = (filt or '').lower().strip()
+    if not f or f == 'all':
+        return True
+    if f in ('fav', 'favs', 'favorites', 'favourite', 'favourites'):
+        return bool(mon.get('fav'))
+    if f == 'shiny':
+        return bool(mon.get('shiny'))
+    if f in ('kanto', 'johto', 'hoenn', 'sinnoh'):
+        return region_of(mon.get('dex', 0)) == f
+    if f in ('common', 'uncommon', 'rare', 'legendary'):
+        return rarity_of(row, False)[0] == f
+    types = [x.lower() for x in ((row or {}).get('types') or [])]
+    if f in types:
+        return True
+    if f in TYPE_EMOJI:
+        return False  # a real type that simply doesn't match
+    return True
+
+
+def _box_slots(mons: list) -> dict:
+    """Stable ;mon/;active slot per mon id (box order may be sorted)."""
+    return {m['id']: i + 1 for i, m in enumerate(mons)}
+
+
+def _box_sort_entries(entries: list, mode: str) -> list:
+    if mode == 'level':
+        return sorted(entries, key=lambda e: (-e[0]['level'], e[0]['dex']))
+    if mode == 'dex':
+        return sorted(entries, key=lambda e: (e[0]['dex'], -e[0]['level']))
+    if mode == 'new':
+        return sorted(entries, key=lambda e: -e[0]['id'])
+    return sorted(entries, key=lambda e: (_BOX_RANK[_box_tier(e[0], e[1])],
+                                          -e[0]['level'], e[0]['dex']))
+
+
 def xp_bar(xp: int, nxt: int, gid=0, width: int = 12) -> str:
     frac = max(0.0, min(1.0, (xp or 0) / max(1, nxt or 1)))
     fill = int(frac * width)
@@ -860,6 +963,7 @@ class Pokemon(commands.Cog):
         self._chatxp_cd = {}
         self._spawn_count = {}  # gid -> messages since last wild spawn
         self._wild = {}   # (gid, cid) -> shared channel encounter
+        self._box_sort = {}  # (gid, viewer) -> sort mode
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -979,28 +1083,100 @@ class Pokemon(commands.Cog):
     # ----- starters / collection -----
 
 
+    async def _grant_starter(self, dest, gid, user, dex):
+        """Insert starter (active) + set as buddy + balls + cards.
+        dest is a commands.Context or (deferred) Interaction."""
+        import aiohttp
+        is_ix = isinstance(dest, discord.Interaction)
+
+        async def _say(view=None, ephemeral=False):
+            if is_ix:
+                return await dest.followup.send(view=view, ephemeral=ephemeral)
+            if ephemeral:
+                try:
+                    return await dest.reply(view=view, ephemeral=True)
+                except Exception:
+                    return await dest.reply(view=view)
+            return await dest.reply(view=view, mention_author=False)
+
+        async with aiohttp.ClientSession() as s:
+            row = await dex_get(s, dex)
+        if not row:
+            return await _say(view=self._layout(gid, t(gid, 'eco.pk_starter_title'),
+                                                t(gid, 'eco.pk_api')), ephemeral=True)
+        with db.conn_ctx() as conn:
+            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active) '
+                         'VALUES (?,?,?,?,0,0,"",1)', (str(gid), str(user.id), dex, 5))
+            mid = conn.execute('SELECT id FROM pk_mons WHERE guild_id=? AND owner_id=? ORDER BY id',
+                               (str(gid), str(user.id))).fetchone()
+            if mid:
+                conn.execute('INSERT OR REPLACE INTO pk_buddy (guild_id, user_id, mid, hearts) '
+                             'VALUES (?,?,?,COALESCE((SELECT hearts FROM pk_buddy WHERE guild_id=? AND user_id=?),0))',
+                             (str(gid), str(user.id), mid['id'], str(gid), str(user.id)))
+        balls_add(gid, user.id, 'poke', 10)
+        spr = (row.get('sprite') or '').split('|')[0]
+        await _say(view=await self._mage(
+            gid, t(gid, 'eco.pk_starter_title'),
+            t(gid, 'eco.pk_starter', name=row['name'].capitalize()), spr))
+        await _say(view=self._layout(gid, t(gid, 'eco.pk_guide_title'),
+                                     t(gid, 'eco.pk_guide_body',
+                                       name=row['name'].capitalize())),
+                   ephemeral=True)
+
+    def _mk_starter_btn(self, gid, uid, dex: int):
+        async def _cb(ix: discord.Interaction):
+            set_ctx_lang(ix.user)
+            if ix.user.id != int(uid):
+                return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
+            if my_mons(gid, ix.user.id):
+                return await ix.response.send_message(t(gid, 'eco.pk_has'), ephemeral=True)
+            await ix.response.defer()
+            pick = dex or random.choice(list(STARTERS.values()))
+            await self._grant_starter(ix, gid, ix.user, pick)
+            try:
+                row = _dex_row(pick)
+                await ix.edit_original_response(
+                    content=t(gid, 'eco.pk_starter',
+                              name=(row.get('name') or f'#{pick}').capitalize()),
+                    view=None)
+            except Exception:
+                pass
+        return _cb
+
     @commands.command(name='starter', description='Wybierz startera')
     async def starter(self, ctx, name: str = ''):
-        import aiohttp
         gid = ctx.guild.id
         if my_mons(gid, ctx.author.id):
             return await ctx.reply(t(gid, 'eco.pk_has'), ephemeral=True)
         pick = (name or '').lower().strip()
-        dex = STARTERS.get(pick) or random.choice([1, 4, 7])
-        if pick and pick not in STARTERS:
-            return await ctx.reply(t(gid, 'eco.pk_starters'), ephemeral=True)
-        async with aiohttp.ClientSession() as s:
-            row = await dex_get(s, dex)
-        if not row:
-            return await ctx.reply(t(gid, 'eco.pk_api'), ephemeral=True)
-        with db.conn_ctx() as conn:
-            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active) '
-                         'VALUES (?,?,?,?,0,0,"",1)', (str(gid), str(ctx.author.id), dex, 5))
-        balls_add(gid, ctx.author.id, 'poke', 10)
-        spr = (row.get('sprite') or '').split('|')[0]
-        await ctx.reply(view=await self._mage(
-            gid, t(gid, 'eco.pk_starter_title'),
-            t(gid, 'eco.pk_starter', name=row['name'].capitalize()), spr))
+        if pick:
+            if pick not in STARTERS:
+                return await ctx.reply(t(gid, 'eco.pk_starters'), ephemeral=True)
+            return await self._grant_starter(ctx, gid, ctx.author, STARTERS[pick])
+        from discord.ui import LayoutView, Container, TextDisplay, ActionRow
+        layout = LayoutView(timeout=60)
+        box = Container(accent_color=0x58CC02)
+        box.add_item(TextDisplay(f"## {t(gid, 'eco.pk_pick_title')}\n{t(gid, 'eco.pk_pick_body')}"))
+        order = ['bulbasaur', 'charmander', 'squirtle', 'pikachu', 'eevee', 'turtwig']
+        row = None
+        for i, key in enumerate(order):
+            if i % 3 == 0:
+                row = ActionRow()
+                box.add_item(row)
+            dex = STARTERS[key]
+            b = discord.ui.Button(label=key.capitalize()[:80], style=discord.ButtonStyle.secondary,
+                                  custom_id=f'pkstart:{ctx.author.id}:{dex}',
+                                  emoji=_btn_emoji(gid, TYPE_EMOJI.get(STARTER_TYPES[dex], '')))
+            b.callback = self._mk_starter_btn(gid, ctx.author.id, dex)
+            row.add_item(b)
+        rrow = ActionRow()
+        box.add_item(rrow)
+        rb = discord.ui.Button(label='RANDOM', style=discord.ButtonStyle.primary,
+                               custom_id=f'pkstart:{ctx.author.id}:0')
+        rb.callback = self._mk_starter_btn(gid, ctx.author.id, 0)
+        rrow.add_item(rb)
+        layout.add_item(box)
+        await ctx.reply(view=layout, mention_author=False)
 
     @commands.command(name='hunt', description='Poluj na dzikie')
     async def hunt(self, ctx):
@@ -1078,13 +1254,34 @@ class Pokemon(commands.Cog):
         act = next((m for m in mons if m.get('active')), mons[0])
         desc += (f"\n-# FIGHT: {mon_name(act, gid)} Lv{act['level']} — "
                  f"`;active {slot_of.get(act['id'], 1)}` / `;battle {slot_of.get(act['id'], 1)}` to change")
+        st = streak_get(gid, ctx.author.id)
+        streak = t(gid, 'eco.pk_streak_line', n=st['catch_streak'], b=st['best_streak'])
         title = t(gid, 'eco.pk_wild_title', level=level)
+        gif = ''
         if mystery:
             accent = 0x3A3F4B
+            desc += f'\n{streak}\n{_balls_left_line(gid, ctx.author.id)}'
         else:
             rk, re, accent = rarity_of(row, shiny, gid)
             title = f'{re} {title}'
-        if png:
+            desc = _rarity_line(gid, row, shiny) + '\n' + desc
+            desc += f'\n{streak}\n{_balls_left_line(gid, ctx.author.id)}'
+            gif = showdown_gif(row.get('name', ''), shiny)
+            if gif:
+                try:
+                    to = aiohttp.ClientTimeout(total=10)
+                    async with aiohttp.ClientSession(timeout=to) as s3:
+                        async with s3.head(gif) as r:
+                            if r.status != 200:
+                                gif = ''
+                except Exception:
+                    gif = ''
+        if gif:
+            # animated sprite hero (verified reachable); meadow stays for mystery
+            view = self._layout(gid, title, desc, gif, accent)
+            self._attach_enc_buttons(view, gid, ctx.author.id)
+            await ctx.reply(view=view, mention_author=False)
+        elif png:
             view = self._encounter_layout(gid, title, desc, accent)
             self._attach_enc_buttons(view, gid, ctx.author.id)
             await ctx.reply(view=view, file=discord.File(_bio.BytesIO(png), 'hunt.png'),
@@ -1101,11 +1298,6 @@ class Pokemon(commands.Cog):
         fight = discord.ui.Button(label='FIGHT', style=discord.ButtonStyle.danger,
                                   custom_id=f'pkfight:{uid}',
                                   emoji=_btn_emoji(gid, 'btn_fight'))
-        best = best_ball(gid, uid)
-        ball = discord.ui.Button(label=f'THROW {best.upper()}' if best else 'THROW BALL',
-                                 style=discord.ButtonStyle.success,
-                                 custom_id=f'pkball:{uid}',
-                                 emoji=_btn_emoji(gid, 'btn_ball'))
 
         async def _fight(ix: discord.Interaction):
             set_ctx_lang(ix.user)
@@ -1118,22 +1310,33 @@ class Pokemon(commands.Cog):
                     view=self._fighter_picker(gid, ix.user.id), ephemeral=True)
             await self._start_battle(ix, gid, ix.user)
 
-        async def _ball(ix: discord.Interaction):
-            set_ctx_lang(ix.user)
-            if ix.user.id != int(uid):
-                return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
-            await ix.response.defer()
-            await self._throw(ix, gid, ix.user, best_ball(gid, ix.user.id) or 'poke')
-
         fight.callback = _fight
-        ball.callback = _ball
         row.add_item(fight)
-        row.add_item(ball)
+        counts = balls_get(gid, uid)
+        for ball in ('poke', 'great', 'ultra', 'master'):
+            qty = counts.get(ball, 0)
+            bb = discord.ui.Button(label=f'{ball.upper()} x{qty}',
+                                   style=discord.ButtonStyle.success if qty
+                                   else discord.ButtonStyle.secondary,
+                                   custom_id=f'pkball:{uid}:{ball}',
+                                   disabled=(qty <= 0),
+                                   emoji=_btn_emoji(gid, BALL_FLEET[ball]))
+            bb.callback = self._mk_enc_ball(gid, uid, ball)
+            row.add_item(bb)
         for child in view.children:
             if type(child).__name__ == 'Container':
                 child.add_item(row)
                 return
         view.add_item(row)
+
+    def _mk_enc_ball(self, gid, uid, ball: str):
+        async def _cb(ix: discord.Interaction):
+            set_ctx_lang(ix.user)
+            if ix.user.id != int(uid):
+                return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
+            await ix.response.defer()
+            await self._throw(ix, gid, ix.user, ball)
+        return _cb
 
     def _get_enc(self, gid, uid):
         key = (str(gid), str(uid))
@@ -1158,24 +1361,35 @@ class Pokemon(commands.Cog):
         if not e:
             return await ctx.reply(t(gid, 'eco.pk_noenc'), ephemeral=True)
         await ctx.typing()
-        ok, msg = await self._do_catch(gid, ctx.author.id, e, ball)
+        ok, msg, gif, disp = await self._do_catch(gid, ctx.author.id, e, ball)
         if ok:
             self._enc.pop((str(gid), str(ctx.author.id)), None)
-        await ctx.reply(msg, mention_author=False)
+        if ok and gif:
+            rk, re, accent = rarity_of(_dex_row(e['dex']), bool(e['shiny']), gid)
+            await ctx.reply(view=self._layout(
+                gid, f'{re} ' + t(gid, 'eco.pk_caught_title', name=disp), msg, gif, accent),
+                mention_author=False)
+        else:
+            await ctx.reply(msg, mention_author=False)
 
     async def _throw(self, ix: discord.Interaction, gid, user, ball: str):
         e = self._get_enc(gid, user.id)
         if not e:
             return await ix.followup.send(t(gid, 'eco.pk_noenc'), ephemeral=True)
-        ok, msg = await self._do_catch(gid, user.id, e, ball)
+        ok, msg, gif, disp = await self._do_catch(gid, user.id, e, ball)
         if ok:
             self._enc.pop((str(gid), str(user.id)), None)
-        await ix.followup.send(msg)
+        if ok and gif:
+            rk, re, accent = rarity_of(_dex_row(e['dex']), bool(e['shiny']), gid)
+            await ix.followup.send(view=self._layout(
+                gid, f'{re} ' + t(gid, 'eco.pk_caught_title', name=disp), msg, gif, accent))
+        else:
+            await ix.followup.send(msg)
 
     async def _do_catch(self, gid, uid, e, ball: str):
         import aiohttp
         if not balls_take(gid, uid, ball):
-            return False, t(gid, 'eco.pk_noball', ball=ball)
+            return False, t(gid, 'eco.pk_noball', ball=ball), '', ''
         async with aiohttp.ClientSession() as s:
             row = await dex_get(s, e['dex'])
         mult = BALLS[ball][1]
@@ -1183,26 +1397,54 @@ class Pokemon(commands.Cog):
         if e.get('grazz'):
             p = min(0.98, p * 1.6)
         p = min(0.98, p + e.get('pity', 0))
-        if random.random() < p:
+        roll = random.random()
+        if roll < p:
             first = not my_mons(gid, uid)
             with db.conn_ctx() as conn:
                 conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active) '
                              'VALUES (?,?,?,?,0,?,?,?)',
                              (str(gid), str(uid), e['dex'], e['level'],
                               1 if e['shiny'] else 0, '', 1 if first else 0))
-            msg = t(gid, 'eco.pk_caught', name=((em(gid, 'rarity_shiny') or '*') if e['shiny'] else '') + row['name'].capitalize(),
+            with db.conn_ctx() as conn:
+                prev = conn.execute('SELECT count FROM pk_dexcount WHERE guild_id=? AND user_id=? AND dex=?',
+                                    (str(gid), str(uid), e['dex'])).fetchone()
+            is_new = not prev or not (prev['count'] or 0)
+            disp = row['name'].capitalize()
+            msg = t(gid, 'eco.pk_caught', name=((em(gid, 'rarity_shiny') or '*') if e['shiny'] else '') + disp,
                     ball=ball, level=e['level'])
-            msg = em(gid, {'poke': 'pokeball', 'great': 'greatball', 'ultra': 'ultraball',
-                           'master': 'masterball'}.get(ball, ''), 'o') + ' ' + msg
+            msg = em(gid, BALL_FLEET.get(ball, ''), 'o') + ' ' + msg
+            msg += '\n' + _rarity_line(gid, row, bool(e['shiny']))
+            streak_bump(gid, uid, True)
+            st = streak_get(gid, uid)
+            msg += '\n' + t(gid, 'eco.pk_streak_line', n=st['catch_streak'], b=st['best_streak'])
+            if is_new:
+                msg += '\n' + t(gid, 'eco.pk_newdex')
             for extra in await self._catch_progress(gid, uid, e['dex'], e['shiny']):
                 msg += '\n' + extra
             msg += '\n' + self._catch_meta(gid, uid, e['dex'])
-            streak_bump(gid, uid, True)
-            return True, msg
+            msg += '\n' + t(gid, 'eco.pk_roll_line', roll=int(roll * 100), rate=int(p * 100))
+            msg += '\n' + _balls_left_line(gid, uid)
+            from cogs.gamble import bal, set_cash
+            gain = e['level'] * CATCH_COINS_LVL + (CATCH_COINS_NEW if is_new else 0) \
+                + (CATCH_COINS_SHINY if e['shiny'] else 0)
+            b = bal(gid, uid)
+            set_cash(gid, uid, b['cash'] + gain)
+            msg += '\n' + t(gid, 'eco.pk_coins_earned', win=cshort(gain))
+            gif = showdown_gif(row.get('name', ''), bool(e['shiny']))
+            if gif:
+                try:
+                    to = aiohttp.ClientTimeout(total=10)
+                    async with aiohttp.ClientSession(timeout=to) as s3:
+                        async with s3.head(gif) as r:
+                            if r.status != 200:
+                                gif = ''
+                except Exception:
+                    gif = ''
+            return True, msg, gif, disp
         # broke out: pity grows, next throw is kinder
         e['pity'] = min(0.4, e.get('pity', 0) + 0.08)
         streak_bump(gid, uid, False)
-        return False, t(gid, 'eco.pk_broke', name=row['name'].capitalize(), ball=ball)
+        return False, t(gid, 'eco.pk_broke', name=row['name'].capitalize(), ball=ball), '', ''
 
     def _region_progress(self, gid, uid) -> dict:
         out = {r: 0 for r in REGIONS}
@@ -1478,23 +1720,106 @@ class Pokemon(commands.Cog):
             balls_add(gid, ctx.author.id, ball, n)
         await ctx.reply(t(gid, 'eco.pk_balls_bought', n=n, ball=ball), ephemeral=True)
 
-    @commands.command(name='box', description='Twoje pokemony')
-    async def box(self, ctx, page: int = 1):
-        gid = ctx.guild.id
-        mons = my_mons(gid, ctx.author.id)
-        if not mons:
-            return await ctx.reply(t(gid, 'eco.pk_need_starter'), ephemeral=True)
-        per, page = 10, max(1, page or 1)
-        total = (len(mons) + per - 1) // per
-        page = min(page, total)
+    def _box_view(self, gid, viewer: int, owner: int, owner_name: str,
+                  filt: str = '', page: int = 1, per: int = 10):
+        """PokeMeow-style box: rarity sort, dex chips, pagination + sort buttons."""
+        from discord.ui import LayoutView, Container, TextDisplay, ActionRow
+        mons = my_mons(gid, owner)
+        slot_of = _box_slots(mons)
+        entries = [(m, _dex_row(m['dex'])) for m in mons]
+        entries = [e for e in entries if _box_match(e[0], e[1], filt)]
+        mode = self._box_sort.get((str(gid), str(viewer)), 'rarity')
+        if mode not in BOX_SORTS:
+            mode = 'rarity'
+        entries = _box_sort_entries(entries, mode)
+        total = max(1, (len(entries) + per - 1) // per)
+        page = min(max(1, page), total)
+        layout = LayoutView(timeout=180)
+        box = Container(accent_color=0x58CC02)
         lines = []
-        for i, m in enumerate(mons[(page - 1) * per:page * per], start=(page - 1) * per + 1):
-            star = (em(gid, 'slot_active') or '*') if m['active'] else ''
-            _, re, _ = rarity_of(_dex_row(m['dex']), bool(m['shiny']), gid)
-            lines.append(f"`{i}` {re} {mon_name(m, gid)} — Lv{m['level']}{star}")
-        lines.append(t(gid, 'eco.pk_box_page', page=page, total=total, n=len(mons)))
-        await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_box_title', user=ctx.author.display_name),
-                                          '\n'.join(lines)), ephemeral=True)
+        for m, row in entries[(page - 1) * per:page * per]:
+            star = (em(gid, 'slot_active') or '*') if m.get('active') else ''
+            fav = ' (fav)' if m.get('fav') else ''
+            _, re, _ = rarity_of(row, bool(m['shiny']), gid)
+            lines.append(f"`{slot_of[m['id']]}` #{m['dex']} {re} {mon_name(m, gid)}"
+                         f" — Lv{m['level']}{star}{fav}")
+        if not lines:
+            lines.append(t(gid, 'eco.pk_box_empty'))
+        lines.append(t(gid, 'eco.pk_box_page', page=page, total=total, n=len(entries))
+                     + f' • Sorted by: {mode.title()}'
+                     + (f' • Filter: {filt}' if filt else ''))
+        box.add_item(TextDisplay(f"## {t(gid, 'eco.pk_box_title', user=owner_name)}\n"
+                                 + '\n'.join(lines)))
+        row = ActionRow()
+        for label, pg, dis in (('<<', 1, page <= 1), ('BACK', page - 1, page <= 1),
+                               ('NEXT', page + 1, page >= total), ('>>', total, page >= total)):
+            b = discord.ui.Button(label=label, style=discord.ButtonStyle.secondary,
+                                  custom_id=f'pkbox:{viewer}:{owner}:{pg}:{mode}:{filt or "-"}',
+                                  disabled=dis)
+            b.callback = self._mk_box_btn(gid, viewer, owner)
+            row.add_item(b)
+        sb = discord.ui.Button(label=f'SORT: {mode.upper()}', style=discord.ButtonStyle.primary,
+                               custom_id=f'pkbox:{viewer}:{owner}:{page}:!:{filt or "-"}')
+        sb.callback = self._mk_box_btn(gid, viewer, owner)
+        row.add_item(sb)
+        box.add_item(row)
+        layout.add_item(box)
+        return layout
+
+    def _mk_box_btn(self, gid, viewer: int, owner: int):
+        async def _cb(ix: discord.Interaction):
+            set_ctx_lang(ix.user)
+            if ix.user.id != int(viewer):
+                return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
+            try:
+                _, _, _, pg, mode, filt = ix.data.get('custom_id', '').split(':', 5)
+            except Exception:
+                return await ix.response.send_message(t(gid, 'eco.pk_box_page',
+                     page=1, total=1, n=0), ephemeral=True)
+            if mode == '!':
+                cur = self._box_sort.get((str(gid), str(viewer)), 'rarity')
+                mode = BOX_SORTS[(BOX_SORTS.index(cur) + 1) % len(BOX_SORTS)] if cur in BOX_SORTS else 'rarity'
+                self._box_sort[(str(gid), str(viewer))] = mode
+            member = ix.guild.get_member(int(owner)) if ix.guild else None
+            name = member.display_name if member else f'User {owner}'
+            await ix.response.edit_message(
+                view=self._box_view(gid, viewer, int(owner), name,
+                                    '' if filt == '-' else filt, int(pg or 1)))
+        return _cb
+
+    @commands.command(name='box', description='Twoje pokemony')
+    async def box(self, ctx, *args):
+        import re as _re
+        gid = ctx.guild.id
+        owner, owner_name, page, filt = ctx.author.id, ctx.author.display_name, 1, ''
+        for a in (args or ()):
+            m = _re.fullmatch(r'<@!?(\d+)>', str(a))
+            if m:
+                owner = int(m.group(1))
+                member = ctx.guild.get_member(owner)
+                owner_name = member.display_name if member else f'User {owner}'
+            elif str(a).isdigit():
+                page = max(1, int(a))
+            elif not filt:
+                filt = str(a).lower()[:24]
+        if not my_mons(gid, owner):
+            if owner == ctx.author.id:
+                return await ctx.reply(t(gid, 'eco.pk_need_starter'), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.pk_box_empty_other'), ephemeral=True)
+        await ctx.reply(view=self._box_view(gid, ctx.author.id, owner, owner_name, filt, page),
+                        ephemeral=True)
+
+    @commands.command(name='fav', description='Oznacz/odznacz ulubieńca')
+    async def fav(self, ctx, slot: int = 0):
+        gid = ctx.guild.id
+        m = get_mon(gid, ctx.author.id, slot or 0)
+        if not m:
+            return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
+        new = 0 if m.get('fav') else 1
+        with db.conn_ctx() as conn:
+            conn.execute('UPDATE pk_mons SET fav=? WHERE id=?', (new, m['id']))
+        key = 'eco.pk_fav_on' if new else 'eco.pk_fav_off'
+        await ctx.reply(t(gid, key, name=mon_name(m, gid)), ephemeral=True)
 
     @commands.command(name='mon', description='Staty pokemona')
     async def info(self, ctx, slot: int):
@@ -2150,18 +2475,20 @@ class Pokemon(commands.Cog):
             raw = await fetch_sprite(s, spr)
             sil = silhouette_image(raw) if raw else None
             import io as _bio
+            st = streak_get(gid, ctx.author.id)
+            desc = (t(gid, 'eco.pk_autospawn', types=types_str(gid, row["types"]))
+                    + '\n' + t(gid, 'eco.pk_streak_line', n=st['catch_streak'], b=st['best_streak'])
+                    + '\n' + _balls_left_line(gid, ctx.author.id))
             try:
                 if sil:
                     view = self._layout(
-                        gid, t(gid, 'eco.pk_wild_title', level=level),
-                        t(gid, 'eco.pk_autospawn', types=types_str(gid, row["types"])),
+                        gid, t(gid, 'eco.pk_wild_title', level=level), desc,
                         'attachment://who.png')
                     await ctx.reply(view=view, file=discord.File(_bio.BytesIO(sil), 'who.png'),
                                     mention_author=False)
                 else:
                     await ctx.reply(view=self._layout(
-                        gid, t(gid, 'eco.pk_wild_title', level=level),
-                        t(gid, 'eco.pk_autospawn', types=types_str(gid, row["types"])),
+                        gid, t(gid, 'eco.pk_wild_title', level=level), desc,
                         spr), mention_author=False)
             except Exception:
                 self._wild.pop((str(gid), str(ctx.channel.id)), None)

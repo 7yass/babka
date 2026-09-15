@@ -146,18 +146,25 @@ def pure():
     tree = ast.parse(src)
     wanted = {'hp_dot', 'xp_bar', 'mon_name', '_hit_tag', '_dex_row',
               '_move_emoji_name', '_switch_emoji_name', '_picker_emoji_name',
-              '_weather_line'}
+              '_weather_line', '_rarity_line', '_tier_word', 'rarity_of', 'showdown_gif',
+              'streak_get', '_balls_left_line', 'balls_get', 'region_of',
+              '_box_tier', '_box_match', '_box_slots', '_box_sort_entries'}
     import lang as LANG
     mod = types.ModuleType('pkpure')
     mod.__dict__['em'] = E.em
     mod.__dict__['db'] = DB
     mod.__dict__['t'] = LANG.t
+    mod.__dict__['get_lang'] = LANG.get_lang
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in wanted:
             exec(compile(ast.Module(body=[node], type_ignores=[]), '<pkpure>', 'exec'),
                  mod.__dict__)
         if isinstance(node, ast.Assign) and len(node.targets) == 1 \
-                and getattr(node.targets[0], 'id', '') in ('TYPE_EMOJI', 'WEATHER_LINE'):
+                and getattr(node.targets[0], 'id', '') in (
+                    'TYPE_EMOJI', 'WEATHER_LINE', 'RARITY_RATE', 'BALLS', 'BALL_FLEET',
+                    'TIER_WORD', 'RARITY_COMMON', 'RARITY_UNCOMMON', 'RARITY_RARE',
+                    'RARITY_LEGENDARY', 'RARITY_SHINY', 'BOX_SORTS', 'REGIONS',
+                    '_BOX_RANK'):
             mod.__dict__[node.targets[0].id] = ast.literal_eval(node.value)
     _PURE = mod
     return mod
@@ -597,6 +604,83 @@ def test_no_content_with_layout() -> None:
     check(not bad, f'no content+layout sends (lines {bad or "none"})')
 
 
+def test_hunt_parity_helpers() -> None:
+    gid = '111111111111111111'
+    tmp = use_fixture({'guilds': {gid: {'rarity_shiny': 444444444444444444,
+                                        'pokeball': 555555555555555551}}})
+    try:
+        p = pure()
+        check(p.showdown_gif('Mr. Mime', False)
+              == 'https://play.pokemonshowdown.com/sprites/ani/mrmime.gif',
+              'showdown slug: Mr. Mime')
+        check(p.showdown_gif('Ho-Oh', True)
+              == 'https://play.pokemonshowdown.com/sprites/ani-shiny/hooh.gif',
+              'showdown slug: shiny Ho-Oh')
+        check(p.showdown_gif('', False) == '', 'empty name maps to no art')
+        check(set(p.RARITY_RATE) == {'common', 'uncommon', 'rare', 'legendary'}
+              and sum(p.RARITY_RATE.values()) == 100,
+              'rarity shares cover all tiers and sum to 100')
+        fresh = '999999999999999999'
+        check(p.streak_get(fresh, fresh) == {'catch_streak': 0, 'best_streak': 0},
+              'fresh trainer streaks are zero')
+        line = p._rarity_line(gid, {'legendary': 0, 'rate': 190}, False)
+        check('30%' in line and 'Common' in line, 'rarity line shows tier + share')
+        balls = p._balls_left_line(fresh, fresh)
+        check(': 0' in balls and 'Balls left' in balls, 'balls-left block lists stock')
+        src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+        for fn in ('def showdown_gif', 'def streak_get', 'def _balls_left_line',
+                   'def _rarity_line'):
+            seg = src[src.find(fn):src.find(fn) + 1200]
+            check(all(c not in BANNED for c in seg), f'no banned glyphs near {fn}')
+    finally:
+        tmp.cleanup()
+
+
+def _fx_mon(mid, dex, level, shiny=0, fav=0, active=0, nick=''):
+    return {'id': mid, 'dex': dex, 'level': level, 'shiny': shiny,
+            'fav': fav, 'active': active, 'nick': nick}
+
+
+def _fx_row(rate=190, legendary=0, types=None):
+    return {'rate': rate, 'legendary': legendary, 'types': types or ['normal']}
+
+
+def test_box_filter_sort() -> None:
+    p = pure()
+    m1 = _fx_mon(11, 282, 25)                    # gardevoir-ish psychic rare
+    m2 = _fx_mon(7, 133, 5, shiny=1)             # shiny eevee
+    m3 = _fx_mon(3, 60, 18, fav=1)               # fav poliwag water common
+    r1, r2, r3 = _fx_row(45), _fx_row(45), _fx_row(190, 0, ['water'])
+    check(p._box_match(m1, r1, '') and p._box_match(m1, r1, 'all')
+          and p._box_match(m1, r1, 'nope'), 'empty/all/unknown filters pass')
+    check(p._box_match(m3, r3, 'fav') and not p._box_match(m1, r1, 'fav'), 'fav filter')
+    check(p._box_match(m2, r2, 'shiny') and not p._box_match(m1, r1, 'shiny'), 'shiny filter')
+    check(p._box_match(m1, r1, 'hoenn') and p._box_match(m3, r3, 'kanto'),
+          'region filter accepts home region')
+    check(not p._box_match(m1, r1, 'kanto') and not p._box_match(m3, r3, 'hoenn'),
+          'region filter rejects away region')
+    check(p._box_match(m1, r1, 'rare') and not p._box_match(m3, r3, 'rare'), 'tier filter')
+    check(p._box_match(m3, r3, 'water') and not p._box_match(m1, r1, 'water'), 'type filter')
+    check(p._box_slots([m1, m2, m3]) == {11: 1, 7: 2, 3: 3}, 'stable true slots')
+    entries = [(m1, r1), (m2, r2), (m3, r3)]
+    check([e[0]['id'] for e in p._box_sort_entries(entries, 'rarity')] == [7, 11, 3],
+          'rarity sort: shiny, rare, common')
+    check([e[0]['id'] for e in p._box_sort_entries(entries, 'level')] == [11, 3, 7],
+          'level sort descends')
+    check([e[0]['id'] for e in p._box_sort_entries(entries, 'dex')] == [3, 7, 11],
+          'dex sort ascends')
+    check([e[0]['id'] for e in p._box_sort_entries(entries, 'new')] == [11, 7, 3],
+          'new sort uses insertion order')
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    seg = src[src.find('def _box_view'):src.find('def _mk_box_btn') + 2000]
+    check(all(c not in BANNED for c in seg), 'no banned glyphs in box view code')
+    for btn in ("'<<'", "'BACK'", "'NEXT'", "'>>'", "'SORT:"):
+        check(btn in seg, f'ascii nav button present: {btn}')
+    check('pk_mons ADD COLUMN fav' in
+          (ROOT / 'database.py').read_text(encoding='utf-8'),
+          'fav migration present')
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
          test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
@@ -606,7 +690,8 @@ TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_preflight_fits_all_eight, test_preflight_exceeds_one_server,
          test_preflight_exceeds_several, test_preflight_animated_and_ignored,
          test_preflight_empty_and_invalid, test_preflight_abort_safety,
-         test_no_content_with_layout)
+         test_no_content_with_layout, test_hunt_parity_helpers,
+         test_box_filter_sort)
 
 if __name__ == '__main__':
     for t in TESTS:
