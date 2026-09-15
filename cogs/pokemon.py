@@ -576,31 +576,37 @@ def move_str(gid, mv: dict) -> str:
     return f'{e} {base}' if e else base
 
 
-# (key, emoji, accent_color) — PokeMeow-style rarity treatment
-RARITY_COMMON = ('common', '⚪', 0x58CC02)
-RARITY_UNCOMMON = ('uncommon', '🔵', 0x3498DB)
-RARITY_RARE = ('rare', '🟣', 0x9B59B6)
-RARITY_LEGENDARY = ('legendary', '🔶', 0xFFD700)
-RARITY_SHINY = ('shiny', '✨', 0xFF6FB5)
+# (key, fleet_emoji, unicode_fallback, accent) — PokeMeow-style rarity.
+# Fleet emoji win when deployed via .emojisetup, unicode keeps old servers working.
+RARITY_COMMON = ('common', 'rarity_common', '⚪', 0x58CC02)
+RARITY_UNCOMMON = ('uncommon', 'rarity_uncommon', '🔵', 0x3498DB)
+RARITY_RARE = ('rare', 'rarity_rare', '🟣', 0x9B59B6)
+RARITY_LEGENDARY = ('legendary', 'rarity_legendary', '🔶', 0xFFD700)
+RARITY_SHINY = ('shiny', 'rarity_shiny', '✨', 0xFF6FB5)
 
 
-def rarity_of(dex_row: dict, shiny: bool = False) -> tuple:
+def rarity_of(dex_row: dict, shiny: bool = False, gid=0) -> tuple:
     """(key, emoji, accent). Shiny overrides; legendaries gold;
     the rest split by capture rate (lower = rarer)."""
     if shiny:
-        return RARITY_SHINY
-    row = dex_row or {}
-    if row.get('legendary'):
-        return RARITY_LEGENDARY
-    try:
-        rate = int(row.get('rate') or 255)
-    except Exception:
-        rate = 255
-    if rate <= 45:
-        return RARITY_RARE
-    if rate <= 120:
-        return RARITY_UNCOMMON
-    return RARITY_COMMON
+        entry = RARITY_SHINY
+    else:
+        row = dex_row or {}
+        if row.get('legendary'):
+            entry = RARITY_LEGENDARY
+        else:
+            try:
+                rate = int(row.get('rate') or 255)
+            except Exception:
+                rate = 255
+            if rate <= 45:
+                entry = RARITY_RARE
+            elif rate <= 120:
+                entry = RARITY_UNCOMMON
+            else:
+                entry = RARITY_COMMON
+    key, name, fb, accent = entry
+    return key, (em(gid, name) if gid else None) or fb, accent
 
 
 def xp_bar(xp: int, nxt: int, width: int = 12) -> str:
@@ -1017,7 +1023,7 @@ class Pokemon(commands.Cog):
         if mystery:
             accent = 0x3A3F4B
         else:
-            rk, re, accent = rarity_of(row, shiny)
+            rk, re, accent = rarity_of(row, shiny, gid)
             title = f'{re} {title}'
         if png:
             view = self._encounter_layout(gid, title, desc, accent)
@@ -1423,7 +1429,7 @@ class Pokemon(commands.Cog):
         lines = []
         for i, m in enumerate(mons[(page - 1) * per:page * per], start=(page - 1) * per + 1):
             star = '⭐' if m['active'] else ''
-            _, re, _ = rarity_of(_dex_row(m['dex']), bool(m['shiny']))
+            _, re, _ = rarity_of(_dex_row(m['dex']), bool(m['shiny']), gid)
             lines.append(f"`{i}` {re} {mon_name(m)} — Lv{m['level']}{star}")
         lines.append(t(gid, 'eco.pk_box_page', page=page, total=total, n=len(mons)))
         await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_box_title', user=ctx.author.display_name),
@@ -1443,7 +1449,7 @@ class Pokemon(commands.Cog):
         nxt = XP_NEXT(m['level'])
         spr = (row.get('sprite') or '').split('|')
         img = spr[1] if m['shiny'] and len(spr) > 1 else spr[0]
-        rk, re, accent = rarity_of(row, bool(m['shiny']))
+        rk, re, accent = rarity_of(row, bool(m['shiny']), gid)
         desc = (f'{re} **{rk.upper()}** · {types_str(gid, row["types"])} · Lv{m["level"]}\n'
                 f'`{xp_bar(m["xp"], nxt)}` {m["xp"]}/{nxt} XP\n'
                 + t(gid, 'eco.pk_info', level=m['level'], types=types_str(gid, row["types"]),
@@ -1597,7 +1603,7 @@ class Pokemon(commands.Cog):
         names = []
         for dex in sorted(caught)[:12]:
             r = _dex_row(dex)
-            _, re, _ = rarity_of(r, False)
+            _, re, _ = rarity_of(r, False, gid)
             names.append(f"{re} {(r.get('name') or f'#{dex}').capitalize()}")
         await ctx.reply(view=self._layout(
             gid, t(gid, 'eco.pk_dex_title', n=len(caught)),
@@ -2478,10 +2484,10 @@ class Pokemon(commands.Cog):
         _, _, me_ac = rarity_of(me.get('row'), bool(me.get('shiny')))
         _, _, w_ac = rarity_of(wild.get('row'), bool(wild.get('shiny')))
         accent = 0xFF4655
-        if RARITY_SHINY[2] in (me_ac, w_ac):
-            accent = RARITY_SHINY[2]
-        elif RARITY_LEGENDARY[2] in (me_ac, w_ac):
-            accent = RARITY_LEGENDARY[2]
+        if RARITY_SHINY[3] in (me_ac, w_ac):
+            accent = RARITY_SHINY[3]
+        elif RARITY_LEGENDARY[3] in (me_ac, w_ac):
+            accent = RARITY_LEGENDARY[3]
         layout = LayoutView(timeout=180)
         box = Container(accent_color=accent)
         box.add_item(TextDisplay(self._vs_wild_body(gid, uid, st)))
