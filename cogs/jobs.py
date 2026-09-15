@@ -553,9 +553,9 @@ class Jobs(commands.Cog):
             except Exception:
                 pass
             try:
-                from cogs.achievements import maybe_award, BADGES as _B
+                from cogs.achievements import maybe_award, badge_icon, BADGES as _B
                 for _ak in maybe_award(gid, ctx.author.id):
-                    extra += '\n' + t(gid, 'eco.ach_unlock', emoji=_B[_ak][0], name=_B[_ak][2])
+                    extra += '\n' + t(gid, 'eco.ach_unlock', emoji=badge_icon(gid, _ak), name=_B[_ak][2])
             except Exception:
                 pass
             msg = t(gid, 'eco.work_done', job=f"{job['label']}: {flavor}", pay=cshort(pay))

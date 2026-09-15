@@ -1,4 +1,4 @@
-"""Emoji fleet setup (SHARDED): local PNGs spread across 8 guilds.
+"""Emoji fleet setup (SHARDED): local PNGs spread across 12 guilds.
 Bots can use fleet emojis cross-server, so no need for full replicas.
 `.emojisetup` previews (+ capacity preflight), `.emojisetup confirm`
 re-validates then executes, `.emojistop` aborts. Static emojis only:
@@ -16,6 +16,7 @@ import database as db
 from lang import t
 
 EMOJI_GUILDS = [
+    # emoji 1-8 (original fleet)
     1499187861163868222,
     1490674128989192275,
     1370012965427871875,
@@ -24,6 +25,11 @@ EMOJI_GUILDS = [
     1310304820409929788,
     1549122779058540706,
     1362198875359678667,
+    # poke 1-4 (species expansion)
+    1549264681867284581,
+    1549264935689916508,
+    1549265188396474500,
+    1549265442407845998,
 ]
 IDS_FILE = Path('data/emoji_ids.json')
 
@@ -80,7 +86,7 @@ def _validate_assets(files: list, kind: str = 'png') -> tuple:
 
 
 def _plan(files: list = None) -> dict:
-    """Round-robin: emoji i -> guild i % 8. Only validated files planned."""
+    """Round-robin: emoji i -> guild i % N. Only validated files planned."""
     local = _local_set() if files is None else list(files)
     plan: dict = {str(g): [] for g in EMOJI_GUILDS}
     for i, f in enumerate(local):

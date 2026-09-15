@@ -706,6 +706,17 @@ def test_box_filter_sort() -> None:
           'fav migration present')
 
 
+def test_badge_icon_everywhere() -> None:
+    """No raw BADGES[][0] reads outside badge_icon itself: converted keys
+    hold fleet names, so direct reads would print literal text."""
+    import re as _re
+    ach = (ROOT / 'cogs' / 'achievements.py').read_text(encoding='utf-8')
+    jobs = (ROOT / 'cogs' / 'jobs.py').read_text(encoding='utf-8')
+    check('badge_icon(gid, _ak)' in jobs, 'jobs unlock line resolves via badge_icon')
+    check(not _re.search(r'\[BADGES\[|_B\[_ak\]\[0\]', jobs), 'no raw badge-icon reads in jobs')
+    check('def badge_icon' in ach, 'badge_icon defined once in achievements')
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
          test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
@@ -717,7 +728,7 @@ TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_preflight_ignored_and_kinds,
          test_preflight_empty_and_invalid, test_preflight_abort_safety,
          test_no_content_with_layout, test_hunt_parity_helpers,
-         test_box_filter_sort)
+         test_box_filter_sort, test_badge_icon_everywhere)
 
 if __name__ == '__main__':
     for t in TESTS:
