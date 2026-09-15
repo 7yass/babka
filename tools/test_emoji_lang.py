@@ -437,7 +437,7 @@ def upre():
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in (
                 '_validate_assets', '_plan', '_check_capacity', '_format_preflight',
-                '_ignored_files', '_local_set'):
+                '_ignored_files', '_local_set', '_local_anim', '_pool_row'):
             exec(compile(ast.Module(body=[node], type_ignores=[]), '<upure>', 'exec'),
                  mod.__dict__)
         if isinstance(node, ast.Assign) and len(node.targets) == 1 \
@@ -448,38 +448,41 @@ def upre():
     return mod
 
 
-def _guilds(n=8, limit=50, current=7):
-    """Snapshot fixtures: {gid: snap} with `current` static names each."""
+def _guilds(n=8, limit=50, current=7, nanim=2):
+    """Snapshot + plan fixtures. Animated pool holds `nanim` names each."""
     u = upre()
-    snaps, plan = {}, {}
+    snaps, plan, aplan = {}, {}, {}
     for i, g in enumerate(u.EMOJI_GUILDS[:n]):
         names = [f'e{i:02d}{j}' for j in range(8)]
+        anames = [f'a{i:02d}{j}' for j in range(nanim)]
         have = names[:current] if current <= 8 else names + [f'x{i:02d}{j}' for j in range(current - 8)]
-        snaps[str(g)] = {'name': f'G{i}', 'limit': limit,
-                         'static': have, 'animated': 1}
+        snaps[str(g)] = {'name': f'G{i}', 'limit': limit, 'static': have,
+                         'animated': 1, 'animated_names': anames[:1]}
         plan[str(g)] = names
-    return snaps, plan
+        aplan[str(g)] = anames
+    return snaps, plan, aplan
 
 
 def test_preflight_fits_all_eight() -> None:
     u = upre()
-    snaps, plan = _guilds()
-    # guild 0 already hosts 3 of its assigned names -> kept, not new
+    snaps, plan, aplan = _guilds()
+    # guild 0 already hosts 3 static + 1 animated assigned names -> kept
     snaps[str(u.EMOJI_GUILDS[0])]['static'] = plan[str(u.EMOJI_GUILDS[0])][:3]
-    check_result = u._check_capacity(plan, snaps)
+    check_result = u._check_capacity(plan, aplan, snaps)
     check(check_result['ok'] is True, 'fitting plan passes all eight servers')
     g0 = check_result['guilds'][str(u.EMOJI_GUILDS[0])]
     check(len(g0['kept']) == 3 and len(g0['new']) == 5, 'same-name assets kept, not re-uploaded')
-    check(g0['remaining'] == 50 - 8, 'remaining capacity exact')
+    check(len(g0['akept']) == 1 and len(g0['anew']) == 1, 'animated kept/new split')
+    check(g0['remaining'] == 50 - 8 and g0['aremaining'] == 50 - 2, 'remaining exact')
     check(all(v['ok'] for v in check_result['guilds'].values()), 'every guild row ok')
 
 
 def test_preflight_exceeds_one_server() -> None:
     u = upre()
-    snaps, plan = _guilds()
+    snaps, plan, aplan = _guilds()
     bad = str(u.EMOJI_GUILDS[3])
-    snaps[bad] = {'name': 'Small', 'limit': 7, 'static': [], 'animated': 0}
-    check_result = u._check_capacity(plan, snaps)
+    snaps[bad] = {'name': 'Small', 'limit': 7, 'static': [], 'animated': 0, 'animated_names': []}
+    check_result = u._check_capacity(plan, aplan, snaps)
     check(check_result['ok'] is False, 'one over-capacity server fails the plan')
     row = check_result['guilds'][bad]
     check(row['ok'] is False and row['remaining'] == -1, 'overflow row exact (-1)')
@@ -490,39 +493,59 @@ def test_preflight_exceeds_one_server() -> None:
 
 def test_preflight_exceeds_several() -> None:
     u = upre()
-    snaps, plan = _guilds()
+    snaps, plan, aplan = _guilds()
     bad_keys = [str(u.EMOJI_GUILDS[1]), str(u.EMOJI_GUILDS[6])]
     for k in bad_keys:
-        snaps[k] = {'name': 'Tiny', 'limit': 5, 'static': [], 'animated': 0}
-    check_result = u._check_capacity(plan, snaps)
+        snaps[k] = {'name': 'Tiny', 'limit': 5, 'static': [], 'animated': 0, 'animated_names': []}
+    check_result = u._check_capacity(plan, aplan, snaps)
     bad_rows = [k for k, v in check_result['guilds'].items() if not v['ok']]
     check(check_result['ok'] is False and sorted(bad_rows) == sorted(bad_keys),
           'several over-capacity servers all reported')
 
 
-def test_preflight_animated_and_ignored() -> None:
+def test_preflight_animated_pools() -> None:
     u = upre()
-    snaps, plan = _guilds()
+    snaps, plan, aplan = _guilds()
     g0 = str(u.EMOJI_GUILDS[0])
-    snaps[g0] = {'name': 'G0', 'limit': 8, 'static': plan[g0][:3], 'animated': 42}
-    check_result = u._check_capacity(plan, snaps)
-    check(check_result['guilds'][g0]['ok'] is True,
-          'animated pool never consumes static capacity')
+    # 42 animated residents are wiped as extras: only wanted counts
+    snaps[g0] = {'name': 'G0', 'limit': 8, 'static': plan[g0][:3],
+                 'animated': 42, 'animated_names': [f'res{j}' for j in range(42)]}
+    check_result = u._check_capacity(plan, aplan, snaps)
+    row = check_result['guilds'][g0]
+    check(check_result['ok'] is True and row['remaining'] == 0 and row['aremaining'] == 6,
+          'residents never consume capacity in either pool')
+    # animated wanted over limit while static fits on another guild
+    g1 = str(u.EMOJI_GUILDS[1])
+    snaps[g1] = {'name': 'G1', 'limit': 50, 'static': [], 'animated': 0,
+                 'animated_names': []}
+    aplan[g1] = [f'big{j}' for j in range(51)]
+    check_result = u._check_capacity(plan, aplan, snaps)
+    r1 = check_result['guilds'][g1]
+    check(check_result['ok'] is False and r1['ok'] is False
+          and len(r1['aoverflow']) == 1 and r1['remaining'] >= 0,
+          'animated-only overflow fails just that pool')
+
+
+def test_preflight_ignored_and_kinds() -> None:
+    u = upre()
     tmp = tempfile.TemporaryDirectory()
     try:
         d = Path(tmp.name) / 'assets' / 'emojis'
         d.mkdir(parents=True)
         (d / 'ok.png').write_bytes(b'\x89PNG\r\n\x1a\n' + b'0' * 100)
         (d / 'movie.gif').write_bytes(b'GIF89a' + b'0' * 100)
+        (d / 'notes.txt').write_bytes(b'hi')
         import os
         prev = os.getcwd()
         os.chdir(tmp.name)
         try:
-            check(u._ignored_files() == ['movie.gif'], 'non-PNG assets ignored, never planned')
-            valid, invalid = u._validate_assets([d / 'ok.png', d / 'movie.gif'])
-            check([p.name for p in valid] == ['ok.png']
-                  and [n for n, _ in invalid] == ['movie.gif'],
-                  'gif can never enter the upload plan')
+            check(u._ignored_files() == ['notes.txt'], 'only non-deployables ignored')
+            valid, invalid = u._validate_assets([d / 'movie.gif'], kind='gif')
+            check([p.name for p in valid] == ['movie.gif'], 'gif validates as animated')
+            valid, invalid = u._validate_assets([d / 'ok.png'], kind='gif')
+            check([n for n, _ in invalid] == ['ok.png'], 'png bytes rejected as gif')
+            valid, invalid = u._validate_assets([d / 'movie.gif'], kind='png')
+            check([n for n, _ in invalid] == ['movie.gif'], 'gif bytes rejected as png')
         finally:
             os.chdir(prev)
     finally:
@@ -531,10 +554,11 @@ def test_preflight_animated_and_ignored() -> None:
 
 def test_preflight_empty_and_invalid() -> None:
     u = upre()
-    snaps, _ = _guilds()
-    check_result = u._check_capacity({}, snaps)
+    snaps, _, _ = _guilds()
+    check_result = u._check_capacity({}, {}, snaps)
     check(check_result['ok'] is True
-          and all(len(v['new']) == 0 for v in check_result['guilds'].values()),
+          and all(len(v['new']) == 0 and len(v['anew']) == 0
+                  for v in check_result['guilds'].values()),
           'empty pack passes with zero uploads')
     check(u._plan([]) == {str(g): [] for g in u.EMOJI_GUILDS}, 'empty file list plans nothing')
     tmp = tempfile.TemporaryDirectory()
@@ -560,13 +584,14 @@ def test_preflight_empty_and_invalid() -> None:
 def test_preflight_abort_safety() -> None:
     import copy
     u = upre()
-    snaps, plan = _guilds()
-    snaps[str(u.EMOJI_GUILDS[0])] = {'name': 'Tiny', 'limit': 2, 'static': [], 'animated': 0}
-    frozen_plan, frozen_snaps = copy.deepcopy(plan), copy.deepcopy(snaps)
-    check_result = u._check_capacity(plan, snaps)
+    snaps, plan, aplan = _guilds()
+    snaps[str(u.EMOJI_GUILDS[0])] = {'name': 'Tiny', 'limit': 2, 'static': [],
+                                    'animated': 0, 'animated_names': []}
+    frozen = (copy.deepcopy(plan), copy.deepcopy(aplan), copy.deepcopy(snaps))
+    check_result = u._check_capacity(plan, aplan, snaps)
     check(check_result['ok'] is False, 'failing plan detected')
-    check(plan == frozen_plan and snaps == frozen_snaps,
-          'checker never mutates plan or snapshots (resume state intact)')
+    check((plan, aplan, snaps) == frozen,
+          'checker never mutates plans or snapshots (resume state intact)')
     src = (ROOT / 'cogs' / 'emojis.py').read_text(encoding='utf-8')
     tree = ast.parse(src)
     seg = ''
@@ -688,7 +713,8 @@ TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_weather_emojis, test_weather_plain_fallback, test_quest_bars_and_economy,
          test_achievement_icons, test_achievement_fallbacks_and_data,
          test_preflight_fits_all_eight, test_preflight_exceeds_one_server,
-         test_preflight_exceeds_several, test_preflight_animated_and_ignored,
+         test_preflight_exceeds_several, test_preflight_animated_pools,
+         test_preflight_ignored_and_kinds,
          test_preflight_empty_and_invalid, test_preflight_abort_safety,
          test_no_content_with_layout, test_hunt_parity_helpers,
          test_box_filter_sort)

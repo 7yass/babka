@@ -36,20 +36,25 @@ def _local_set() -> list:
     return sorted((Path('assets/emojis')).glob('*.png'))
 
 
+def _local_anim() -> list:
+    return sorted((Path('assets/emojis')).glob('*.gif'))
+
+
 def _ignored_files() -> list:
-    """Non-PNG files in the emoji dir. The uploader is static-only;
-    these are reported, never uploaded."""
+    """Non-emoji files in the emoji dir. Only .png (static) and .gif
+    (animated) are deployable; the rest are reported, never uploaded."""
     d = Path('assets/emojis')
     try:
         return sorted(p.name for p in d.iterdir()
-                      if p.is_file() and p.suffix.lower() != '.png')
+                      if p.is_file() and p.suffix.lower() not in ('.png', '.gif'))
     except Exception:
         return []
 
 
-def _validate_assets(files: list) -> tuple:
+def _validate_assets(files: list, kind: str = 'png') -> tuple:
     """Split into (valid, [(filename, reason)]). Invalid files are excluded
     from the plan with a warning — they could never be created."""
+    magic = b'\x89PNG\r\n\x1a\n' if kind == 'png' else None
     valid, invalid = [], []
     for f in files:
         name = f.stem
@@ -64,8 +69,11 @@ def _validate_assets(files: list) -> tuple:
         if len(data) > EMOJI_MAX_BYTES:
             invalid.append((f.name, f'{len(data) // 1024}KB over 256KB'))
             continue
-        if data[:8] != b'\x89PNG\r\n\x1a\n':
+        if magic is not None and data[:8] != magic:
             invalid.append((f.name, 'not-a-png'))
+            continue
+        if magic is None and data[:6] not in (b'GIF87a', b'GIF89a'):
+            invalid.append((f.name, 'not-a-gif'))
             continue
         valid.append(f)
     return valid, invalid
@@ -80,14 +88,24 @@ def _plan(files: list = None) -> dict:
     return plan
 
 
-def _check_capacity(plan: dict, snapshots: dict) -> dict:
-    """Pure capacity preflight. plan: {gid: [wanted stems]} (validated).
-    snapshots: {gid: snap | None}; None = unreachable (reported, excluded
-    from the verdict — nothing will upload there either way).
-    snap: {'name': str, 'limit': int, 'static': [existing names],
-           'animated': int}. Animated slots are a separate pool and never
-    count against static capacity. Existing same-name emojis are kept,
-    never re-uploaded. Returns {'ok': bool, 'guilds': {...}, 'unreachable'}.
+def _pool_row(wanted: list, existing: set, limit: int) -> dict:
+    """One pool (static or animated) of a guild's preflight row. Pure."""
+    kept = sorted(n for n in wanted if n in existing)
+    new = sorted(n for n in wanted if n not in existing)
+    remaining = limit - len(wanted)
+    return {'kept': kept, 'new': new, 'remaining': remaining,
+            'ok': remaining >= 0,
+            'overflow': list(wanted)[limit:] if remaining < 0 else []}
+
+
+def _check_capacity(plan: dict, anim_plan: dict, snapshots: dict) -> dict:
+    """Pure capacity preflight. plan/anim_plan: {gid: [wanted stems]}
+    (validated). snapshots: {gid: snap | None}; None = unreachable
+    (reported, excluded from the verdict — nothing uploads there either).
+    snap: {'name': str, 'limit': int, 'static': [names],
+           'animated': [names]}. The animated pool uses the same limit
+    number as its own separate cap. Existing same-name emojis are kept,
+    never re-uploaded. Returns {'ok', 'guilds', 'unreachable'}.
     Never mutates its inputs; performs no I/O."""
     guilds, unreachable = {}, []
     for gid in EMOJI_GUILDS:
@@ -100,21 +118,18 @@ def _check_capacity(plan: dict, snapshots: dict) -> dict:
             limit = int(snap.get('limit') or 50)
         except Exception:
             limit = 50
-        existing = set(snap.get('static') or [])
-        wanted = [s for s in (plan.get(key) or [])]
-        kept = sorted(n for n in wanted if n in existing)
-        new = sorted(n for n in wanted if n not in existing)
-        remaining = limit - len(wanted)
+        s = _pool_row(plan.get(key) or [], set(snap.get('static') or []), limit)
+        a = _pool_row(anim_plan.get(key) or [], set(snap.get('animated_names') or []), limit)
         guilds[key] = {
             'name': snap.get('name', key),
             'limit': limit,
-            'current': len(existing),
-            'animated': int(snap.get('animated') or 0),
-            'kept': kept,
-            'new': new,
-            'remaining': remaining,
-            'ok': remaining >= 0,
-            'overflow': wanted[limit:] if remaining < 0 else [],
+            'current': len(set(snap.get('static') or [])),
+            'animated': len(set(snap.get('animated_names') or [])),
+            'kept': s['kept'], 'new': s['new'], 'remaining': s['remaining'],
+            'akept': a['kept'], 'anew': a['new'], 'aremaining': a['remaining'],
+            'ok': s['ok'] and a['ok'],
+            'overflow': s['overflow'],
+            'aoverflow': a['overflow'],
         }
     return {'ok': all(g['ok'] for g in guilds.values()),
             'guilds': guilds, 'unreachable': unreachable}
@@ -122,8 +137,8 @@ def _check_capacity(plan: dict, snapshots: dict) -> dict:
 
 def _format_preflight(check: dict, invalid: list, ignored: list, total: int) -> list:
     """Human-readable preflight report lines. Pure."""
-    n_new = sum(len(g['new']) for g in check['guilds'].values())
-    n_kept = sum(len(g['kept']) for g in check['guilds'].values())
+    n_new = sum(len(g['new']) + len(g['anew']) for g in check['guilds'].values())
+    n_kept = sum(len(g['kept']) + len(g['akept']) for g in check['guilds'].values())
     head = (f"Preflight: **{total}** files "
             f"({total - len(invalid)} valid, {len(invalid)} invalid), "
             f"**{n_new}** new uploads, **{n_kept}** kept across "
@@ -134,10 +149,14 @@ def _format_preflight(check: dict, invalid: list, ignored: list, total: int) -> 
         if not g:
             lines.append(f'• {gid}: unreachable (rechecked on confirm).')
             continue
-        status = 'OK' if g['ok'] else f"OVER by {-g['remaining']}: {', '.join(g['overflow'])}"
-        lines.append(f"• {g['name']} ({gid}): static {g['current']}/{g['limit']} "
-                     f"(+{g['animated']} animated separate), new {len(g['new'])}, "
-                     f'kept {len(g["kept"])}, remaining {g["remaining"]} — {status}')
+        bits = []
+        s_stat = 'OK' if g['remaining'] >= 0 else f"OVER by {-g['remaining']}: {', '.join(g['overflow'])}"
+        bits.append(f'static {g["current"]}/{g["limit"]}, new {len(g["new"])}, '
+                    f'kept {len(g["kept"])}, remaining {g["remaining"]} — {s_stat}')
+        a_stat = 'OK' if g['aremaining'] >= 0 else f"OVER by {-g['aremaining']}: {', '.join(g['aoverflow'])}"
+        bits.append(f'animated {g["animated"]}/{g["limit"]}, new {len(g["anew"])}, '
+                    f'kept {len(g["akept"])}, remaining {g["aremaining"]} — {a_stat}')
+        lines.append(f"• {g['name']} ({gid}): " + ' | '.join(bits))
     for gid in check['unreachable']:
         if gid not in check['guilds']:
             lines.append(f'• {gid}: unreachable (rechecked on confirm).')
@@ -145,7 +164,7 @@ def _format_preflight(check: dict, invalid: list, ignored: list, total: int) -> 
         lines.append('Invalid (excluded, would fail at create): '
                      + ', '.join(f'{n} ({r})' for n, r in invalid))
     if ignored:
-        lines.append('Ignored (static-only uploader): ' + ', '.join(ignored))
+        lines.append('Ignored (not deployable): ' + ', '.join(ignored))
     return lines
 
 
@@ -205,11 +224,18 @@ class Emojis(commands.Cog):
         if not db.is_house(ctx.author.id):
             return await ctx.reply(t(gid, 'eco.no_owner'), ephemeral=True)
         local = _local_set()
-        valid, invalid = _validate_assets(local)
+        anims = _local_anim()
+        valid, invalid = _validate_assets(local, 'png')
+        valid_a, invalid_a = _validate_assets(anims, 'gif')
+        invalid = invalid + invalid_a
         ignored = _ignored_files()
         plan = _plan(valid)
+        plan_a = _plan(valid_a)
+        stems = {k: [f.stem for f in v] for k, v in plan.items()}
+        astems = {k: [f.stem for f in v] for k, v in plan_a.items()}
         if (action or '').lower() != 'confirm':
-            lines = [f'Fleet setup SHARDED: **{len(valid)}** emojis across **{len(EMOJI_GUILDS)}** servers (~{len(valid) // max(1, len(EMOJI_GUILDS))} each). `em()` resolves cross-server.']
+            lines = [f'Fleet setup SHARDED: **{len(valid)}** static + **{len(valid_a)}** animated emojis '
+                     f'across **{len(EMOJI_GUILDS)}** servers. `em()` resolves cross-server.']
             for g in EMOJI_GUILDS:
                 guild = self.bot.get_guild(g)
                 assigned = [f.stem for f in plan[str(g)]]
@@ -222,8 +248,7 @@ class Emojis(commands.Cog):
                 guild = self.bot.get_guild(g)
                 if guild:
                     snapshots[str(g)] = self._snap(guild, list(guild.emojis))
-            check = _check_capacity({k: [f.stem for f in v] for k, v in plan.items()},
-                                    snapshots)
+            check = _check_capacity(stems, astems, snapshots)
             lines.append('— preflight (cached counts, rechecked on confirm) —')
             lines.extend(_format_preflight(check, invalid, ignored, len(local)))
             lines.append(t(gid, 'eco.emoji_warn'))
@@ -260,18 +285,18 @@ class Emojis(commands.Cog):
                 current = list(guild.emojis)
             currents[str(guild.id)] = current
             snapshots[str(guild.id)] = self._snap(guild, current)
-        check = _check_capacity({k: [f.stem for f in v] for k, v in plan.items()},
-                                snapshots)
+        check = _check_capacity(stems, astems, snapshots)
         if not check['ok']:
             await ctx.reply('ABORTED: fleet would exceed capacity — '
                             'nothing uploaded, deleted, or saved.\n'
-                            + '\n'.join(_format_preflight(check, invalid, ignored, len(local))),
+                            + '\n'.join(_format_preflight(
+                                check, invalid, ignored, len(valid) + len(valid_a))),
                             ephemeral=True)
             return
         await ctx.reply(t(gid, 'eco.emoji_go'), ephemeral=True)
         mapping, report = {}, list(skip)
         total = len(EMOJI_GUILDS)
-        total_e_all = len(valid)
+        total_e_all = len(valid) + len(valid_a)
         done_e_all = 0
         status = await ctx.reply(t(gid, 'eco.emoji_progress', done=0, total=total))
         done = 0
@@ -287,7 +312,7 @@ class Emojis(commands.Cog):
 
             current = currents.get(str(g), [])
             existing = {e.name: e for e in current}
-            wanted_list = plan[str(g)]
+            wanted_list = plan[str(g)] + plan_a[str(g)]
             wanted = {f.stem: f for f in wanted_list}
             wanted_names = list(wanted.keys())
 
@@ -380,14 +405,15 @@ class Emojis(commands.Cog):
             limit = int(getattr(guild, 'emoji_limit', 50) or 50)
         except Exception:
             limit = 50
-        static, animated = [], 0
+        static, animated = [], []
         for e in current or []:
             if getattr(e, 'animated', False):
-                animated += 1
+                animated.append(getattr(e, 'name', ''))
             else:
                 static.append(getattr(e, 'name', ''))
         return {'name': getattr(guild, 'name', str(getattr(guild, 'id', '?'))),
-                'limit': limit, 'static': static, 'animated': animated}
+                'limit': limit, 'static': static,
+                'animated': len(animated), 'animated_names': animated}
 
     async def _progress(self, status, gid, report, done, total):
         done += 1
