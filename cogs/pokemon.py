@@ -2823,6 +2823,8 @@ class Pokemon(commands.Cog):
         from discord.ui import LayoutView
         layout = LayoutView(timeout=90)
         box = Container(accent_color=0xFF4655)
+        # Ping must live inside the layout: content + Components V2 = HTTP 400.
+        box.add_item(TextDisplay(f'<@{member.id}>'))
         box.add_item(TextDisplay(t(gid, 'eco.pk_duel_challenge', a=ctx.author.display_name,
                                    b=member.display_name,
                                    wager=(cshort(wager) if wager else '—'))))
@@ -2849,7 +2851,7 @@ class Pokemon(commands.Cog):
         row.add_item(no_b)
         box.add_item(row)
         layout.add_item(box)
-        await ctx.reply(f'<@{member.id}>', view=layout, mention_author=False)
+        await ctx.reply(view=layout, mention_author=False)
 
     async def _duel_start(self, ix: discord.Interaction, gid, u1, u2, wager: int):
         import aiohttp
@@ -3303,6 +3305,8 @@ class Pokemon(commands.Cog):
         from discord.ui import LayoutView
         layout = LayoutView(timeout=90)
         box = Container(accent_color=0x57F287)
+        # Ping must live inside the layout: content + Components V2 = HTTP 400.
+        box.add_item(TextDisplay(f'<@{member.id}>'))
         box.add_item(TextDisplay(t(gid, 'eco.pk_trade_offer', a=ctx.author.display_name,
                                    m1=mon_name(mine, gid), b=member.display_name, m2=mon_name(want, gid))))
         row = ActionRow()
@@ -3341,7 +3345,7 @@ class Pokemon(commands.Cog):
         row.add_item(no_b)
         box.add_item(row)
         layout.add_item(box)
-        await ctx.reply(f'<@{member.id}>', view=layout, mention_author=False)
+        await ctx.reply(view=layout, mention_author=False)
 
 
 async def setup(bot):

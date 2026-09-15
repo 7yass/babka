@@ -575,6 +575,28 @@ def test_preflight_abort_safety() -> None:
           'capacity failure returns before confirmation/progress')
 
 
+def test_no_content_with_layout() -> None:
+    """Components V2 rejects content+layout (HTTP 400/50035). No message
+    send may pass a string positional together with a live view kwarg."""
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    tree = ast.parse(src)
+    bad = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, 'attr', '') or getattr(node.func, 'id', '')
+        if name not in ('reply', 'send', 'send_message', 'edit_message'):
+            continue
+        view_live = any(kw.arg == 'view' and not (
+            isinstance(kw.value, ast.Constant) and kw.value.value is None)
+            for kw in node.keywords)
+        str_positional = (bool(node.args) and isinstance(node.args[0], ast.Constant)
+                          and isinstance(node.args[0].value, str))
+        if view_live and str_positional:
+            bad.append(getattr(node, 'lineno', '?'))
+    check(not bad, f'no content+layout sends (lines {bad or "none"})')
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
          test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
@@ -583,7 +605,8 @@ TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_achievement_icons, test_achievement_fallbacks_and_data,
          test_preflight_fits_all_eight, test_preflight_exceeds_one_server,
          test_preflight_exceeds_several, test_preflight_animated_and_ignored,
-         test_preflight_empty_and_invalid, test_preflight_abort_safety)
+         test_preflight_empty_and_invalid, test_preflight_abort_safety,
+         test_no_content_with_layout)
 
 if __name__ == '__main__':
     for t in TESTS:
