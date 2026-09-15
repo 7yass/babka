@@ -418,12 +418,172 @@ def test_achievement_fallbacks_and_data() -> None:
         tmp.cleanup()
 
 
+def upre():
+    """Pure uploader helpers from cogs/emojis.py without importing discord."""
+    import re as _re
+    import types
+    src = (ROOT / 'cogs' / 'emojis.py').read_text(encoding='utf-8')
+    tree = ast.parse(src)
+    mod = types.ModuleType('upure')
+    mod.__dict__['re'] = _re
+    mod.__dict__['Path'] = Path
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in (
+                '_validate_assets', '_plan', '_check_capacity', '_format_preflight',
+                '_ignored_files', '_local_set'):
+            exec(compile(ast.Module(body=[node], type_ignores=[]), '<upure>', 'exec'),
+                 mod.__dict__)
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                and getattr(node.targets[0], 'id', '') in (
+                    'EMOJI_GUILDS', 'EMOJI_MAX_BYTES', 'EMOJI_NAME_RE'):
+            exec(compile(ast.Module(body=[node], type_ignores=[]), '<upure>', 'exec'),
+                 mod.__dict__)
+    return mod
+
+
+def _guilds(n=8, limit=50, current=7):
+    """Snapshot fixtures: {gid: snap} with `current` static names each."""
+    u = upre()
+    snaps, plan = {}, {}
+    for i, g in enumerate(u.EMOJI_GUILDS[:n]):
+        names = [f'e{i:02d}{j}' for j in range(8)]
+        have = names[:current] if current <= 8 else names + [f'x{i:02d}{j}' for j in range(current - 8)]
+        snaps[str(g)] = {'name': f'G{i}', 'limit': limit,
+                         'static': have, 'animated': 1}
+        plan[str(g)] = names
+    return snaps, plan
+
+
+def test_preflight_fits_all_eight() -> None:
+    u = upre()
+    snaps, plan = _guilds()
+    # guild 0 already hosts 3 of its assigned names -> kept, not new
+    snaps[str(u.EMOJI_GUILDS[0])]['static'] = plan[str(u.EMOJI_GUILDS[0])][:3]
+    check_result = u._check_capacity(plan, snaps)
+    check(check_result['ok'] is True, 'fitting plan passes all eight servers')
+    g0 = check_result['guilds'][str(u.EMOJI_GUILDS[0])]
+    check(len(g0['kept']) == 3 and len(g0['new']) == 5, 'same-name assets kept, not re-uploaded')
+    check(g0['remaining'] == 50 - 8, 'remaining capacity exact')
+    check(all(v['ok'] for v in check_result['guilds'].values()), 'every guild row ok')
+
+
+def test_preflight_exceeds_one_server() -> None:
+    u = upre()
+    snaps, plan = _guilds()
+    bad = str(u.EMOJI_GUILDS[3])
+    snaps[bad] = {'name': 'Small', 'limit': 7, 'static': [], 'animated': 0}
+    check_result = u._check_capacity(plan, snaps)
+    check(check_result['ok'] is False, 'one over-capacity server fails the plan')
+    row = check_result['guilds'][bad]
+    check(row['ok'] is False and row['remaining'] == -1, 'overflow row exact (-1)')
+    check(row['overflow'] == plan[bad][7:], 'exact overflow files reported')
+    check(all(v['ok'] for k, v in check_result['guilds'].items() if k != bad),
+          'other seven servers still ok')
+
+
+def test_preflight_exceeds_several() -> None:
+    u = upre()
+    snaps, plan = _guilds()
+    bad_keys = [str(u.EMOJI_GUILDS[1]), str(u.EMOJI_GUILDS[6])]
+    for k in bad_keys:
+        snaps[k] = {'name': 'Tiny', 'limit': 5, 'static': [], 'animated': 0}
+    check_result = u._check_capacity(plan, snaps)
+    bad_rows = [k for k, v in check_result['guilds'].items() if not v['ok']]
+    check(check_result['ok'] is False and sorted(bad_rows) == sorted(bad_keys),
+          'several over-capacity servers all reported')
+
+
+def test_preflight_animated_and_ignored() -> None:
+    u = upre()
+    snaps, plan = _guilds()
+    g0 = str(u.EMOJI_GUILDS[0])
+    snaps[g0] = {'name': 'G0', 'limit': 8, 'static': plan[g0][:3], 'animated': 42}
+    check_result = u._check_capacity(plan, snaps)
+    check(check_result['guilds'][g0]['ok'] is True,
+          'animated pool never consumes static capacity')
+    tmp = tempfile.TemporaryDirectory()
+    try:
+        d = Path(tmp.name) / 'assets' / 'emojis'
+        d.mkdir(parents=True)
+        (d / 'ok.png').write_bytes(b'\x89PNG\r\n\x1a\n' + b'0' * 100)
+        (d / 'movie.gif').write_bytes(b'GIF89a' + b'0' * 100)
+        import os
+        prev = os.getcwd()
+        os.chdir(tmp.name)
+        try:
+            check(u._ignored_files() == ['movie.gif'], 'non-PNG assets ignored, never planned')
+            valid, invalid = u._validate_assets([d / 'ok.png', d / 'movie.gif'])
+            check([p.name for p in valid] == ['ok.png']
+                  and [n for n, _ in invalid] == ['movie.gif'],
+                  'gif can never enter the upload plan')
+        finally:
+            os.chdir(prev)
+    finally:
+        tmp.cleanup()
+
+
+def test_preflight_empty_and_invalid() -> None:
+    u = upre()
+    snaps, _ = _guilds()
+    check_result = u._check_capacity({}, snaps)
+    check(check_result['ok'] is True
+          and all(len(v['new']) == 0 for v in check_result['guilds'].values()),
+          'empty pack passes with zero uploads')
+    check(u._plan([]) == {str(g): [] for g in u.EMOJI_GUILDS}, 'empty file list plans nothing')
+    tmp = tempfile.TemporaryDirectory()
+    try:
+        d = Path(tmp.name)
+        (d / 'x.png').write_bytes(b'\x89PNG\r\n\x1a\nok')          # 1-char stem
+        (d / 'has space.png').write_bytes(b'\x89PNG\r\n\x1a\nok')  # illegal char
+        (d / 'big.png').write_bytes(b'\x89PNG\r\n\x1a\n' + b'0' * (257 * 1024))
+        (d / 'fake.png').write_bytes(b'not a png at all')
+        (d / 'gone.png').write_text('', encoding='utf-8')
+        (d / 'gone.png').unlink()                                  # missing file
+        (d / 'good.png').write_bytes(b'\x89PNG\r\n\x1a\n' + b'0' * 64)
+        valid, invalid = u._validate_assets([d / f for f in (
+            'x.png', 'has space.png', 'big.png', 'fake.png', 'gone.png', 'good.png')])
+        bad = dict(invalid)
+        check([p.name for p in valid] == ['good.png'], 'only the valid file is planned')
+        check(set(bad) == {'x.png', 'has space.png', 'big.png', 'fake.png', 'gone.png'},
+              'every invalid file reported with a reason')
+    finally:
+        tmp.cleanup()
+
+
+def test_preflight_abort_safety() -> None:
+    import copy
+    u = upre()
+    snaps, plan = _guilds()
+    snaps[str(u.EMOJI_GUILDS[0])] = {'name': 'Tiny', 'limit': 2, 'static': [], 'animated': 0}
+    frozen_plan, frozen_snaps = copy.deepcopy(plan), copy.deepcopy(snaps)
+    check_result = u._check_capacity(plan, snaps)
+    check(check_result['ok'] is False, 'failing plan detected')
+    check(plan == frozen_plan and snaps == frozen_snaps,
+          'checker never mutates plan or snapshots (resume state intact)')
+    src = (ROOT / 'cogs' / 'emojis.py').read_text(encoding='utf-8')
+    tree = ast.parse(src)
+    seg = ''
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == 'emojisetup':
+            seg = ast.get_source_segment(src, node) or ''
+    guard = seg.find('_check_capacity(')
+    check(guard > 0
+          and guard < seg.find('_safe_delete(')
+          and guard < seg.find('IDS_FILE.write_text'),
+          'preflight gate precedes every delete and every state write')
+    check("if not check['ok']:" in seg and seg.find('ABORTED') < seg.find("t(gid, 'eco.emoji_go')"),
+          'capacity failure returns before confirmation/progress')
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
          test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
          test_button_decisions, test_button_source_hygiene, test_partialemoji_shape,
          test_weather_emojis, test_weather_plain_fallback, test_quest_bars_and_economy,
-         test_achievement_icons, test_achievement_fallbacks_and_data)
+         test_achievement_icons, test_achievement_fallbacks_and_data,
+         test_preflight_fits_all_eight, test_preflight_exceeds_one_server,
+         test_preflight_exceeds_several, test_preflight_animated_and_ignored,
+         test_preflight_empty_and_invalid, test_preflight_abort_safety)
 
 if __name__ == '__main__':
     for t in TESTS:
