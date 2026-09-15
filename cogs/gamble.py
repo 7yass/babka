@@ -998,7 +998,7 @@ class Gamble(commands.Cog):
             earned = min(int(bank * 0.02 * days), 500 * days)
             bank += earned
             with db.conn_ctx() as conn:
-                conn.execute('UPDATE eco SET bank=cshort(?), bank_at=? WHERE guild_id=? AND user_id=?',
+                conn.execute('UPDATE eco SET bank=?, bank_at=? WHERE guild_id=? AND user_id=?',
                              (bank, now, str(gid), str(uid)))
         return bank, earned
 
@@ -1050,7 +1050,7 @@ class Gamble(commands.Cog):
         await ctx.reply(t(gid, 'eco.share_ok', user=partner.display_name), ephemeral=True)
 
     @commands.command(name='deposit', description='Wpłać do banku', aliases=['dep'])
-    async def deposit(self, ctx, amount: str):
+    async def deposit(self, ctx, amount: str = ''):
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
         owner, _ = self._vault(gid, ctx.author.id)
@@ -1068,15 +1068,15 @@ class Gamble(commands.Cog):
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
         now = int(time.time())
         with db.conn_ctx() as conn:
-            conn.execute('UPDATE eco SET cash=cshort(? WHERE guild_id=? AND user_id=?',
+            conn.execute('UPDATE eco SET cash=? WHERE guild_id=? AND user_id=?',
                          (b['cash'] - amount, str(gid), str(ctx.author.id)))
-            conn.execute('UPDATE eco SET bank=?)cshort(?), bank_at=? WHERE guild_id=? AND user_id=?',
+            conn.execute('UPDATE eco SET bank=?, bank_at=? WHERE guild_id=? AND user_id=?',
                          (bank + amount, now, str(gid), str(owner)))
         await ctx.reply(t(gid, 'eco.dep_ok', amount=cshort(amount), bank=cshort(bank + amount))
                         + _wallet_line(gid, ctx.author.id), ephemeral=True)
 
     @commands.command(name='withdraw', description='Wypłać z banku', aliases=['with'])
-    async def withdraw(self, ctx, amount: str):
+    async def withdraw(self, ctx, amount: str = ''):
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
         owner, _ = self._vault(gid, ctx.author.id)
@@ -1522,7 +1522,7 @@ class Gamble(commands.Cog):
         if confirm.lower() != 'yes':
             return await ctx.reply(t(gid, 'eco.reset_warn'), ephemeral=True)
         with db.conn_ctx() as conn:
-            conn.execute('UPDATE eco SET cash=cshort(0), bank=0 WHERE guild_id=?', (str(gid),))
+            conn.execute('UPDATE eco SET cash=0, bank=0 WHERE guild_id=?', (str(gid),))
             conn.execute('DELETE FROM bounties WHERE guild_id=?', (str(gid),))
         await ctx.reply(t(gid, 'eco.reset_done'))
 

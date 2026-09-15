@@ -576,10 +576,65 @@ def move_str(gid, mv: dict) -> str:
     return f'{e} {base}' if e else base
 
 
+def _sky_grass(d, rnd, W, H, weather, horizon=300):
+    """Bright daytime Pokemon terrain shared by battle + hunt cards."""
+    if weather == 'rain':
+        top, bot = (105, 128, 160), (172, 192, 210)
+    elif weather == 'sun':
+        top, bot = (120, 185, 240), (255, 224, 170)
+    else:
+        top, bot = (110, 182, 232), (200, 233, 250)
+    for y in range(horizon):
+        tt = y / max(1, horizon)
+        d.line([(0, y), (W, y)],
+               fill=(int(top[0] + (bot[0] - top[0]) * tt),
+                     int(top[1] + (bot[1] - top[1]) * tt),
+                     int(top[2] + (bot[2] - top[2]) * tt)))
+    # sun with glow
+    sun_c = (255, 236, 170) if weather != 'rain' else (215, 220, 230)
+    d.ellipse([748, 14, 842, 108], fill=(255, 244, 200, 90))
+    d.ellipse([762, 28, 828, 94], fill=sun_c)
+    # puffy white clouds
+    for cx, cy, w in ((150, 66, 130), (430, 42, 100), (650, 116, 84)):
+        for ox, oy, r in ((-w // 3, 4, 22), (0, -6, 28), (w // 3, 4, 22)):
+            d.ellipse([cx + ox - r, cy + oy - r // 2, cx + ox + r, cy + oy + r // 2],
+                      fill=(255, 255, 255))
+            d.ellipse([cx + ox - r, cy + oy, cx + ox + r, cy + oy + r // 2],
+                      fill=(225, 235, 245))
+    # distant soft hills for depth
+    d.ellipse([-140, horizon - 70, 340, horizon + 40], fill=(140, 205, 140))
+    d.ellipse([560, horizon - 88, 1040, horizon + 40], fill=(130, 198, 135))
+    # vibrant grass
+    for y in range(horizon, H):
+        tt = (y - horizon) / max(1, (H - horizon))
+        d.line([(0, y), (W, y)],
+               fill=(int(104 - 34 * tt), int(192 - 28 * tt), int(104 - 26 * tt)))
+    d.line([(0, horizon), (W, horizon)], fill=(86, 170, 88), width=3)
+    for _ in range(52):
+        x, y = rnd.randint(6, W - 6), rnd.randint(horizon + 6, H - 8)
+        d.line([(x, y), (x + rnd.choice([-3, 3]), y - rnd.randint(5, 10))],
+               fill=(52, 138, 60), width=2)
+    for _ in range(10):  # tiny meadow flowers
+        x, y = rnd.randint(10, W - 10), rnd.randint(horizon + 10, H - 10)
+        d.ellipse([x - 3, y - 3, x + 3, y + 3],
+                  fill=rnd.choice([(255, 255, 255), (255, 235, 150), (255, 200, 210)]))
+    if weather == 'rain':
+        for _ in range(70):
+            x, y = rnd.randint(0, W), rnd.randint(0, horizon)
+            d.line([(x, y), (x - 5, y + 12)], fill=(150, 175, 210), width=2)
+
+
+def _platform(d, x0, y0, x1, y1):
+    """Sandy game-style battle platform with shadow + highlight."""
+    d.ellipse([x0, y0 + 8, x1, y1 + 8], fill=(52, 120, 58))
+    d.ellipse([x0, y0, x1, y1], fill=(236, 214, 168), outline=(172, 142, 100), width=3)
+    d.ellipse([x0 + 14, y0 + 5, x1 - 14, y1 - 8], fill=(246, 230, 188))
+
+
 def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict,
                  weather=None) -> bytes:
-    """Game-style pixel battle: sun, clouds, textured grass, platforms,
-    nearest-neighbor sprites, status boxes. Weather tints the sky."""
+    """Bright game-style battle: blue sky, white clouds, meadow, sandy
+    platforms, nearest-neighbor sprites, cream status boxes."""
     import io as _io
     import random as _r
     from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
@@ -587,44 +642,15 @@ def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict,
     W, H = 900, 420
     seed = (p1.get('name', '') + p2.get('name', ''))
     rnd = _r.Random(sum(map(ord, seed)) if seed else 7)
-    img = _Img.new('RGB', (W, H), (24, 28, 40))
+    img = _Img.new('RGB', (W, H), (110, 182, 232))
     d = _Dr.Draw(img)
-    # sky (weather-tinted)
-    top = {'rain': (52, 60, 84), 'sun': (96, 78, 72)}.get(weather, (30, 34, 52))
-    bot = {'rain': (62, 84, 72), 'sun': (150, 100, 66)}.get(weather, (42, 64, 82))
-    for y in range(300):
-        tt = y / 300
-        d.line([(0, y), (W, y)],
-               fill=(int(top[0] + (bot[0] - top[0]) * tt),
-                     int(top[1] + (bot[1] - top[1]) * tt),
-                     int(top[2] + (bot[2] - top[2]) * tt)))
-    # sun + clouds
-    d.ellipse([760, 26, 830, 96], fill=(255, 225, 150) if weather == 'sun'
-              else (200, 205, 220))
-    for cx, cy, w in ((150, 70, 130), (430, 44, 100), (660, 120, 80)):
-        for ox in (-w // 3, 0, w // 3):
-            d.ellipse([cx + ox - 26, cy - 16, cx + ox + 26, cy + 16],
-                      fill=(58, 62, 80))
-    # grass with tufts
-    for y in range(300, H):
-        tt = (y - 300) / (H - 300)
-        d.line([(0, y), (W, y)],
-               fill=(int(52 - 12 * tt), int(110 - 24 * tt), int(66 - 14 * tt)))
-    for _ in range(46):
-        x, y = rnd.randint(6, W - 6), rnd.randint(306, H - 8)
-        d.line([(x, y), (x + rnd.choice([-3, 3]), y - rnd.randint(5, 9))],
-               fill=(40, 92, 54), width=2)
+    _sky_grass(d, rnd, W, H, weather)
+    _platform(d, 40, 292, 400, 320)
+    _platform(d, 500, 200, 860, 228)
     if weather == 'rain':
-        for _ in range(60):
-            x, y = rnd.randint(0, W), rnd.randint(0, 300)
-            d.line([(x, y), (x - 5, y + 12)], fill=(140, 170, 210), width=2)
-    # platforms with shadow
-    d.ellipse([46, 300, 394, 324], fill=(20, 40, 26))
-    d.ellipse([506, 208, 854, 232], fill=(20, 40, 26))
-    d.ellipse([40, 292, 400, 318], fill=(38, 84, 50), outline=(30, 66, 40), width=3)
-    d.ellipse([500, 200, 860, 226], fill=(38, 84, 50), outline=(30, 66, 40), width=3)
-    d.ellipse([52, 296, 388, 312], fill=(48, 100, 60))
-    d.ellipse([512, 204, 848, 220], fill=(48, 100, 60))
+        for _ in range(30):
+            x, y = rnd.randint(0, W), rnd.randint(300, H)
+            d.line([(x, y), (x - 4, y + 10)], fill=(140, 165, 200), width=2)
     try:
         _a = _P(__file__).parent.parent / 'assets'
         f_mid = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 20)
@@ -643,30 +669,27 @@ def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict,
             return False
 
     if p1_img:
-        _paste(p1_img, 110, 96, 200)
+        _paste(p1_img, 105, 82, 205)
     else:
         d.ellipse([110, 96, 310, 296], outline=(90, 90, 98), width=3)
     if p2_img:
-        _paste(p2_img, 600, 8, 190)
+        _paste(p2_img, 600, 4, 195)
     else:
         d.ellipse([600, 8, 790, 198], outline=(90, 90, 98), width=3)
 
     def _statusbox(x, y, name, level, frac, hp_txt):
-        bw, bh = 300, 78
-        d.rounded_rectangle([x, y, x + bw, y + bh], radius=10, fill=(16, 18, 24),
-                            outline=(250, 200, 60), width=2)
-        d.text((x + 14, y + 8), f'{name[:15]}  Lv{level}', font=f_mid, fill=(255, 255, 255))
+        bw, bh = 300, 80
+        d.rounded_rectangle([x, y, x + bw, y + bh], radius=10, fill=(250, 246, 230),
+                            outline=(122, 92, 62), width=2)
+        d.text((x + 14, y + 8), f'{name[:15]}  Lv{level}', font=f_mid, fill=(48, 40, 32))
         bx, by, bw2 = x + 14, y + 38, bw - 28
-        d.rounded_rectangle([bx, by, bx + bw2, by + 14], radius=7, fill=(66, 44, 40))
+        d.rounded_rectangle([bx, by, bx + bw2, by + 14], radius=7, fill=(200, 190, 170))
         fw = max(12, int(bw2 * max(0.0, min(1.0, frac))))
-        col = (87, 242, 135) if frac > 0.5 else ((250, 200, 60) if frac > 0.2 else (255, 90, 90))
+        col = (87, 200, 110) if frac > 0.5 else ((240, 190, 60) if frac > 0.2 else (235, 90, 90))
         d.rounded_rectangle([bx, by, bx + fw, by + 14], radius=7, fill=col)
-        for i in range(3):
-            gx = bx + 8 + i * 9
-            d.line([(gx, by + 3), (gx, by + 11)], fill=(255, 255, 255, 70), width=2)
         try:
             w = d.textlength(hp_txt, font=f_hp)
-            d.text((x + bw - w - 12, y + 56), hp_txt, font=f_hp, fill=(220, 220, 225))
+            d.text((x + bw - w - 12, y + 56), hp_txt, font=f_hp, fill=(80, 70, 60))
         except Exception:
             pass
 
@@ -676,6 +699,55 @@ def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict,
     _statusbox(40, 316, p1['name'], p1['level'],
                p1['hp'] / max(1, p1['stats']['maxhp']),
                f"{p1['hp']}/{p1['stats']['maxhp']}")
+    buf = _io.BytesIO()
+    img.save(buf, 'PNG')
+    return buf.getvalue()
+
+
+def wild_image(sprite_bytes: bytes, weather=None, mystery: bool = False) -> bytes:
+    """Bright meadow encounter card: one platform, big centered sprite
+    (or black mystery silhouette), tall foreground grass."""
+    import io as _io
+    import random as _r
+    from PIL import Image as _Img, ImageDraw as _Dr
+    W, H = 900, 420
+    rnd = _r.Random(11 if not mystery else 99)
+    img = _Img.new('RGB', (W, H), (110, 182, 232))
+    d = _Dr.Draw(img)
+    _sky_grass(d, rnd, W, H, weather)
+    _platform(d, 250, 250, 650, 292)
+    try:
+        if sprite_bytes:
+            sp = _Img.open(_io.BytesIO(sprite_bytes)).convert('RGBA')
+            sp = sp.resize((300, 300), _Img.NEAREST)
+            if mystery:
+                alpha = sp.split()[3].point(lambda a: 255 if a > 20 else 0)
+                black = _Img.new('RGBA', sp.size, (30, 30, 40, 255))
+                black.putalpha(alpha)
+                sp = black
+            canvas = img.convert('RGBA')
+            canvas.paste(sp, (300, -10), sp)
+            img.paste(canvas.convert('RGB'))
+            d = _Dr.Draw(img)
+    except Exception:
+        pass
+    # tall foreground grass so the mon sits IN the meadow
+    for _ in range(40):
+        x = rnd.randint(0, W)
+        y = rnd.randint(H - 70, H - 6)
+        h = rnd.randint(18, 42)
+        d.line([(x, y), (x - 4, y - h)], fill=(46, 128, 54), width=3)
+        d.line([(x + 6, y), (x + 10, y - h + 8)], fill=(60, 150, 66), width=3)
+    if mystery:
+        try:
+            from PIL import ImageFont as _F
+            from pathlib import Path as _P
+            _a = _P(__file__).parent.parent / 'assets'
+            f = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 44)
+        except Exception:
+            f = None
+        d.text((W // 2, H - 34), '? ? ?', fill=(255, 255, 255), anchor='mm', font=f,
+               stroke_width=2, stroke_fill=(46, 90, 50))
     buf = _io.BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()
@@ -758,23 +830,15 @@ class Pokemon(commands.Cog):
                                       'hp': stats['maxhp'], 'maxhp': stats['maxhp'],
                                       'exp': int(time.time()) + ENC_TTL}
             raw = await fetch_sprite(s, pix_url(dex, shiny))
-            sil = silhouette_image(raw) if raw else None
             import io as _bio
             try:
-                if sil:
-                    view = self._layout(
-                        message.guild.id, t(message.guild.id, 'eco.pk_wild_title', level=level),
-                        t(message.guild.id, 'eco.pk_autospawn',
-                          types=types_str(gid, row["types"])),
-                        'attachment://who.png')
-                    await message.channel.send(
-                        view=view, file=discord.File(_bio.BytesIO(sil), 'who.png'))
-                else:
-                    view = self._layout(
-                        message.guild.id, t(message.guild.id, 'eco.pk_wild_title', level=level),
-                        t(message.guild.id, 'eco.pk_autospawn',
-                          types=types_str(gid, row["types"])))
-                    await message.channel.send(view=view)
+                png = wild_image(raw, weather=None, mystery=True)
+                view = self._encounter_layout(
+                    message.guild.id, t(message.guild.id, 'eco.pk_wild_title', level=level),
+                    t(message.guild.id, 'eco.pk_autospawn',
+                      types=types_str(gid, row["types"])))
+                await message.channel.send(
+                    view=view, file=discord.File(_bio.BytesIO(png), 'hunt.png'))
             except Exception:
                 self._wild.pop((gid, cid), None)
 
@@ -797,6 +861,22 @@ class Pokemon(commands.Cog):
         if sprite:
             return self._layout(gid, title, desc, sprite)
         return self._layout(gid, title, desc)
+
+    def _encounter_layout(self, gid, title, desc):
+        """Hunt card: text + attached bright-meadow art (attachment://hunt.png)."""
+        from discord.ui import LayoutView, Container, TextDisplay, MediaGallery
+        from discord.ui.media_gallery import MediaGalleryItem
+        from cogs.gamble import foot
+        layout = LayoutView(timeout=300)
+        box = Container(accent_color=0x58CC02)
+        box.add_item(TextDisplay(f'## {title}\n{desc}'))
+        box.add_item(MediaGallery(MediaGalleryItem(media='attachment://hunt.png')))
+        try:
+            box.add_item(TextDisplay(f'-# {foot()}'))
+        except Exception:
+            pass
+        layout.add_item(box)
+        return layout
 
     # ----- starters / collection -----
 
@@ -870,38 +950,40 @@ class Pokemon(commands.Cog):
                           'hp': stats['maxhp'], 'maxhp': stats['maxhp'],
                           'mystery': mystery,
                           'exp': int(time.time()) + ENC_TTL}
-        spr = (row.get('sprite') or '').split('|')
-        img = spr[1] if shiny and len(spr) > 1 else spr[0]
         pix = pix_url(dex, shiny)
+        raw = await fetch_sprite(s, pix)
+        import io as _bio
+        try:
+            png = wild_image(raw, weather=None, mystery=mystery)
+        except Exception:
+            png = None
         if mystery:
-            raw = await fetch_sprite(s, pix)
-            sil = silhouette_image(raw) if raw else None
-            if sil:
-                import io as _bio
-                view = self._layout(gid, t(gid, 'eco.pk_wild_title', level=level),
-                                    t(gid, 'eco.pk_mystery',
-                                      types=types_str(gid, row["types"])) +
-                                    (('\n🧪 ' + t(gid, 'eco.pk_incensed')) if inc else ''),
-                                    'attachment://who.png')
-                self._attach_enc_buttons(view, gid, ctx.author.id)
-                return await ctx.reply(
-                    view=view,
-                    file=discord.File(_bio.BytesIO(sil), 'who.png'),
-                    mention_author=False)
-        name = ('✨' if shiny else '') + row['name'].capitalize()
-        flags = ''
-        if inc:
-            flags += '\n🧪 ' + t(gid, 'eco.pk_incensed')
-        if repelled:
-            flags += '\n🧪 ' + t(gid, 'eco.pk_repelled')
-        flags += '\n' + t(gid, 'eco.pk_odds', pct=int(catch_chance(
-            row.get('rate', 45), level, 1.0, BALLS['ultra'][1]) * 100))
-        view = await self._mage(gid, t(gid, 'eco.pk_wild_title', level=level),
-                                t(gid, 'eco.pk_wild', name=name,
-                                  types=types_str(gid, row["types"]),
-                                  hint=t(gid, 'eco.pk_wild_hint')) + flags, pix)
+            desc = (t(gid, 'eco.pk_mystery', types=types_str(gid, row["types"])) +
+                    (('\n🧪 ' + t(gid, 'eco.pk_incensed')) if inc else ''))
+            act0 = next((m for m in mons if m.get('active')), mons[0])
+            desc += f"\n-# FIGHT: {mon_name(act0)} Lv{act0['level']} — `;active N` / `;battle N` to change"
+        else:
+            name = ('✨' if shiny else '') + row['name'].capitalize()
+            flags = ''
+            if inc:
+                flags += '\n🧪 ' + t(gid, 'eco.pk_incensed')
+            if repelled:
+                flags += '\n🧪 ' + t(gid, 'eco.pk_repelled')
+            flags += '\n' + t(gid, 'eco.pk_odds', pct=int(catch_chance(
+                row.get('rate', 45), level, 1.0, BALLS['ultra'][1]) * 100))
+            desc = (t(gid, 'eco.pk_wild', name=name,
+                      types=types_str(gid, row["types"]),
+                      hint=t(gid, 'eco.pk_wild_hint')) + flags)
+        act = next((m for m in mons if m.get('active')), mons[0])
+        desc += f"\n-# FIGHT: {mon_name(act)} Lv{act['level']} — `;active N` / `;battle N` to change"
+        view = self._encounter_layout(gid, t(gid, 'eco.pk_wild_title', level=level), desc)
         self._attach_enc_buttons(view, gid, ctx.author.id)
-        await ctx.reply(view=view, mention_author=False)
+        if png:
+            await ctx.reply(view=view, file=discord.File(_bio.BytesIO(png), 'hunt.png'),
+                            mention_author=False)
+        else:
+            await ctx.reply(view=self._layout(
+                gid, t(gid, 'eco.pk_wild_title', level=level), desc), mention_author=False)
 
     def _attach_enc_buttons(self, view, gid, uid):
         from discord.ui import ActionRow
@@ -918,6 +1000,10 @@ class Pokemon(commands.Cog):
             if ix.user.id != int(uid):
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
             await ix.response.defer()
+            mons = my_mons(gid, ix.user.id)
+            if len(mons) > 1:
+                return await ix.followup.send(
+                    view=self._fighter_picker(gid, ix.user.id), ephemeral=True)
             await self._start_battle(ix, gid, ix.user)
 
         async def _ball(ix: discord.Interaction):
@@ -1318,9 +1404,18 @@ class Pokemon(commands.Cog):
                  moves=', '.join(move_str(gid, x) for x in moves))
         await ctx.reply(view=await self._mage(gid, mon_name(m), desc, img))
 
-    @commands.command(name='active', description='Wybierz wojownika')
-    async def active(self, ctx, slot: int):
+    @commands.command(name='active', description='Wybierz wojownika (;box po numery)')
+    async def active(self, ctx, slot: int = 0):
         gid = ctx.guild.id
+        if not slot:
+            mons = my_mons(gid, ctx.author.id)
+            if not mons:
+                return await ctx.reply(t(gid, 'eco.pk_need_starter'), ephemeral=True)
+            if len(mons) == 1:
+                return await ctx.reply(t(gid, 'eco.pk_active', name=mon_name(mons[0])),
+                                       ephemeral=True)
+            return await ctx.reply(view=self._fighter_picker(gid, ctx.author.id, 'active'),
+                                   ephemeral=True)
         m = get_mon(gid, ctx.author.id, slot or 0)
         if not m:
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
@@ -2148,7 +2243,55 @@ class Pokemon(commands.Cog):
                 'moves': await moveset_for(session, mon.get('dex', mon)),
                 'shiny': mon.get('shiny', 0), 'row': row}
 
-    async def _start_battle(self, ix_or_ctx, gid, user):
+    def _fighter_picker(self, gid, uid, mode: str = 'battle'):
+        """Team picker. mode='battle': pick lead + start. mode='active': just set active."""
+        from discord.ui import ActionRow, Container, TextDisplay
+        from discord.ui import LayoutView
+        mons = my_mons(gid, uid)[:10]
+        layout = LayoutView(timeout=120)
+        box = Container(accent_color=0xFF4655)
+        lines = []
+        for i, m in enumerate(mons, start=1):
+            star = '⭐' if m.get('active') else ''
+            lines.append(f"`{i}` {mon_name(m)} — Lv{m['level']}{star}")
+        hint = ('\n-# Tap a button, or use `;battle <number>` / `;active <number>`'
+                if mode == 'battle' else '\n-# Tap a button, or use `;active <number>`')
+        box.add_item(TextDisplay('## Choose your fighter\n' + '\n'.join(lines) + hint))
+        row = None
+        for i, m in enumerate(mons):
+            if i % 5 == 0:
+                row = ActionRow()
+                box.add_item(row)
+            nm = mon_name(m)
+            b = discord.ui.Button(
+                label=f"{i + 1}. {nm[:14]} Lv{m['level']}"[:80],
+                style=discord.ButtonStyle.success if m.get('active')
+                else discord.ButtonStyle.secondary,
+                custom_id=f'pklead:{uid}:{m["id"]}')
+            b.callback = self._mk_lead_btn(gid, uid, m['id'], mode)
+            row.add_item(b)
+        layout.add_item(box)
+        return layout
+
+    def _mk_lead_btn(self, gid, uid, mid: int, mode: str = 'battle'):
+        async def _cb(ix: discord.Interaction):
+            set_ctx_lang(ix.user)
+            if ix.user.id != int(uid):
+                return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
+            await ix.response.defer()
+            if mode == 'active':
+                with db.conn_ctx() as conn:
+                    conn.execute('UPDATE pk_mons SET active=0 WHERE guild_id=? AND owner_id=?',
+                                 (str(gid), str(ix.user.id)))
+                    conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (mid,))
+                mons = my_mons(gid, ix.user.id)
+                m = next((x for x in mons if x['id'] == mid), None)
+                return await ix.followup.send(
+                    t(gid, 'eco.pk_active', name=mon_name(m) if m else '?'), ephemeral=True)
+            await self._start_battle(ix, gid, ix.user, lead_mid=mid)
+        return _cb
+
+    async def _start_battle(self, ix_or_ctx, gid, user, lead_mid: int = 0):
         import aiohttp
         is_ix = isinstance(ix_or_ctx, discord.Interaction)
         e = self._get_enc(gid, user.id)
@@ -2158,7 +2301,11 @@ class Pokemon(commands.Cog):
                 return await ix_or_ctx.followup.send(msg, ephemeral=True)
             return await ix_or_ctx.reply(msg, ephemeral=True)
         mons = my_mons(gid, user.id)
-        act = next((m for m in mons if m['active']), None) or (mons[0] if mons else None)
+        act = None
+        if lead_mid:
+            act = next((m for m in mons if m['id'] == lead_mid), None)
+        if not act:
+            act = next((m for m in mons if m['active']), None) or (mons[0] if mons else None)
         if not act:
             msg = t(gid, 'eco.pk_need_starter')
             if is_ix:
@@ -2171,6 +2318,14 @@ class Pokemon(commands.Cog):
             me_spr = await fetch_sprite(s, pix_url(me['dex'], bool(me['shiny']), back=True))
             wild_spr = await fetch_sprite(s, pix_url(e['dex'], bool(wild['shiny'])))
         wild['hp'] = e['hp']
+        # picked lead becomes the active mon so bench display stays correct
+        try:
+            with db.conn_ctx() as conn:
+                conn.execute('UPDATE pk_mons SET active=0 WHERE guild_id=? AND owner_id=?',
+                             (str(gid), str(user.id)))
+                conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (act['id'],))
+        except Exception:
+            pass
         key = (str(gid), str(user.id))
         self._battle[key] = {'me': me, 'wild': wild, 'mid': act['id'], 'log': [],
                              'me_spr': me_spr, 'wild_spr': wild_spr,
@@ -2190,7 +2345,7 @@ class Pokemon(commands.Cog):
         if st.get('weather') in WEATHER_LINE:
             body += '\n' + t(gid, WEATHER_LINE[st['weather']])
         body += '\n' + t(gid, 'eco.pk_team_of', user=who)
-        for m in team_get(gid, uid)[:3]:
+        for m in my_mons(gid, uid)[:6]:
             if m['id'] == st.get('mid'):
                 body += '\n' + self._team_line(gid, me['name'], me['hp'], me['stats']['maxhp'])
             else:
@@ -2198,7 +2353,7 @@ class Pokemon(commands.Cog):
                 nm = (m.get('nick') or (row.get('name') or '?').capitalize())
                 if m.get('shiny'):
                     nm = '✨' + nm
-                body += '\n' + self._team_line(gid, nm, 1, 1)
+                body += f"\n🔵 {nm} Lv{m['level']}"
         if log:
             body += '\n' + '\n'.join(log[-4:])
         return body
@@ -2297,7 +2452,7 @@ class Pokemon(commands.Cog):
             row2.add_item(b)
         box.add_item(row2)
         row3 = ActionRow()
-        for m in team_get(gid, uid)[:5]:
+        for m in my_mons(gid, uid)[:5]:
             rowm = _dex_row(m['dex'])
             nm = (m.get('nick') or (rowm.get('name') or '?').capitalize())[:16]
             if m.get('shiny'):
@@ -2512,9 +2667,17 @@ class Pokemon(commands.Cog):
                 conn.execute('UPDATE pk_mons SET level=?, xp=? WHERE id=?', (lv, xp, mid))
         return msgs
 
-    @commands.command(name='battle', description='Walcz z dzikim')
-    async def battle(self, ctx):
-        await self._start_battle(ctx, ctx.guild.id, ctx.author)
+    @commands.command(name='battle', description='Walcz z dzikim (slot z ;box)')
+    async def battle(self, ctx, slot: int = 0):
+        gid = ctx.guild.id
+        if slot:
+            m = get_mon(gid, ctx.author.id, slot)
+            if not m:
+                return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
+            return await self._start_battle(ctx, gid, ctx.author, lead_mid=m['id'])
+        if len(my_mons(gid, ctx.author.id)) > 1 and not self._battle.get((str(gid), str(ctx.author.id))):
+            return await ctx.reply(view=self._fighter_picker(gid, ctx.author.id), ephemeral=True)
+        await self._start_battle(ctx, gid, ctx.author)
 
     # ----- PvP duels (interactive, alternating turns) -----
 

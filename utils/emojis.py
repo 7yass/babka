@@ -1,5 +1,7 @@
-"""Custom emoji helper: <:name:id> per guild from the deploy map,
-falls back to plain text/unicode when missing."""
+"""Custom emoji helper: <:name:id> from the fleet map.
+SHARDED fleet: each emoji lives on exactly one of the 8 hosts, but bots
+can use fleet emojis cross-server — so resolve per-guild first, then
+fall back to a global scan of all hosts."""
 import json
 from pathlib import Path
 
@@ -23,11 +25,20 @@ def _load():
 
 
 def em(gid, name: str, fallback: str = '') -> str:
-    """`<:name:id>` for this guild's deployed set, else fallback."""
+    """`<:name:id>` for this guild's set, else any fleet host, else fallback."""
+    if not name:
+        return fallback
     try:
-        eid = (_load().get(str(gid)) or {}).get(name)
+        m = _load()
+        eid = (m.get(str(gid)) or {}).get(name)
         if eid:
             return f'<:{name}:{eid}>'
+        # Cross-server fallback: bot shares all fleet guilds, so an emoji
+        # hosted on guild A renders fine in guild B.
+        for guild_map in m.values():
+            eid = (guild_map or {}).get(name)
+            if eid:
+                return f'<:{name}:{eid}>'
     except Exception:
         pass
     return fallback
