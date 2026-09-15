@@ -690,6 +690,8 @@ def init_db():
                     'ALTER TABLE pk_mons ADD COLUMN locked INTEGER DEFAULT 0',
                     'ALTER TABLE pk_mons ADD COLUMN fav INTEGER DEFAULT 0',
                     "ALTER TABLE pk_mons ADD COLUMN form TEXT DEFAULT ''",
+                    "ALTER TABLE pk_mons ADD COLUMN ivs TEXT DEFAULT ''",
+                    "ALTER TABLE pk_market ADD COLUMN ivs TEXT DEFAULT ''",
                     'ALTER TABLE pk_stats ADD COLUMN leg_streak INTEGER DEFAULT 0',
                     'ALTER TABLE pk_stats ADD COLUMN catch_streak INTEGER DEFAULT 0',
                     'ALTER TABLE pk_stats ADD COLUMN best_streak INTEGER DEFAULT 0'):

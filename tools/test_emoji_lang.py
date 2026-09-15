@@ -150,13 +150,19 @@ def pure():
               'streak_get', '_balls_left_line', 'balls_get', 'region_of',
               '_box_tier', '_box_match', '_box_slots', '_box_sort_entries',
               '_box_cid', '_box_parse', '_species_emoji_name',
-              '_match_mon', '_evo_text', 'form_of', 'form_emo', 'form_sprite'}
+              '_match_mon', '_evo_text', 'form_of', 'form_emo', 'form_sprite',
+              '_tier_letter', '_plain_name', '_safe_moves', '_turn_safe',
+              '_roll_ivs', '_ivs_of', '_iv_pct', 'calc_stats',
+              '_arena_forest', '_arena_cave', 'moveset_for', 'wild_image',
+              '_sky_grass', '_platform'}
     import lang as LANG
+    import random as _rnd
     mod = types.ModuleType('pkpure')
     mod.__dict__['em'] = E.em
     mod.__dict__['db'] = DB
     mod.__dict__['t'] = LANG.t
     mod.__dict__['get_lang'] = LANG.get_lang
+    mod.__dict__['random'] = _rnd
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in wanted:
             exec(compile(ast.Module(body=[node], type_ignores=[]), '<pkpure>', 'exec'),
@@ -166,7 +172,8 @@ def pure():
                     'TYPE_EMOJI', 'WEATHER_LINE', 'RARITY_RATE', 'BALLS', 'BALL_FLEET',
                     'TIER_WORD', 'RARITY_COMMON', 'RARITY_UNCOMMON', 'RARITY_RARE',
                     'RARITY_LEGENDARY', 'RARITY_SHINY', 'BOX_SORTS', 'REGIONS',
-                    '_BOX_RANK', 'FORMS', 'FORM_SUFFIX'):
+                    '_BOX_RANK', 'FORMS', 'FORM_SUFFIX', '_TIER_LETTER', 'ARENAS',
+                    '_TACKLE', 'IV_KEYS'):
             mod.__dict__[node.targets[0].id] = ast.literal_eval(node.value)
     _PURE = mod
     return mod
@@ -266,7 +273,10 @@ def test_button_source_hygiene() -> None:
     check(all('<:' not in v and not v.strip().startswith(("'", '"'))
               and '_btn_emoji(' in v for v in emoji_kwargs),
           'every button emoji is a resolver call (never a raw token)')
-    check('<:' not in src, 'no raw <:name:id> tokens anywhere in pokemon.py')
+    live_tokens = [ln for ln in src.splitlines() if '<:' in ln
+                   and 're.sub' not in ln and '\\d' not in ln
+                   and not ln.strip().startswith(('#', '"', "'"))]
+    check(not live_tokens, 'no raw <:name:id> tokens in live code paths')
     label_lines = [ln for ln in src.splitlines() if 'label=' in ln]
     check(all(c not in BANNED for ln in label_lines for c in ln),
           'no banned Unicode in button label lines')
@@ -942,9 +952,11 @@ def test_anime_silhouette() -> None:
     src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
     tree = ast.parse(src)
     mod = types.ModuleType('pksil')
+    mod.__dict__['ARENAS'] = ('meadow', 'forest', 'cave')
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name in (
-                'wild_image', 'silhouette_image', '_sky_grass', '_platform'):
+                'wild_image', 'silhouette_image', '_sky_grass', '_platform',
+                '_arena_forest', '_arena_cave'):
             exec(compile(ast.Module(body=[node], type_ignores=[]), '<pksil>', 'exec'),
                  mod.__dict__)
     sp = _Img.new('RGBA', (96, 96), (200, 30, 30, 255))
@@ -1018,6 +1030,174 @@ def test_master_never_fails() -> None:
     check('min(0.98' in seg, 'other balls still capped')
 
 
+def test_box_card() -> None:
+    gid = '111111111111111111'
+    ids = {f'letter_{k}': 777777777777777770 + i for i, k in enumerate('curl')}
+    tmp = use_fixture({'guilds': {gid: ids}})
+    try:
+        p = pure()
+        check(p._tier_letter(gid, 'rare') == '<:letter_r:777777777777777772>',
+              'rarity letter resolves')
+        check(p._tier_letter(gid, 'nope') == '[?]', 'unknown tier falls back')
+    finally:
+        tmp.cleanup()
+    tmp = use_fixture({'guilds': {}})
+    try:
+        p = pure()
+        check(p._tier_letter(gid, 'legendary') == '[L]', 'missing letter falls back ASCII')
+    finally:
+        tmp.cleanup()
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    seg = src[src.find('def _box_view'):src.find('def _mk_box_btn')]
+    for needle in ('Section(', 'Thumbnail(media=', 'attachment://', 'Page ',
+                   ';fav <slot>', ';box <kanto', ';box @user', 'nav_first',
+                   'nav_back', 'nav_next', 'nav_last', 'nav_sort'):
+        check(needle in seg, f'box card contains: {needle}')
+    check(all(c not in BANNED for c in seg), 'no banned glyphs in box view')
+    for f in ('letter_c', 'letter_u', 'letter_r', 'letter_l', 'nav_first',
+              'nav_back', 'nav_next', 'nav_last', 'nav_sort'):
+        check((ROOT / 'assets' / 'emojis' / f'{f}.png').is_file(), f'asset on disk: {f}')
+
+
+def test_dextypes_list() -> None:
+    """Regression: _dex_row returned types as a JSON string, so every direct
+    consumer (buddy card, box filter) iterated characters."""
+    import database as DB
+    with DB.conn_ctx() as conn:
+        dexes = [r['dex'] for r in conn.execute('SELECT dex FROM pk_dex LIMIT 5')]
+    p = pure()
+    if dexes:
+        for dx in dexes:
+            check(isinstance(p._dex_row(dx).get('types'), list), f'dex {dx} types is a list')
+    else:
+        print('SKIP dex rows (empty local cache)', flush=True)
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    check("row['types'] = _j.loads(row.get('types') or '[]')" not in src,
+          'no unguarded types parse remains')
+    seg = src[src.find('async def buddy'):src.find('async def buddy') + 12000]
+    check('form_sprite(m,' in seg, 'buddy shows form art')
+
+
+def test_plain_arena() -> None:
+    from PIL import Image as _Img
+    from PIL import ImageDraw as _Dr
+    p = pure()
+    check(p._plain_name('<:rarity_shiny:123> Arceus') == 'Arceus', 'tokens stripped for PIL')
+    check(p._plain_name('Pikachu') == 'Pikachu', 'plain names untouched')
+    check(set(p.ARENAS) == {'meadow', 'forest', 'cave'}, 'three arenas')
+    import random as _r
+    for fn in ('forest', 'cave'):
+        im = _Img.new('RGB', (900, 420), (0, 0, 0))
+        getattr(p, f'_arena_{fn}')(_Dr.Draw(im), _r.Random(7), 900, 420)
+        r, g, b = im.getpixel((450, 30))
+        check(r + g + b < 300, f'{fn} canopy reads dark')
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    check(src.count("'arena': random.choice(ARENAS)") == 3, 'arena stored in all battle states')
+    check('st.get(\'arena\', \'meadow\')' in src, 'image calls carry the arena')
+
+
+def test_turn_armor() -> None:
+    import asyncio as _aio
+    p = pure()
+
+    class IX:
+        def __init__(self):
+            self.sent = []
+            _self = self
+
+            class Fol:
+                async def send(inner, *a, **k):
+                    _self.sent.append((a, k))
+            self.followup = Fol()
+            self.guild = type('G', (), {'id': 0})()
+
+    @p._turn_safe
+    async def boom(self, ix):
+        raise ValueError('mid-turn kaboom')
+
+    @p._turn_safe
+    async def fine(self, ix):
+        return 'turn-ok'
+
+    ix = IX()
+    check(_aio.run(boom(None, ix)) is None and len(ix.sent) == 1, 'failed turn tells the player')
+    check(_aio.run(fine(None, ix)) == 'turn-ok', 'good turns pass through')
+    check(p._safe_moves({})[0]['name'] == 'tackle', 'empty moves fall back to tackle')
+    check(p._safe_moves({'moves': [{'name': 'x'}]}) == [{'name': 'x'}], 'real moves untouched')
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    check('@_turn_safe\n    async def _battle_turn' in src
+          and '@_turn_safe\n    async def _duel_turn' in src,
+          'armor decorates both turn handlers')
+    check('random.choice(me[' not in src and 'random.choice(a[' not in src
+          and 'random.choice(fo_now[' not in src and 'random.choice(wild[' not in src,
+          'no unguarded move picks remain')
+
+
+def test_movesets_ivs() -> None:
+    import inspect as _insp
+    import json as _j
+    p = pure()
+    check('level' in str(_insp.signature(p.moveset_for)), 'moveset takes level')
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    check('level-up' in src and 'level_learned_at' in src and 'moves = list(learned[:4])' in src,
+          'learnsets prefer level-up moves')
+    ivs = _j.loads(p._roll_ivs())
+    check(set(ivs) == {'hp', 'atk', 'dfn', 'spa', 'spd', 'spe'}
+          and all(0 <= v <= 31 for v in ivs.values()), 'rolled IVs valid spread')
+    check(p._ivs_of({}) is None and p._ivs_of({'ivs': 'junk'}) is None
+          and p._iv_pct({}) == 100, 'legacy mons stay perfect')
+    lo = p.calc_stats({'hp': 50, 'atk': 50, 'dfn': 50, 'spa': 50, 'spd': 50, 'spe': 50},
+                      20, {k: 0 for k in ('hp', 'atk', 'dfn', 'spa', 'spd', 'spe')})
+    hi = p.calc_stats({'hp': 50, 'atk': 50, 'dfn': 50, 'spa': 50, 'spd': 50, 'spe': 50}, 20)
+    check(lo['maxhp'] < hi['maxhp'] and lo['atk'] < hi['atk'], 'IVs scale stats')
+    check("ADD COLUMN ivs" in (ROOT / 'database.py').read_text(encoding='utf-8'),
+          'ivs migrations present')
+    check(src.count('nick, active, ivs)') >= 7, 'all mon inserts carry ivs')
+
+
+def test_hunt_modes() -> None:
+    import inspect as _insp
+    p = pure()
+    sig = str(_insp.signature(p.wild_image))
+    check('arena' in sig and 'bare' in sig, 'wild_image paints any arena')
+    from PIL import Image as _Img
+    import io as _io
+    import random as _r
+    for arena, dark in (('forest', True), ('cave', True), ('meadow', False)):
+        png = p.wild_image(None, arena=arena, bare=True)
+        im = _Img.open(_io.BytesIO(png)).convert('RGB')
+        r, g, b = im.getpixel((450, 40))
+        check((r + g + b < 350) == dark, f'{arena} sky reads right')
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    check("'mode': mode, 'arena': arena" in src, 'encounters store mode + arena')
+    check('def _attach_enc_buttons(self, view, gid, uid, mode' in src,
+          'encounter buttons take the mode')
+    check("if mode == 'fight':" in src, 'fight row only in fight mode')
+    check("@commands.command(name='p'" in src, 'catch-only ;p command exists')
+
+
+def test_phelp_hub() -> None:
+    import re as _re
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    tree = ast.parse(src)
+    usage = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            for sub in node.body:
+                if isinstance(sub, ast.Assign) and len(sub.targets) == 1 \
+                        and getattr(sub.targets[0], 'id', '') == 'PK_USAGE':
+                    usage = ast.literal_eval(sub.value)
+    cmds = set(_re.findall(r"@commands\.(?:command|group)\(name='([^']+)'", src))
+    cmds |= {'p'}
+    missing = sorted(c for c in cmds if c not in usage)
+    check(not missing, f'every command has usage ({len(usage)} covered)')
+    check(all(isinstance(v, tuple) and len(v) == 2 and all(v) for v in usage.values()),
+          'usage entries are EN/PL pairs')
+    check("'eco.pk_h_unknown'" in src, 'unknown-command path exists')
+    for f in ('box_box', 'dex_book', 'trade_swap', 'quest_scroll', 'market_stall', 'coin'):
+        check((ROOT / 'assets' / 'emojis' / f'{f}.png').is_file(), f'hub icon deployable: {f}')
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
          test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
@@ -1035,7 +1215,9 @@ TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_box_ids_unique, test_species_buttons,
          test_main_guild_gate, test_buddy_match_evo,
          test_catchmeta_rarity, test_anime_silhouette, test_forms,
-         test_master_never_fails)
+         test_master_never_fails, test_box_card, test_dextypes_list,
+         test_plain_arena, test_turn_armor, test_movesets_ivs,
+         test_hunt_modes, test_phelp_hub)
 
 if __name__ == '__main__':
     for t in TESTS:

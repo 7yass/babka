@@ -298,17 +298,26 @@ async def _api(session, url):
 
 
 def _dex_row(dex: int) -> dict:
+    """Cached species row with types ALWAYS as a list (DB stores JSON text;
+    every direct consumer assumed a list and shredded strings into chars)."""
     with db.conn_ctx() as conn:
         row = conn.execute('SELECT * FROM pk_dex WHERE dex=?', (dex,)).fetchone()
-        return dict(row) if row else {}
+        if not row:
+            return {}
+        d = dict(row)
+    try:
+        import json as _j
+        t = d.get('types')
+        d['types'] = _j.loads(t) if isinstance(t, str) else (t or [])
+    except Exception:
+        d['types'] = []
+    return d
 
 
 async def dex_get(session, dex: int) -> dict:
     """Full species data, cached. Fills evolution info on first fetch."""
     row = _dex_row(dex)
     if row and row.get('name'):
-        import json as _j
-        row['types'] = _j.loads(row.get('types') or '[]')
         return row
     p = await _api(session, f'{POKEAPI}/pokemon/{dex}')
     if not p:
@@ -393,19 +402,43 @@ async def move_get(session, name: str) -> dict:
             'acc': m.get('accuracy') or 100}
 
 
-async def moveset_for(session, dex: int) -> list:
-    """Up to 4 damaging moves: STAB first, then strongest coverage (cached)."""
+async def moveset_for(session, dex: int, level: int = 100) -> list:
+    """Species-true moveset: damaging level-up moves learnable at this level
+    (strongest first), backfilled with STAB/coverage generics. Move details
+    are cached, so new species cost extra fetches only once."""
     p = await _api(session, f'{POKEAPI}/pokemon/{dex}')
+    learned = []
+    try:
+        known = []
+        for entry in (p or {}).get('moves', []):
+            mv_name = (entry.get('move') or {}).get('name', '')
+            best_lv = 0
+            for det in entry.get('version_group_details') or []:
+                if ((det.get('move_learn_method') or {}).get('name') == 'level-up'
+                        and (det.get('level_learned_at') or 0) > 0
+                        and det['level_learned_at'] <= level
+                        and det['level_learned_at'] > best_lv):
+                    best_lv = det['level_learned_at']
+            if best_lv and mv_name:
+                known.append((best_lv, mv_name))
+        known.sort(reverse=True)
+        for _, mv_name in known[:8]:
+            mv = await move_get(session, mv_name)
+            if mv and mv.get('power') and all(mv['name'] != c['name'] for c in learned):
+                learned.append(mv)
+    except Exception:
+        pass
+    learned.sort(key=lambda m: -m['power'])
     cands = []
     try:
-        for entry in (p or {}).get('moves', [])[:14]:
+        for entry in (p or {}).get('moves', [])[:10]:
             mv = await move_get(session, (entry.get('move') or {}).get('name', ''))
             if mv and mv.get('power') and all(mv['name'] != c['name'] for c in cands):
                 cands.append(mv)
     except Exception:
         pass
-    if not cands:
-        return [{'name': 'tackle', 'power': 35, 'ptype': 'normal', 'acc': 100}]
+    if not cands and not learned:
+        return [dict(_TACKLE)]
     types = [t['type']['name'] for t in (p or {}).get('types', [])]
     stab = sorted([m for m in cands if m['ptype'] in types],
                   key=lambda m: -m['power'])[:2]
@@ -419,22 +452,53 @@ async def moveset_for(session, dex: int) -> list:
         if len(cover) >= 2:
             break
     moves, seen_names = [], set()
+    moves = list(learned[:4])
+    seen_names = {m['name'] for m in moves}
     for m in stab + cover + sorted(cands, key=lambda m: -m['power']):
         if m['name'] not in seen_names:
             seen_names.add(m['name'])
             moves.append(m)
         if len(moves) >= 4:
             break
-    return moves
+    return moves or [dict(_TACKLE)]
 
 
-def calc_stats(base: dict, level: int) -> dict:
-    def _s(b):
-        return (2 * b + 31) * level // 100 + 5
-    return {'maxhp': (2 * base.get('hp', 50) + 31) * level // 100 + level + 10,
-            'atk': _s(base.get('atk', 50)), 'dfn': _s(base.get('dfn', 50)),
-            'spa': _s(base.get('spa', 50)), 'spd': _s(base.get('spd', 50)),
-            'spe': _s(base.get('spe', 50))}
+IV_KEYS = ('hp', 'atk', 'dfn', 'spa', 'spd', 'spe')
+
+
+def _roll_ivs() -> str:
+    """Fresh 0-31 IV spread, stored as JSON. Decides how special a mon is."""
+    import json as _j
+    return _j.dumps({k: random.randint(0, 31) for k in IV_KEYS})
+
+
+def _ivs_of(mon: dict):
+    """Parsed IVs or None (legacy mons predate the system: perfect 31s)."""
+    try:
+        import json as _j
+        ivs = _j.loads((mon or {}).get('ivs') or '')
+        if isinstance(ivs, dict) and all(k in ivs for k in IV_KEYS):
+            return {k: max(0, min(31, int(ivs[k]))) for k in IV_KEYS}
+    except Exception:
+        pass
+    return None
+
+
+def _iv_pct(mon: dict) -> int:
+    ivs = _ivs_of(mon)
+    if not ivs:
+        return 100
+    return int(round(100 * sum(ivs.values()) / (31 * len(IV_KEYS))))
+
+
+def calc_stats(base: dict, level: int, ivs: dict = None) -> dict:
+    ivs = ivs or {}
+    def _s(b, k):
+        return (2 * b + ivs.get(k, 31)) * level // 100 + 5
+    return {'maxhp': (2 * base.get('hp', 50) + ivs.get('hp', 31)) * level // 100 + level + 10,
+            'atk': _s(base.get('atk', 50), 'atk'), 'dfn': _s(base.get('dfn', 50), 'dfn'),
+            'spa': _s(base.get('spa', 50), 'spa'), 'spd': _s(base.get('spd', 50), 'spd'),
+            'spe': _s(base.get('spe', 50), 'spe')}
 
 
 def damage(att_level: int, move: dict, atk_stats: dict, dfn_stats: dict,
@@ -804,6 +868,16 @@ def _box_slots(mons: list) -> dict:
     return {m['id']: i + 1 for i, m in enumerate(mons)}
 
 
+_TIER_LETTER = {'common': ('letter_c', 'C'), 'uncommon': ('letter_u', 'U'),
+                'rare': ('letter_r', 'R'), 'legendary': ('letter_l', 'L')}
+
+
+def _tier_letter(gid, tier: str) -> str:
+    """Rarity letter badge, [X] fallback."""
+    name, fb = _TIER_LETTER.get(tier, ('', '?'))
+    return em(gid, name, f'[{fb}]') if name else f'[{fb}]'
+
+
 def _match_mon(mons: list, species_of, query: str):
     """Find a mon by nickname or species name. Returns (mon|None, n_matches).
     Tier order: nick exact, species exact, nick prefix, species prefix,
@@ -948,20 +1022,126 @@ def _platform(d, x0, y0, x1, y1):
     d.ellipse([x0 + 14, y0 + 5, x1 - 14, y1 - 8], fill=(246, 230, 188))
 
 
+def _plain_name(name: str) -> str:
+    """Strip <:emoji:id> tokens for PIL text (Discord never parses those)."""
+    import re as _re
+    return _re.sub(r'<:[A-Za-z0-9_]+:\d+>', '', str(name or '')).strip()
+
+
+_TACKLE = {'name': 'tackle', 'power': 35, 'ptype': 'normal', 'acc': 100}
+
+
+def _safe_moves(mon: dict) -> list:
+    """Never-empty moveset (empty learnsets used to IndexError mid-turn,
+    killing the interaction with no message)."""
+    mv = (mon or {}).get('moves') or []
+    return mv if mv else [dict(_TACKLE)]
+
+
+def _turn_safe(fn):
+    """Turn armor: log the traceback, tell the player, keep battle state.
+    Silent interaction deaths used to strand battles with no winner."""
+    import functools as _ft
+    import traceback as _tb
+
+    @_ft.wraps(fn)
+    async def wrapper(self, ix, *args, **kwargs):
+        try:
+            return await fn(self, ix, *args, **kwargs)
+        except Exception as e:
+            gid = getattr(getattr(ix, 'guild', None), 'id', 0)
+            print(f'[pkturn] {fn.__name__} failed: {type(e).__name__}: {e}')
+            _tb.print_exc()
+            try:
+                await ix.followup.send(t(gid, 'eco.pk_turn_broke'), ephemeral=True)
+            except Exception:
+                try:
+                    await ix.response.send_message(t(gid, 'eco.pk_turn_broke'), ephemeral=True)
+                except Exception:
+                    pass
+    return wrapper
+
+
+ARENAS = ('meadow', 'forest', 'cave')
+
+
+def _arena_forest(d, rnd, W, H):
+    """Dark enchanted forest: deep teal canopy, fireflies, mossy ground."""
+    for y in range(290):
+        tt = y / 290
+        top = (16, 42, 54)
+        bot = (34, 84, 78)
+        d.line([(0, y), (W, y)],
+               fill=(int(top[0] + (bot[0] - top[0]) * tt),
+                     int(top[1] + (bot[1] - top[1]) * tt),
+                     int(top[2] + (bot[2] - top[2]) * tt)))
+    for _ in range(9):  # canopy blobs
+        x, w = rnd.randint(0, W), rnd.randint(90, 200)
+        d.ellipse([x - w, -40, x + w, 150], fill=(22, 66, 52))
+    for _ in range(5):
+        x = rnd.randint(0, W)
+        d.line([(x, 150), (x, 300)], fill=(28, 52, 44), width=10)
+    for _ in range(26):  # fireflies
+        x, y = rnd.randint(0, W), rnd.randint(20, 300)
+        d.ellipse([x - 3, y - 3, x + 3, y + 3], fill=(190, 255, 150))
+    for y in range(290, H):
+        tt = (y - 290) / (H - 290)
+        d.line([(0, y), (W, y)],
+               fill=(int(44 - 12 * tt), int(104 - 26 * tt), int(62 - 12 * tt)))
+    d.line([(0, 290), (W, 290)], fill=(30, 80, 44), width=3)
+    for _ in range(40):
+        x, y = rnd.randint(6, W - 6), rnd.randint(296, H - 8)
+        d.line([(x, y), (x + rnd.choice([-3, 3]), y - rnd.randint(5, 10))],
+               fill=(30, 90, 44), width=2)
+
+
+def _arena_cave(d, rnd, W, H):
+    """Ember cave: violet dark, glowing crystals, stalactites, ash floor."""
+    for y in range(300):
+        tt = y / 300
+        top = (24, 18, 44)
+        bot = (64, 44, 96)
+        d.line([(0, y), (W, y)],
+               fill=(int(top[0] + (bot[0] - top[0]) * tt),
+                     int(top[1] + (bot[1] - top[1]) * tt),
+                     int(top[2] + (bot[2] - top[2]) * tt)))
+    for _ in range(7):  # stalactites
+        x, w, h = rnd.randint(0, W), rnd.randint(24, 60), rnd.randint(50, 130)
+        d.polygon([(x - w // 2, 0), (x + w // 2, 0), (x, h)], fill=(46, 34, 72))
+    for _ in range(8):  # glowing crystals
+        x, y = rnd.randint(20, W - 20), rnd.randint(200, 320)
+        s = rnd.randint(8, 18)
+        col = rnd.choice([(120, 220, 255), (255, 150, 220), (255, 200, 120)])
+        d.polygon([(x, y - s), (x + s // 2, y), (x, y + s), (x - s // 2, y)], fill=col)
+        d.ellipse([x - 3, y - 3, x + 3, y + 3], fill=(255, 255, 255))
+    for y in range(300, H):
+        tt = (y - 300) / (H - 300)
+        d.line([(0, y), (W, y)],
+               fill=(int(52 - 10 * tt), int(46 - 8 * tt), int(72 - 10 * tt)))
+    d.line([(0, 300), (W, 300)], fill=(40, 34, 56), width=3)
+
+
 def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict,
-                 weather=None) -> bytes:
-    """Bright game-style battle: blue sky, white clouds, meadow, sandy
-    platforms, nearest-neighbor sprites, cream status boxes."""
+                 weather=None, arena: str = 'meadow') -> bytes:
+    """Game-style battle: meadow / dark forest / ember cave arenas, sandy
+    platforms, grounded sprites (contact shadows), cream status boxes."""
     import io as _io
     import random as _r
     from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
     from pathlib import Path as _P
     W, H = 900, 420
-    seed = (p1.get('name', '') + p2.get('name', ''))
+    if arena not in ARENAS:
+        arena = 'meadow'
+    seed = (p1.get('name', '') + p2.get('name', '') + arena)
     rnd = _r.Random(sum(map(ord, seed)) if seed else 7)
     img = _Img.new('RGB', (W, H), (110, 182, 232))
     d = _Dr.Draw(img)
-    _sky_grass(d, rnd, W, H, weather)
+    if arena == 'forest':
+        _arena_forest(d, rnd, W, H)
+    elif arena == 'cave':
+        _arena_cave(d, rnd, W, H)
+    else:
+        _sky_grass(d, rnd, W, H, weather)
     _platform(d, 40, 292, 400, 320)
     _platform(d, 500, 200, 860, 228)
     if weather == 'rain':
@@ -975,22 +1155,28 @@ def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict,
     except Exception:
         f_mid = f_hp = _F.load_default()
 
-    def _paste(raw, x, y, s):
+    def _paste(raw, x, y, s, shadow):
         try:
             sp = _Img.open(_io.BytesIO(raw)).convert('RGBA').resize((s, s), _Img.NEAREST)
             canvas = img.convert('RGBA')
             canvas.paste(sp, (x, y), sp)
             img.paste(canvas.convert('RGB'))
+            d2 = _Dr.Draw(img)
+            sx, sw = x + 20, s - 40  # contact shadow grounds the sprite
+            d2.ellipse([sx, shadow, sx + sw, shadow + 16], fill=(20, 30, 22))
+            canvas2 = img.convert('RGBA')
+            canvas2.paste(sp, (x, y), sp)
+            img.paste(canvas2.convert('RGB'))
             return True
         except Exception:
             return False
 
     if p1_img:
-        _paste(p1_img, 105, 82, 205)
+        _paste(p1_img, 105, 87, 205, 294)
     else:
         d.ellipse([110, 96, 310, 296], outline=(90, 90, 98), width=3)
     if p2_img:
-        _paste(p2_img, 600, 4, 195)
+        _paste(p2_img, 600, 9, 195, 202)
     else:
         d.ellipse([600, 8, 790, 198], outline=(90, 90, 98), width=3)
 
@@ -998,7 +1184,7 @@ def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict,
         bw, bh = 300, 80
         d.rounded_rectangle([x, y, x + bw, y + bh], radius=10, fill=(250, 246, 230),
                             outline=(122, 92, 62), width=2)
-        d.text((x + 14, y + 8), f'{name[:15]}  Lv{level}', font=f_mid, fill=(48, 40, 32))
+        d.text((x + 14, y + 8), f'{_plain_name(name)[:15]}  Lv{level}', font=f_mid, fill=(48, 40, 32))
         bx, by, bw2 = x + 14, y + 38, bw - 28
         d.rounded_rectangle([bx, by, bx + bw2, by + 14], radius=7, fill=(200, 190, 170))
         fw = max(12, int(bw2 * max(0.0, min(1.0, frac))))
@@ -1021,20 +1207,29 @@ def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict,
     return buf.getvalue()
 
 
-def wild_image(sprite_bytes: bytes, weather=None, mystery: bool = False) -> bytes:
-    """Bright meadow encounter card: one platform, big centered sprite
-    (or anime-yellow mystery silhouette), tall foreground grass."""
+def wild_image(sprite_bytes: bytes = None, weather=None, mystery: bool = False,
+               arena: str = 'meadow', bare: bool = False) -> bytes:
+    """Encounter scene: meadow / dark forest / ember cave arena, platform,
+    big centered sprite (or anime-yellow mystery silhouette). bare=True
+    renders landscape only (sprite comes from the gallery GIF)."""
     import io as _io
     import random as _r
     from PIL import Image as _Img, ImageDraw as _Dr
     W, H = 900, 420
+    if arena not in ARENAS:
+        arena = 'meadow'
     rnd = _r.Random(11 if not mystery else 99)
     img = _Img.new('RGB', (W, H), (110, 182, 232))
     d = _Dr.Draw(img)
-    _sky_grass(d, rnd, W, H, weather)
+    if arena == 'forest':
+        _arena_forest(d, rnd, W, H)
+    elif arena == 'cave':
+        _arena_cave(d, rnd, W, H)
+    else:
+        _sky_grass(d, rnd, W, H, weather)
     _platform(d, 250, 250, 650, 292)
     try:
-        if sprite_bytes:
+        if sprite_bytes and not bare:
             sp = _Img.open(_io.BytesIO(sprite_bytes)).convert('RGBA')
             sp = sp.resize((300, 300), _Img.NEAREST)
             if mystery:
@@ -1181,15 +1376,23 @@ class Pokemon(commands.Cog):
             return self._layout(gid, title, desc, sprite, accent)
         return self._layout(gid, title, desc, None, accent)
 
-    def _encounter_layout(self, gid, title, desc, accent: int = 0x58CC02):
-        """Hunt card: text + attached bright-meadow art (attachment://hunt.png)."""
+    def _encounter_layout(self, gid, title, desc, accent: int = 0x58CC02, extra=None):
+        """Hunt card: text + attached scene (attachment://hunt.png) plus
+        optional extra gallery items (verified GIF / remote art URLs)."""
         from discord.ui import LayoutView, Container, TextDisplay, MediaGallery
         from discord.ui.media_gallery import MediaGalleryItem
         from cogs.gamble import foot
         layout = LayoutView(timeout=300)
         box = Container(accent_color=accent)
         box.add_item(TextDisplay(f'## {title}\n{desc}'))
-        box.add_item(MediaGallery(MediaGalleryItem(media='attachment://hunt.png')))
+        items = [MediaGalleryItem(media='attachment://hunt.png')]
+        for m in extra or []:
+            if m:
+                try:
+                    items.append(MediaGalleryItem(media=m))
+                except Exception:
+                    pass
+        box.add_item(MediaGallery(*items))
         try:
             box.add_item(TextDisplay(f'-# {foot()}'))
         except Exception:
@@ -1222,8 +1425,8 @@ class Pokemon(commands.Cog):
             return await _say(view=self._layout(gid, t(gid, 'eco.pk_starter_title'),
                                                 t(gid, 'eco.pk_api')), ephemeral=True)
         with db.conn_ctx() as conn:
-            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active) '
-                         'VALUES (?,?,?,?,0,0,"",1)', (str(gid), str(user.id), dex, 5))
+            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active, ivs) '
+                         'VALUES (?,?,?,?,0,0,"",1,?)', (str(gid), str(user.id), dex, 5, _roll_ivs()))
             mid = conn.execute('SELECT id FROM pk_mons WHERE guild_id=? AND owner_id=? ORDER BY id',
                                (str(gid), str(user.id))).fetchone()
             if mid:
@@ -1295,8 +1498,17 @@ class Pokemon(commands.Cog):
         layout.add_item(box)
         await ctx.reply(view=layout, mention_author=False)
 
-    @commands.command(name='hunt', description='Poluj na dzikie', aliases=['p'])
+    @commands.command(name='hunt', description='Poluj i walcz z dzikimi')
     async def hunt(self, ctx):
+        """Fight-first encounters: FIGHT plus balls."""
+        return await self._hunt_core(ctx, 'fight')
+
+    @commands.command(name='p', description='Spotkaj dzikiego (tylko łapanie)')
+    async def poke_encounter(self, ctx):
+        """Catch-only encounters: balls, no FIGHT row."""
+        return await self._hunt_core(ctx, 'catch')
+
+    async def _hunt_core(self, ctx, mode: str):
         import aiohttp
         gid = ctx.guild.id
         key = (str(gid), str(ctx.author.id))
@@ -1337,9 +1549,10 @@ class Pokemon(commands.Cog):
         shiny = random.randint(1, denom) == 1 or (inc and random.randint(1, denom) == 1)
         stats = calc_stats(row, level)
         mystery = random.random() < 0.35
+        arena = random.choice(ARENAS)
         self._enc[key] = {'dex': dex, 'level': level, 'shiny': shiny,
                           'hp': stats['maxhp'], 'maxhp': stats['maxhp'],
-                          'mystery': mystery,
+                          'mystery': mystery, 'mode': mode, 'arena': arena,
                           'exp': int(time.time()) + ENC_TTL}
         pix = pix_url(dex, shiny)
         try:
@@ -1348,10 +1561,6 @@ class Pokemon(commands.Cog):
         except Exception:
             raw = None
         import io as _bio
-        try:
-            png = wild_image(raw, weather=None, mystery=mystery) if raw else None
-        except Exception:
-            png = None
         if mystery:
             desc = (t(gid, 'eco.pk_mystery', types=types_str(gid, row["types"])) +
                     ((f"\n{em(gid, 'item_incense') or '+'} " + t(gid, 'eco.pk_incensed')) if inc else ''))
@@ -1369,12 +1578,20 @@ class Pokemon(commands.Cog):
                       hint=t(gid, 'eco.pk_wild_hint')) + flags)
         slot_of = {m['id']: i + 1 for i, m in enumerate(mons)}
         act = next((m for m in mons if m.get('active')), mons[0])
-        desc += (f"\n-# FIGHT: {mon_name(act, gid)} Lv{act['level']} — "
-                 f"`;active {slot_of.get(act['id'], 1)}` / `;battle {slot_of.get(act['id'], 1)}` to change")
+        if mode == 'fight':
+            desc += (f"\n-# FIGHT: {mon_name(act, gid)} Lv{act['level']} — "
+                     f"`;active {slot_of.get(act['id'], 1)}` / `;battle {slot_of.get(act['id'], 1)}` to change")
+        else:
+            desc += "\n-# `;catch <ball>` or tap a ball below"
         st = streak_get(gid, ctx.author.id)
         streak = t(gid, 'eco.pk_streak_line', n=st['catch_streak'], b=st['best_streak'])
         title = t(gid, 'eco.pk_wild_title', level=level)
         gif = ''
+        try:
+            png = wild_image(raw, weather=None, mystery=mystery, arena=arena,
+                             bare=not mystery)
+        except Exception:
+            png = None
         if mystery:
             accent = 0x3A3F4B
             desc += f'\n{streak}\n{_balls_left_line(gid, ctx.author.id)}'
@@ -1393,23 +1610,19 @@ class Pokemon(commands.Cog):
                                 gif = ''
                 except Exception:
                     gif = ''
-        if gif:
-            # animated sprite hero (verified reachable); meadow stays for mystery
-            view = self._layout(gid, title, desc, gif, accent)
-            self._attach_enc_buttons(view, gid, ctx.author.id)
-            await ctx.reply(view=view, mention_author=False)
-        elif png:
-            view = self._encounter_layout(gid, title, desc, accent)
-            self._attach_enc_buttons(view, gid, ctx.author.id)
+        extra = ([gif] if gif else []) or ([pix] if not mystery else [])
+        view = self._encounter_layout(gid, title, desc, accent, extra)
+        self._attach_enc_buttons(view, gid, ctx.author.id, mode)
+        if png:
             await ctx.reply(view=view, file=discord.File(_bio.BytesIO(png), 'hunt.png'),
                             mention_author=False)
         else:
-            # host couldn't fetch the sprite: let Discord load the remote URL instead
-            view = await self._mage(gid, title, desc, pix)
-            self._attach_enc_buttons(view, gid, ctx.author.id)
+            # host couldn't render the scene: remote art only, no attachment
+            view = self._encounter_layout(gid, title, desc, accent, [pix] if not mystery else [])
+            self._attach_enc_buttons(view, gid, ctx.author.id, mode)
             await ctx.reply(view=view, mention_author=False)
 
-    def _attach_enc_buttons(self, view, gid, uid):
+    def _attach_enc_buttons(self, view, gid, uid, mode: str = 'fight'):
         from discord.ui import ActionRow
         row = ActionRow()
         fight = discord.ui.Button(label='FIGHT', style=discord.ButtonStyle.danger,
@@ -1428,7 +1641,8 @@ class Pokemon(commands.Cog):
             await self._start_battle(ix, gid, ix.user)
 
         fight.callback = _fight
-        row.add_item(fight)
+        if mode == 'fight':
+            row.add_item(fight)
         counts = balls_get(gid, uid)
         for ball in ('poke', 'great', 'ultra', 'master'):
             qty = counts.get(ball, 0)
@@ -1521,10 +1735,10 @@ class Pokemon(commands.Cog):
         if roll < p:
             first = not my_mons(gid, uid)
             with db.conn_ctx() as conn:
-                conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active) '
-                             'VALUES (?,?,?,?,0,?,?,?)',
+                conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active, ivs) '
+                             'VALUES (?,?,?,?,0,?,?,?,?)',
                              (str(gid), str(uid), e['dex'], e['level'],
-                              1 if e['shiny'] else 0, '', 1 if first else 0))
+                              1 if e['shiny'] else 0, '', 1 if first else 0, _roll_ivs()))
             with db.conn_ctx() as conn:
                 prev = conn.execute('SELECT count FROM pk_dexcount WHERE guild_id=? AND user_id=? AND dex=?',
                                     (str(gid), str(uid), e['dex'])).fetchone()
@@ -1842,8 +2056,10 @@ class Pokemon(commands.Cog):
 
     def _box_view(self, gid, viewer: int, owner: int, owner_name: str,
                   filt: str = '', page: int = 1, per: int = 10):
-        """PokeMeow-style box: rarity sort, dex chips, pagination + sort buttons."""
-        from discord.ui import LayoutView, Container, TextDisplay, ActionRow
+        """Box card: help header, section rows (dex chip, rarity letter,
+        species art thumbnail), footer, icon nav buttons."""
+        from pathlib import Path
+        from discord.ui import LayoutView, Container, TextDisplay, ActionRow, Section, Thumbnail
         mons = my_mons(gid, owner)
         slot_of = _box_slots(mons)
         entries = [(m, _dex_row(m['dex'])) for m in mons]
@@ -1856,37 +2072,60 @@ class Pokemon(commands.Cog):
         page = min(max(1, page), total)
         layout = LayoutView(timeout=180)
         box = Container(accent_color=0x58CC02)
-        lines = []
-        for m, row in entries[(page - 1) * per:page * per]:
+        fav_emo = em(gid, 'star') or '*'
+        box.add_item(TextDisplay(
+            f"## {t(gid, 'eco.pk_box_title', user=owner_name)}\n"
+            f"{fav_emo} Favorite Pokemon: `;fav <slot>` (toggle)\n"
+            f"View by region: `;box <kanto|johto|hoenn|sinnoh>`\n"
+            f"View by rarity/type: `;box <common|shiny|fire|...>`\n"
+            f"View another trainer: `;box @user [filter]`\n"
+            f"Page {page}"))
+        files = []
+        rows = entries[(page - 1) * per:page * per]
+        if not rows:
+            box.add_item(TextDisplay(t(gid, 'eco.pk_box_empty')))
+        for m, r in rows:
             star = (em(gid, 'slot_active') or '*') if m.get('active') else ''
             fav = ' (fav)' if m.get('fav') else ''
-            _, re, _ = rarity_of(row, bool(m['shiny']), gid)
-            lines.append(f"`{slot_of[m['id']]}` #{m['dex']} {re} {mon_name(m, gid)}"
-                         f" — Lv{m['level']}{star}{fav}")
-        if not lines:
-            lines.append(t(gid, 'eco.pk_box_empty'))
-        lines.append(t(gid, 'eco.pk_box_page', page=page, total=total, n=len(entries))
-                     + f' • Sorted by: {mode.title()}'
-                     + (f' • Filter: {filt}' if filt else ''))
-        box.add_item(TextDisplay(f"## {t(gid, 'eco.pk_box_title', user=owner_name)}\n"
-                                 + '\n'.join(lines)))
+            base = rarity_of(r, False)[0]
+            letter = _tier_letter(gid, base)
+            shiny = (em(gid, 'rarity_shiny') or '*') + ' ' if m.get('shiny') else ''
+            spe = em(gid, _species_emoji_name(m.get('dex', 0)))
+            sec = Section(TextDisplay(
+                f"`{slot_of[m['id']]}` #{m['dex']} {letter} {shiny}{spe} "
+                f"{mon_name(m, gid)} — Lv{m['level']}{star}{fav}".replace('  ', ' ')))
+            try:
+                art = Path(f'assets/emojis/p{int(m["dex"]):03d}.png')
+            except Exception:
+                art = None
+            if art is not None and art.is_file():
+                sec.accessory = Thumbnail(media=f'attachment://{art.name}')
+                files.append(discord.File(str(art), filename=art.name))
+            box.add_item(sec)
+        box.add_item(TextDisplay(
+            t(gid, 'eco.pk_box_page', page=page, total=total, n=len(entries))
+            + f' • Sorted by: {mode.title()}'
+            + (f' • Filter: {filt}' if filt else '')))
         row = ActionRow()
-        for label, action, pg, dis in (('<<', 'first', 1, page <= 1),
-                                       ('BACK', 'back', page - 1, page <= 1),
-                                       ('NEXT', 'next', page + 1, page >= total),
-                                       ('>>', 'last', total, page >= total)):
+        for label, emo, action, pg, dis in (
+                ('<<', 'nav_first', 'first', 1, page <= 1),
+                ('BACK', 'nav_back', 'back', page - 1, page <= 1),
+                ('NEXT', 'nav_next', 'next', page + 1, page >= total),
+                ('>>', 'nav_last', 'last', total, page >= total)):
             b = discord.ui.Button(label=label, style=discord.ButtonStyle.secondary,
                                   custom_id=_box_cid(viewer, owner, action, pg, mode, filt),
-                                  disabled=dis)
+                                  disabled=dis,
+                                  emoji=_btn_emoji(gid, emo))
             b.callback = self._mk_box_btn(gid, viewer, owner)
             row.add_item(b)
         sb = discord.ui.Button(label=f'SORT: {mode.upper()}', style=discord.ButtonStyle.primary,
-                               custom_id=_box_cid(viewer, owner, 'sort', page, mode, filt))
+                               custom_id=_box_cid(viewer, owner, 'sort', page, mode, filt),
+                               emoji=_btn_emoji(gid, 'nav_sort'))
         sb.callback = self._mk_box_btn(gid, viewer, owner)
         row.add_item(sb)
         box.add_item(row)
         layout.add_item(box)
-        return layout
+        return layout, files
 
     def _mk_box_btn(self, gid, viewer: int, owner: int):
         async def _cb(ix: discord.Interaction):
@@ -1904,8 +2143,8 @@ class Pokemon(commands.Cog):
                 self._box_sort[(str(gid), str(viewer))] = mode
             member = ix.guild.get_member(int(owner)) if ix.guild else None
             name = member.display_name if member else f'User {owner}'
-            await ix.response.edit_message(
-                view=self._box_view(gid, viewer, int(owner), name, filt, pg))
+            view, files = self._box_view(gid, viewer, int(owner), name, filt, pg)
+            await ix.response.edit_message(view=view, attachments=files or None)
         return _cb
 
     @commands.command(name='box', description='Twoje pokemony')
@@ -1927,8 +2166,8 @@ class Pokemon(commands.Cog):
             if owner == ctx.author.id:
                 return await ctx.reply(t(gid, 'eco.pk_need_starter'), ephemeral=True)
             return await ctx.reply(t(gid, 'eco.pk_box_empty_other'), ephemeral=True)
-        await ctx.reply(view=self._box_view(gid, ctx.author.id, owner, owner_name, filt, page),
-                        ephemeral=True)
+        view, files = self._box_view(gid, ctx.author.id, owner, owner_name, filt, page)
+        await ctx.reply(view=view, files=files or None, ephemeral=True)
 
     @commands.command(name='fav', description='Oznacz/odznacz ulubieńca')
     async def fav(self, ctx, slot: int = 0):
@@ -1951,8 +2190,8 @@ class Pokemon(commands.Cog):
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
         async with aiohttp.ClientSession() as s:
             row = await dex_get(s, m['dex'])
-            moves = await moveset_for(s, m['dex'])
-        stats = calc_stats(row, m['level'])
+            moves = await moveset_for(s, m['dex'], m['level'])
+        stats = calc_stats(row, m['level'], _ivs_of(m))
         form = form_of(m)
         if form:
             row = dict(row, name=form['name'].lower(), types=list(form['types']),
@@ -1960,14 +2199,15 @@ class Pokemon(commands.Cog):
                        dfn=form['stats']['dfn'], spa=form['stats']['spa'],
                        spd=form['stats']['spd'], spe=form['stats']['spe'],
                        legendary=1)
-            stats = calc_stats(row, m['level'])
+            stats = calc_stats(row, m['level'], _ivs_of(m))
         nxt = XP_NEXT(m['level'])
         spr = (row.get('sprite') or '').split('|')
         img = spr[1] if m['shiny'] and len(spr) > 1 else spr[0]
         if form:
             img = form['shiny_sprite'] if m['shiny'] else form['sprite']
         rk, re, accent = rarity_of(row, bool(m['shiny']), gid)
-        desc = (f'{re} **{rk.upper()}** · {types_str(gid, row["types"])} · Lv{m["level"]}\n'
+        desc = (f'{re} **{rk.upper()}** · {types_str(gid, row["types"])} · Lv{m["level"]} '
+                f'· IV {_iv_pct(m)}%\n'
                 f'`{xp_bar(m["xp"], nxt, gid)}` {m["xp"]}/{nxt} XP\n'
                 + t(gid, 'eco.pk_info', level=m['level'], types=types_str(gid, row["types"]),
                     hp=stats['maxhp'], atk=stats['atk'], dfn=stats['dfn'],
@@ -2149,10 +2389,10 @@ class Pokemon(commands.Cog):
                                    ephemeral=True)
         first = not my_mons(gid, ctx.author.id)
         with db.conn_ctx() as conn:
-            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active) '
-                         'VALUES (?,?,?,?,0,?,?,?)',
+            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active, ivs) '
+                         'VALUES (?,?,?,?,0,?,?,?,?)',
                          (str(gid), str(ctx.author.id), e['dex'], e['level'],
-                          1 if e['shiny'] else 0, '', 1 if first else 0))
+                          1 if e['shiny'] else 0, '', 1 if first else 0, _roll_ivs()))
         if wild:
             self._wild.pop((str(gid), str(ctx.channel.id)), None)
         else:
@@ -2260,10 +2500,10 @@ class Pokemon(commands.Cog):
             if n >= 3:
                 return await ctx.reply(t(gid, 'eco.pk_market_full'), ephemeral=True)
             conn.execute('INSERT INTO pk_market (guild_id, seller_id, seller_name, dex, level, xp, '
-                         'shiny, nick, price, created) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                         'shiny, nick, price, created, ivs) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
                          (str(gid), str(ctx.author.id), ctx.author.display_name[:24],
                           m['dex'], m['level'], m['xp'], m['shiny'], m.get('nick') or '',
-                          price, int(time.time())))
+                          price, int(time.time()), m.get('ivs') or ''))
             conn.execute('DELETE FROM pk_mons WHERE id=?', (m['id'],))
             left = conn.execute('SELECT id FROM pk_mons WHERE guild_id=? AND owner_id=? ORDER BY id LIMIT 1',
                                 (str(gid), str(ctx.author.id))).fetchone()
@@ -2314,10 +2554,10 @@ class Pokemon(commands.Cog):
         sb = bal(gid, r['seller_id'])
         set_cash(gid, r['seller_id'], sb['cash'] + r['price'] - fee)
         with db.conn_ctx() as conn:
-            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active) '
-                         'VALUES (?,?,?,?,?,?,?,?)',
+            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active, ivs) '
+                         'VALUES (?,?,?,?,?,?,?,?,?)',
                          (str(gid), str(ctx.author.id), r['dex'], r['level'], r['xp'],
-                          r['shiny'], r['nick'], 1 if first else 0))
+                          r['shiny'], r['nick'], 1 if first else 0, r.get('ivs') or ''))
             conn.execute('DELETE FROM pk_market WHERE id=?', (r['id'],))
         row = _dex_row(r['dex'])
         await ctx.reply(t(gid, 'eco.pk_market_bought',
@@ -2334,10 +2574,10 @@ class Pokemon(commands.Cog):
                 return await ctx.reply(t(gid, 'eco.pk_market_gone'), ephemeral=True)
             r = dict(r)
             first = not my_mons(gid, ctx.author.id)
-            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active) '
-                         'VALUES (?,?,?,?,?,?,?,?)',
+            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active, ivs) '
+                         'VALUES (?,?,?,?,?,?,?,?,?)',
                          (str(gid), str(ctx.author.id), r['dex'], r['level'], r['xp'],
-                          r['shiny'], r['nick'], 1 if first else 0))
+                          r['shiny'], r['nick'], 1 if first else 0, r.get('ivs') or ''))
             conn.execute('DELETE FROM pk_market WHERE id=?', (r['id'],))
         await ctx.reply(t(gid, 'eco.pk_unlisted'), ephemeral=True)
 
@@ -2428,7 +2668,7 @@ class Pokemon(commands.Cog):
             return await ctx.reply(t(gid, 'eco.pk_buddy_none'), ephemeral=True)
         m = dict(m)
         row = _dex_row(m['dex'])
-        stats = calc_stats(row, m['level'])
+        stats = calc_stats(row, m['level'], _ivs_of(m))
         nxt = XP_NEXT(m['level'])
         rk, re, accent = rarity_of(row, bool(m['shiny']), gid)
         hearts = b.get('hearts', 0) or 0
@@ -2453,7 +2693,9 @@ class Pokemon(commands.Cog):
             except Exception:
                 gif = ''
         spr = (row.get('sprite') or '').split('|')
-        img = gif or (spr[1] if m['shiny'] and len(spr) > 1 else spr[0])
+        img = spr[1] if m['shiny'] and len(spr) > 1 else spr[0]
+        if form_of(m):
+            img = form_sprite(m, bool(m['shiny'])) or img
         await ctx.reply(view=await self._mage(
             gid, f"{t(gid, 'eco.pk_buddy_title', user=ctx.author.display_name)} — "
                  f"{re} {mon_name(m, gid)}", desc, img, accent))
@@ -2546,10 +2788,10 @@ class Pokemon(commands.Cog):
         first = not my_mons(gid, ctx.author.id)
         with db.conn_ctx() as conn:
             conn.execute('DELETE FROM pk_eggs WHERE id=?', (egg_id,))
-            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active) '
-                         'VALUES (?,?,?,?,0,?,?,?)',
+            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active, ivs) '
+                         'VALUES (?,?,?,?,0,?,?,?,?)',
                          (str(gid), str(ctx.author.id), dex, level, 1 if shiny else 0, '',
-                          1 if first else 0))
+                          1 if first else 0, _roll_ivs()))
         spr = (row.get('sprite') or '').split('|')
         img = spr[1] if shiny and len(spr) > 1 else spr[0]
         await ctx.reply(view=await self._mage(
@@ -2583,10 +2825,10 @@ class Pokemon(commands.Cog):
         first = len(my_mons(gid, ctx.author.id)) <= 1
         with db.conn_ctx() as conn:
             conn.execute('DELETE FROM pk_mons WHERE id=?', (m['id'],))
-            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active) '
-                         'VALUES (?,?,?,?,0,?,?,?)',
+            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active, ivs) '
+                         'VALUES (?,?,?,?,0,?,?,?,?)',
                          (str(gid), str(ctx.author.id), dex, level, 1 if shiny else 0, '',
-                          1 if first else 0))
+                          1 if first else 0, _roll_ivs()))
             left = conn.execute('SELECT id FROM pk_mons WHERE guild_id=? AND owner_id=? ORDER BY id LIMIT 1',
                                 (str(gid), str(ctx.author.id))).fetchone()
             if left:
@@ -2861,19 +3103,136 @@ class Pokemon(commands.Cog):
         set_cash(gid, ctx.author.id, x['cash'] + row['amount'])
         await ctx.reply(t(gid, 'eco.pk_code_cash', win=cshort(row['amount'])), ephemeral=True)
 
+    PK_USAGE = {
+        'starter': ('Pick your first pokemon. `;starter` opens the picker, `;starter charmander` picks directly.',
+                    'Wybierz pierwszego pokemona. `;starter` pokazuje wybór, `;starter charmander` wybiera od razu.'),
+        'hunt': ('Fight-first wild encounter (60s cooldown). FIGHT it or throw balls.',
+                 'Starcie z dzikim (60s cooldown). FIGHT albo rzuć ball.'),
+        'p': ('Catch-only wild encounter (60s cooldown). Balls only, no FIGHT row.',
+              'Spotkanie tylko do łapania (60s cooldown). Same balle, bez FIGHT.'),
+        'pokemon': ('Manual shared spawn for the channel. Guess mystery ones with `;guess`.',
+                    'Ręczny spawn dla kanału. Tajemnicze zgaduj przez `;guess`.'),
+        'catch': ('Throw at your active encounter. `;catch ultra` picks the ball.',
+                  'Rzuć w aktywne spotkanie. `;catch ultra` wybiera ball.'),
+        'guess': ('Name a mystery encounter to catch it free. Exact species name.',
+                  'Nazwij tajemnicze spotkanie, żeby złapać za darmo. Dokładna nazwa.'),
+        'hint': ('Reveals half the letters of a mystery encounter.',
+                 'Odsłania połowę liter tajemniczego spotkania.'),
+        'balls': ('Item shop: balls, potions, candy, eggs, lures. `;balls buy <name> [n]`.',
+                  'Sklep: balle, potiony, candy, jajka, lury. `;balls buy <nazwa> [n]`.'),
+        'box': ('Your collection. Sorts by rarity; filters: region, tier, type, fav. `;box 2`, `;box hoenn`.',
+                'Twoja kolekcja. Sortuje po rzadkości; filtry: region, tier, typ, fav. `;box 2`, `;box hoenn`.'),
+        'mon': ('Detail card: stats, IV, moves, evolution. `;mon <slot>`.',
+                'Karta: staty, IV, ruchy, ewolucja. `;mon <slot>`.'),
+        'active': ('Set your fighter. `;active` opens the picker, `;active 3` picks directly.',
+                   'Ustaw wojownika. `;active` pokazuje wybór, `;active 3` wybiera od razu.'),
+        'fav': ('Toggle favorite: never auto-sold or released. `;fav <slot>`.',
+                'Oznacz ulubieńca: ochrona przed sprzedażą. `;fav <slot>`.'),
+        'name': ('Nickname a mon. `;name <slot> <nick>`.',
+                 'Nazwij pokemona. `;name <slot> <nick>`.'),
+        'dex': ('Pokedex completion with cash milestones.',
+                'Postęp Pokedeksu z nagrodami.'),
+        'release': ('Release one mon back for cash. `;release <slot>`.',
+                    'Wypuść pokemona za kasę. `;release <slot>`.'),
+        'releaseall': ('Release every mon matching a name. `;releaseall pikachu`.',
+                       'Wypuść wszystkie o danej nazwie. `;releaseall pikachu`.'),
+        'keep': ('Lock a mon against release and market. `;keep <slot>`.',
+                 'Zabezpiecz pokemona. `;keep <slot>`.'),
+        'buddy': ('Buddy card + XP share. `;buddy set <name|slot>`.',
+                  'Karta buddy + XP. `;buddy set <nazwa|slot>`.'),
+        'battle': ('Fight your active encounter. `;battle [slot]` picks the lead.',
+                   'Walcz z aktywnym spotkaniem. `;battle [slot]` wybiera prowadzącego.'),
+        'duel': ('PvP against a trainer. `;duel @user [wager]`.',
+                 'PvP z trenerem. `;duel @typ [stawka]`.'),
+        'npc': ('Ladder: joey, finn, cyntia. `;npc joey`.',
+                'Drabinka: joey, finn, cyntia. `;npc joey`.'),
+        'team': ('Your 3-mon duel team. `;team 1 2 3`.',
+                 'Drużyna 3 na pojedynki. `;team 1 2 3`.'),
+        'moves': ('Learnset of a mon. `;moves <slot>`.',
+                  'Ruchy pokemona. `;moves <slot>`.'),
+        'move': ('Move lookup. `;move <name>`.',
+                 'Opis ruchu. `;move <nazwa>`.'),
+        'evolve': ('Evolve a ready mon (level threshold). `;evolve <slot>`.',
+                   'Ewoluuj gotowego (próg levelu). `;evolve <slot>`.'),
+        'candy': ('Rare candy: +1 level now. `;candy <slot>`.',
+                  'Rzadki cukierek: +1 level od razu. `;candy <slot>`.'),
+        'eggs': ('Your incubating eggs (max 3).',
+                 'Twoje jajka (max 3).'),
+        'hatch': ('Hatch a ready egg. `;hatch`.',
+                  'Wykluj gotowe jajko. `;hatch`.'),
+        'trade': ('Direct trade. `;trade @user <yours> <theirs>`.',
+                  'Wymiana. `;trade @typ <twój> <jego>`.'),
+        'market': ('Player listings browser.',
+                   'Przeglądarka ofert graczy.'),
+        'sell': ('List a mon. `;sell <slot> <price>`.',
+                 'Wystaw pokemona. `;sell <slot> <cena>`.'),
+        'buy': ('Buy a listing. `;buy <id>`.',
+                'Kup ofertę. `;buy <id>`.'),
+        'unlist': ('Take down your listing. `;unlist <id>`.',
+                   'Zdejmij ofertę. `;unlist <id>`.'),
+        'swap': ('Random exchange for one of yours. `;swap <slot>`.',
+                 'Losowa wymiana. `;swap <slot>`.'),
+        'quests': ('Three quest slots with cash rewards.',
+                   'Trzy questy z nagrodami.'),
+        'target': ('Shiny-hunt target: streak shortens odds. `;target <name>`.',
+                   'Cel shiny: seria skraca szanse. `;target <nazwa>`.'),
+        'shinyhunt': ('Show target and streak.',
+                      'Pokaż cel i serię.'),
+        'checklist': ('Daily tasks for a cash bonus.',
+                      'Dzienne zadania za bonus.'),
+        'streaks': ('Catch and battle streaks.',
+                    'Serie łapania i walk.'),
+        'trainer': ('Your trainer stats card.',
+                    'Karta twoich statystyk.'),
+        'trainers': ('Server leaderboards.',
+                     'Rankingi serwera.'),
+        'items': ('Your bag: balls, potions, lures.',
+                  'Plecak: balle, potiony, lury.'),
+        'list': ('Server shiny and legendary showcase.',
+                 'Gablota shiny i legend serwera.'),
+        'grazz': ('Meadow lure: buy and use for grass spawns.',
+                  'Przynęta łąkowa: kup i użyj.'),
+        'repel': ('Repel: stronger encounters for 30 min.',
+                  'Odstraszacz: mocniejsze spotkania 30 min.'),
+        'code': ('Redeem an event code. `;code <code>`.',
+                 'Zrealizuj kod eventu. `;code <kod>`.'),
+        'phelp': ('This hub. `;phelp <command>` for usage.',
+                  'Ten poradnik. `;phelp <komenda>` po użycie.'),
+    }
+
     @commands.command(name='phelp', description='Pomoc pokemon')
-    async def phelp(self, ctx):
+    async def phelp(self, ctx, *, cmd: str = ''):
         gid = ctx.guild.id
+        q = (cmd or '').lower().strip().lstrip(';.!')
+        if q:
+            from lang import get_lang
+            use_pl = get_lang(gid) == 'pl'
+            if q in self.PK_USAGE:
+                en, pl = self.PK_USAGE[q]
+                return await ctx.reply(view=self._layout(
+                    gid, f';{q}', (pl if use_pl else en)), ephemeral=True)
+            return await ctx.reply(
+                t(gid, 'eco.pk_h_unknown', q=q[:24]), ephemeral=True)
         secs = [
-            (t(gid, 'eco.pk_h_catch'), 'starter · hunt · pokemon · catch · guess · hint · balls'),
-            (t(gid, 'eco.pk_h_box'), 'box · mon · active · name · dex · release · releaseall · keep'),
-            (t(gid, 'eco.pk_h_battle'), 'battle · duel · npc · team · buddy · moves · candy'),
-            (t(gid, 'eco.pk_h_prog'), 'quests · target · checklist · shinyhunt · streaks · stats · trainers'),
-            (t(gid, 'eco.pk_h_trade'), 'trade · market · sell · buy · unlist · swap'),
-            (t(gid, 'eco.pk_h_extra'), 'eggs · hatch · move · items · list · code · evolve · grazz · repel'),
+            ('btn_ball', t(gid, 'eco.pk_h_catch'),
+             'starter · hunt · p · pokemon · catch · guess · hint · balls'),
+            ('box_box', t(gid, 'eco.pk_h_box'),
+             'box · mon · active · fav · name · dex · release · releaseall · keep · buddy'),
+            ('btn_fight', t(gid, 'eco.pk_h_battle'),
+             'battle · duel · npc · team · moves · move · evolve · candy · eggs · hatch'),
+            ('trade_swap', t(gid, 'eco.pk_h_trade'),
+             'trade · market · sell · buy · unlist · swap'),
+            ('quest_scroll', t(gid, 'eco.pk_h_prog'),
+             'quests · target · shinyhunt · checklist · streaks · trainer · trainers'),
+            ('dex_book', t(gid, 'eco.pk_h_extra'),
+             'items · list · grazz · repel · code · phelp'),
         ]
-        body = '\n'.join(f'**{title}**\n`{cmds}`' for title, cmds in secs)
-        body += '\n' + t(gid, 'eco.pk_h_note')
+        parts = []
+        for icon, title, cmds in secs:
+            ei = em(gid, icon)
+            chips = ' '.join(f'`;{c}`' for c in cmds.split(' · '))
+            parts.append(f'{ei + " " if ei else ""}**{title}**\n{chips}')
+        body = '\n'.join(parts) + '\n' + t(gid, 'eco.pk_h_note')
         await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_h_title'), body), ephemeral=True)
 
     # ----- battles -----
@@ -2888,11 +3247,12 @@ class Pokemon(commands.Cog):
                        spd=form['stats']['spd'], spe=form['stats']['spe'],
                        legendary=1)
         lv = mon.get('level', level or 5)
-        stats = calc_stats(row, lv)
+        stats = calc_stats(row, lv, _ivs_of(mon))
         return {'name': mon_name(mon, gid) if 'owner_id' in mon or 'nick' in mon else row['name'].capitalize(),
                 'dex': mon.get('dex', mon), 'level': lv, 'types': row.get('types') or ['normal'],
                 'stats': stats, 'hp': stats['maxhp'],
-                'moves': await moveset_for(session, mon.get('dex', mon)),
+                'moves': await moveset_for(session, mon.get('dex', mon),
+                                             mon.get('level', level or 5)),
                 'shiny': mon.get('shiny', 0), 'row': row, 'form': (mon.get('form') or '')}
 
     def _fighter_picker(self, gid, uid, mode: str = 'battle'):
@@ -2987,6 +3347,7 @@ class Pokemon(commands.Cog):
         self._battle[key] = {'me': me, 'wild': wild, 'mid': act['id'], 'log': [],
                              'me_spr': me_spr, 'wild_spr': wild_spr,
                              'weather': roll_weather(), 'fainted': set(),
+                             'arena': random.choice(ARENAS),
                              'sent': False}
         await self._send_battle(ix_or_ctx, is_ix, gid, user.id)
 
@@ -3038,7 +3399,8 @@ class Pokemon(commands.Cog):
         import io as _bio
         try:
             png = battle_image(st.get('me_spr'), st.get('wild_spr'),
-                               st['me'], st['wild'], st.get('weather'))
+                               st['me'], st['wild'], st.get('weather'),
+                               st.get('arena', 'meadow'))
             return discord.File(_bio.BytesIO(png), 'battle.png')
         except Exception:
             return None
@@ -3147,6 +3509,7 @@ class Pokemon(commands.Cog):
             await self._battle_turn(ix, gid, ix.user, what)
         return _cb
 
+    @_turn_safe
     async def _battle_turn(self, ix: discord.Interaction, gid, user, what):
         key = (str(gid), str(user.id))
         st = self._battle.get(key)
@@ -3230,12 +3593,12 @@ class Pokemon(commands.Cog):
             if side == 'me':
                 if wild['hp'] <= 0:
                     break
-                use_mv = chosen or random.choice(me['moves'])
+                use_mv = chosen or random.choice(_safe_moves(me))
                 await self._strike(gid, me, wild, use_mv, True, log, st.get('weather'))
             else:
                 if me['hp'] <= 0:
                     break
-                await self._strike(gid, wild, me, random.choice(wild['moves']), False, log,
+                await self._strike(gid, wild, me, random.choice(_safe_moves(wild)), False, log,
                                    st.get('weather'))
         return await self._after_turn(ix, gid, user, key, st)
 
@@ -3249,7 +3612,7 @@ class Pokemon(commands.Cog):
         log.append(t(gid, 'eco.pk_hit', who=who, move=mv['name'], dmg=dmg) + tag)
 
     async def _wild_strike(self, gid, me, wild, log: list, weather=None):
-        await self._strike(gid, wild, me, random.choice(wild['moves']), False, log, weather)
+        await self._strike(gid, wild, me, random.choice(_safe_moves(wild)), False, log, weather)
 
     async def _after_turn(self, ix: discord.Interaction, gid, user, key, st):
         me, wild, log = st['me'], st['wild'], st['log']
@@ -3427,6 +3790,7 @@ class Pokemon(commands.Cog):
                              'u1': u1.id, 'u2': u2.id,
                              'wager': wager, 'turn': u1.id, 'log': [],
                              'weather': roll_weather(), 'fainted': set(),
+                             'arena': random.choice(ARENAS),
                              'sent': False}
         await self._duel_render(ix, gid, key)
 
@@ -3500,6 +3864,7 @@ class Pokemon(commands.Cog):
             await self._duel_turn(ix, gid, key, what)
         return _cb
 
+    @_turn_safe
     async def _duel_turn(self, ix: discord.Interaction, gid, key, what):
         from cogs.gamble import bal, set_cash
         st = self._battle.get(key)
@@ -3520,7 +3885,7 @@ class Pokemon(commands.Cog):
                         st['i2'] = j
                     log.append(t(gid, 'eco.pk_switched', name=tgt['name']))
                     fo_now = st[foe][st['i2' if side == 't1' else 'i1']]
-                    mv = random.choice(fo_now['moves'])
+                    mv = random.choice(_safe_moves(fo_now))
                     dmg, crit = damage(fo_now['level'], mv, fo_now['stats'], tgt['stats'],
                                        fo_now['types'], tgt['types'], st.get('weather'))
                     tgt['hp'] = max(0, tgt['hp'] - dmg)
@@ -3562,7 +3927,7 @@ class Pokemon(commands.Cog):
                 idx = what[1]
                 if 0 <= idx < len(me.get('moves') or []):
                     mv = me['moves'][idx]
-            mv = mv or random.choice(me['moves'])
+            mv = mv or random.choice(_safe_moves(me))
             dmg, crit = damage(me['level'], mv, me['stats'], fo['stats'], me['types'], fo['types'],
                                st.get('weather'))
             fo['hp'] = max(0, fo['hp'] - dmg)
@@ -3590,7 +3955,7 @@ class Pokemon(commands.Cog):
             # NPC acts instantly: random strike, no potions, no mercy
             a, b = (st['t2'][st['i2']], st['t1'][st['i1']]) if side == 't1' \
                 else (st['t1'][st['i1']], st['t2'][st['i2']])
-            mv = random.choice(a['moves'])
+            mv = random.choice(_safe_moves(a))
             dmg, crit = damage(a['level'], mv, a['stats'], b['stats'], a['types'], b['types'],
                                st.get('weather'))
             b['hp'] = max(0, b['hp'] - dmg)
@@ -3626,7 +3991,8 @@ class Pokemon(commands.Cog):
         a, b = self._duel_pair(st)
         f = None
         try:
-            png = battle_image(st['s1'][st['i1']], st['s2'][st['i2']], a, b, st.get('weather'))
+            png = battle_image(st['s1'][st['i1']], st['s2'][st['i2']], a, b, st.get('weather'),
+                                st.get('arena', 'meadow'))
             f = discord.File(_bio.BytesIO(png), 'battle.png')
         except Exception:
             pass
@@ -3707,7 +4073,8 @@ class Pokemon(commands.Cog):
         import io as _bio
         try:
             a, b = self._duel_pair(st)
-            png = battle_image(st['s1'][st['i1']], st['s2'][st['i2']], a, b, st.get('weather'))
+            png = battle_image(st['s1'][st['i1']], st['s2'][st['i2']], a, b, st.get('weather'),
+                                st.get('arena', 'meadow'))
             return discord.File(_bio.BytesIO(png), 'battle.png')
         except Exception:
             return None
@@ -3735,7 +4102,7 @@ class Pokemon(commands.Cog):
         if not m:
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
         async with aiohttp.ClientSession() as s:
-            ms = await moveset_for(s, m['dex'])
+            ms = await moveset_for(s, m['dex'], m['level'])
         await ctx.reply(view=self._layout(
             gid, t(gid, 'eco.pk_moves_title', name=mon_name(m, gid)),
             '\n'.join(t(gid, 'eco.pk_move_row', name=x['name'], power=x['power'],
@@ -3816,6 +4183,7 @@ class Pokemon(commands.Cog):
                               'wager': 0, 'turn': user.id, 'log': [
                                   t(gid, 'eco.pk_npc_start', name=name)],
                               'weather': roll_weather(), 'fainted': set(),
+                             'arena': random.choice(ARENAS),
                               'sent': False}
         await self._duel_render_ctx(ctx, gid, bkey)
 
@@ -3828,7 +4196,8 @@ class Pokemon(commands.Cog):
         f = None
         try:
             a, b = self._duel_pair(st)
-            png = battle_image(st['s1'][st['i1']], st['s2'][st['i2']], a, b, st.get('weather'))
+            png = battle_image(st['s1'][st['i1']], st['s2'][st['i2']], a, b, st.get('weather'),
+                                st.get('arena', 'meadow'))
             f = discord.File(_bio.BytesIO(png), 'battle.png')
         except Exception:
             pass
