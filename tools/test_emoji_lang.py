@@ -150,7 +150,7 @@ def pure():
               'streak_get', '_balls_left_line', 'balls_get', 'region_of',
               '_box_tier', '_box_match', '_box_slots', '_box_sort_entries',
               '_box_cid', '_box_parse', '_species_emoji_name',
-              '_match_mon', '_evo_text'}
+              '_match_mon', '_evo_text', 'form_of', 'form_emo', 'form_sprite'}
     import lang as LANG
     mod = types.ModuleType('pkpure')
     mod.__dict__['em'] = E.em
@@ -166,7 +166,7 @@ def pure():
                     'TYPE_EMOJI', 'WEATHER_LINE', 'RARITY_RATE', 'BALLS', 'BALL_FLEET',
                     'TIER_WORD', 'RARITY_COMMON', 'RARITY_UNCOMMON', 'RARITY_RARE',
                     'RARITY_LEGENDARY', 'RARITY_SHINY', 'BOX_SORTS', 'REGIONS',
-                    '_BOX_RANK'):
+                    '_BOX_RANK', 'FORMS', 'FORM_SUFFIX'):
             mod.__dict__[node.targets[0].id] = ast.literal_eval(node.value)
     _PURE = mod
     return mod
@@ -961,6 +961,45 @@ def test_anime_silhouette() -> None:
     check(r > 200 and g > 150 and b < 120, f'card silhouette is yellow (got {r},{g},{b})')
 
 
+def test_forms() -> None:
+    gid = '111111111111111111'
+    tmp = use_fixture({'guilds': {gid: {'form_mega': 999999999999999991,
+                                        'rarity_shiny': 444444444444444444}}})
+    try:
+        p = pure()
+        check(set(p.FORMS) == {'mega_rayquaza', 'primal_groudon', 'zacian_crowned'},
+              'form registry has the three grants')
+        for key, f in p.FORMS.items():
+            check(set(f['stats']) == {'hp', 'atk', 'dfn', 'spa', 'spd', 'spe'},
+                  f'{key} stats plug into calc_stats')
+            check(isinstance(f['types'], list) and f['types'] and f['name']
+                  and f['sprite'].startswith('https://') and f['emo'], f'{key} complete')
+        check(p.form_of({'form': 'MEGA_RAYQUAZA'})['name'] == 'Mega Rayquaza',
+              'form lookup case-insensitive')
+        check(p.form_of({'form': 'nope'}) is None and p.form_of({}) is None
+              and p.form_of(None) is None, 'unknown forms are None')
+        check(p.form_emo(gid, {'form': 'mega_rayquaza'}) == '<:form_mega:999999999999999991>',
+              'form marker resolves')
+        check(p.form_emo(gid, {'form': 'primal_groudon'}) == '', 'missing form emoji is empty')
+        check(p.mon_name({'dex': 384, 'nick': '', 'shiny': 0, 'form': 'mega_rayquaza'}, gid)
+              == '<:form_mega:999999999999999991> Mega Rayquaza',
+              'formed name shows marker + form name')
+        check(p.mon_name({'dex': 384, 'nick': 'Ray', 'shiny': 0, 'form': 'mega_rayquaza'}, gid)
+              == '<:form_mega:999999999999999991> Ray',
+              'nick still wins over form name')
+        check(p.showdown_gif('Rayquaza-Mega', False).endswith('/ani/rayquaza-mega.gif'),
+              'forme slugs keep hyphens')
+        check(p.showdown_gif('Mr. Mime', False).endswith('/ani/mrmime.gif'),
+              'base species still strip punctuation')
+        check(p.form_sprite({'form': 'zacian_crowned'}, False).endswith('/10188.png'),
+              'form art override resolves')
+        check(p.form_sprite({'dex': 25}, False) is None, 'unformed mons use pixel art')
+        check("ADD COLUMN form" in (ROOT / 'database.py').read_text(encoding='utf-8'),
+              'form migration present')
+    finally:
+        tmp.cleanup()
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
          test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
@@ -977,7 +1016,7 @@ TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_dead_stream_matcher, test_conn_ctx_drops_dead_pool,
          test_box_ids_unique, test_species_buttons,
          test_main_guild_gate, test_buddy_match_evo,
-         test_catchmeta_rarity, test_anime_silhouette)
+         test_catchmeta_rarity, test_anime_silhouette, test_forms)
 
 if __name__ == '__main__':
     for t in TESTS:

@@ -121,6 +121,50 @@ STARTERS = {'bulbasaur': 1, 'charmander': 4, 'squirtle': 7,
 STARTER_TYPES = {1: 'grass', 4: 'fire', 7: 'water',
                  25: 'electric', 133: 'normal', 387: 'grass'}
 
+# Battle forms (megas/primals/crowned): base dex + full override. Stats are
+# base values in calc_stats key format (verified against PokeAPI).
+FORMS = {
+    'mega_rayquaza': {
+        'name': 'Mega Rayquaza', 'dex': 384, 'types': ['dragon', 'flying'],
+        'stats': {'hp': 105, 'atk': 180, 'dfn': 100, 'spa': 180, 'spd': 100, 'spe': 115},
+        'sprite': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/10079.png',
+        'shiny_sprite': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/shiny/10079.png',
+        'emo': 'form_mega'},
+    'primal_groudon': {
+        'name': 'Primal Groudon', 'dex': 383, 'types': ['ground', 'fire'],
+        'stats': {'hp': 100, 'atk': 180, 'dfn': 160, 'spa': 150, 'spd': 90, 'spe': 90},
+        'sprite': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/10078.png',
+        'shiny_sprite': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/shiny/10078.png',
+        'emo': 'form_primal'},
+    'zacian_crowned': {
+        'name': 'Zacian Crowned', 'dex': 888, 'types': ['fairy', 'steel'],
+        'stats': {'hp': 92, 'atk': 150, 'dfn': 115, 'spa': 80, 'spd': 115, 'spe': 148},
+        'sprite': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/10188.png',
+        'shiny_sprite': 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/shiny/10188.png',
+        'emo': 'form_crowned'},
+}
+
+
+def form_of(mon: dict):
+    """FORMS entry for a mon, or None. Pure."""
+    if not mon:
+        return None
+    return FORMS.get((mon.get('form') or '').lower())
+
+
+def form_emo(gid, mon) -> str:
+    """Form marker emoji (name carries the meaning, so no text fallback)."""
+    f = form_of(mon)
+    return em(gid, f['emo']) if f else ''
+
+
+def form_sprite(mon: dict, shiny: bool = False):
+    """Official-art URL for a formed mon, else None (caller uses pixel art)."""
+    f = form_of(mon)
+    if not f:
+        return None
+    return f['shiny_sprite'] if shiny else f['sprite']
+
 # PokeTwo-style regions + quest tracks (catch milestones per region)
 REGIONS = {'kanto': (1, 151), 'johto': (152, 251),
            'hoenn': (252, 386), 'sinnoh': (387, 493)}
@@ -489,11 +533,15 @@ def get_mon(gid, uid, slot: int) -> dict:
 def mon_name(mon: dict, gid=0) -> str:
     if not mon:
         return '?'
+    form = form_of(mon)
     row = _dex_row(mon['dex'])
-    base = (row.get('name') or f"#{mon['dex']}").capitalize()
+    base = (form['name'] if form else (row.get('name') or f"#{mon['dex']}").capitalize())
     name = (mon.get('nick') or base)
     if mon.get('shiny'):
         name = (em(gid, 'rarity_shiny') or '*') + name
+    if form:
+        mark = form_emo(gid, mon)
+        name = (mark + ' ' + name) if mark else name
     return name
 
 
@@ -666,9 +714,19 @@ CATCH_COINS_LVL, CATCH_COINS_NEW, CATCH_COINS_SHINY = 10, 250, 1000
 BALL_FLEET = {'poke': 'pokeball', 'great': 'greatball', 'ultra': 'ultraball', 'master': 'masterball'}
 
 
+FORM_SUFFIX = ('-mega', '-megax', '-megay', '-primal', '-crowned',
+               '-galar', '-alola', '-hisui', '-paldea', '-therian', '-origin')
+
+
 def showdown_gif(name: str, shiny: bool = False) -> str:
-    """Animated Gen-5 sprite URL. '' when unmappable (caller falls back)."""
-    slug = ''.join(c for c in (name or '').lower() if c.isascii() and c.isalnum())
+    """Animated sprite URL. '' when unmappable (caller falls back).
+    Forme sprites keep hyphens (rayquaza-mega); base species strip all
+    punctuation (mr-mime -> mrmime, ho-oh -> hooh)."""
+    low = (name or '').lower()
+    if any(low.endswith(s) for s in FORM_SUFFIX):
+        slug = ''.join(c for c in low if c.isascii() and (c.isalnum() or c == '-'))
+    else:
+        slug = ''.join(c for c in low if c.isascii() and c.isalnum())
     if not slug:
         return ''
     base = 'https://play.pokemonshowdown.com/sprites'
@@ -1892,9 +1950,19 @@ class Pokemon(commands.Cog):
             row = await dex_get(s, m['dex'])
             moves = await moveset_for(s, m['dex'])
         stats = calc_stats(row, m['level'])
+        form = form_of(m)
+        if form:
+            row = dict(row, name=form['name'].lower(), types=list(form['types']),
+                       hp=form['stats']['hp'], atk=form['stats']['atk'],
+                       dfn=form['stats']['dfn'], spa=form['stats']['spa'],
+                       spd=form['stats']['spd'], spe=form['stats']['spe'],
+                       legendary=1)
+            stats = calc_stats(row, m['level'])
         nxt = XP_NEXT(m['level'])
         spr = (row.get('sprite') or '').split('|')
         img = spr[1] if m['shiny'] and len(spr) > 1 else spr[0]
+        if form:
+            img = form['shiny_sprite'] if m['shiny'] else form['sprite']
         rk, re, accent = rarity_of(row, bool(m['shiny']), gid)
         desc = (f'{re} **{rk.upper()}** · {types_str(gid, row["types"])} · Lv{m["level"]}\n'
                 f'`{xp_bar(m["xp"], nxt, gid)}` {m["xp"]}/{nxt} XP\n'
@@ -2809,13 +2877,20 @@ class Pokemon(commands.Cog):
 
     async def _fighter(self, session, mon: dict, level: int = None, gid=0):
         row = await dex_get(session, mon['dex'] if 'dex' in mon else mon)
+        form = form_of(mon)
+        if form:
+            row = dict(row, name=form['name'].lower(), types=list(form['types']),
+                       hp=form['stats']['hp'], atk=form['stats']['atk'],
+                       dfn=form['stats']['dfn'], spa=form['stats']['spa'],
+                       spd=form['stats']['spd'], spe=form['stats']['spe'],
+                       legendary=1)
         lv = mon.get('level', level or 5)
         stats = calc_stats(row, lv)
         return {'name': mon_name(mon, gid) if 'owner_id' in mon or 'nick' in mon else row['name'].capitalize(),
                 'dex': mon.get('dex', mon), 'level': lv, 'types': row.get('types') or ['normal'],
                 'stats': stats, 'hp': stats['maxhp'],
                 'moves': await moveset_for(session, mon.get('dex', mon)),
-                'shiny': mon.get('shiny', 0), 'row': row}
+                'shiny': mon.get('shiny', 0), 'row': row, 'form': (mon.get('form') or '')}
 
     def _fighter_picker(self, gid, uid, mode: str = 'battle'):
         """Team picker. mode='battle': pick lead + start. mode='active': just set active."""
@@ -2892,7 +2967,9 @@ class Pokemon(commands.Cog):
             me = await self._fighter(s, act, gid=gid)
             wild = await self._fighter(s, {'dex': e['dex'], 'level': e['level'],
                                            'shiny': e['shiny'], 'nick': ''}, gid=gid)
-            me_spr = await fetch_sprite(s, pix_url(me['dex'], bool(me['shiny']), back=True))
+            me_spr = await fetch_sprite(
+                s, form_sprite(act, bool(me['shiny']))
+                or pix_url(me['dex'], bool(me['shiny']), back=True))
             wild_spr = await fetch_sprite(s, pix_url(e['dex'], bool(wild['shiny'])))
         wild['hp'] = e['hp']
         # picked lead becomes the active mon so bench display stays correct
@@ -3119,7 +3196,9 @@ class Pokemon(commands.Cog):
                 return await ix.followup.send(view=self._battle_view(gid, user.id, st))
             async with aiohttp.ClientSession() as s:
                 me2 = await self._fighter(s, nm, gid=gid)
-                me2_spr = await fetch_sprite(s, pix_url(nm['dex'], bool(nm['shiny']), back=True))
+                me2_spr = await fetch_sprite(
+                    s, form_sprite(nm, bool(nm['shiny']))
+                    or pix_url(nm['dex'], bool(nm['shiny']), back=True))
             mem = st.setdefault('hp_mem', {})
             mem[st.get('mid')] = me['hp']
             if nm['id'] in mem:
@@ -3330,7 +3409,9 @@ class Pokemon(commands.Cog):
                 f = await self._fighter(s, m, gid=0)
                 f1.append(f)
                 m1.append(m['id'])
-                s1.append(await fetch_sprite(s, pix_url(f['dex'], bool(f['shiny']), back=True)))
+                s1.append(await fetch_sprite(
+                    s, form_sprite(f, bool(f['shiny']))
+                    or pix_url(f['dex'], bool(f['shiny']), back=True)))
             for m in t2:
                 # gid=0: team names land in switch-button labels (token-free until button patch)
                 f = await self._fighter(s, m, gid=0)
@@ -3702,7 +3783,9 @@ class Pokemon(commands.Cog):
                 f = await self._fighter(s, m, gid=0)
                 f1.append(f)
                 m1.append(m['id'])
-                s1.append(await fetch_sprite(s, pix_url(f['dex'], bool(f['shiny']), back=True)))
+                s1.append(await fetch_sprite(
+                    s, form_sprite(f, bool(f['shiny']))
+                    or pix_url(f['dex'], bool(f['shiny']), back=True)))
             f2, s2, awaited = [], [], None
             for _ in range(size):
                 for _try in range(12):
