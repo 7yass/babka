@@ -438,14 +438,28 @@ def roll_weather():
     return None
 
 
-def hp_dot(frac: float, fainted: bool = False) -> str:
+def hp_dot(frac: float, fainted: bool = False, gid=0) -> str:
     if fainted:
-        return '⚪'
+        return em(gid, 'hp_empty') or 'x'
     if frac > 0.5:
-        return '🟢'
+        return em(gid, 'hp_full') or 'O'
     if frac > 0.2:
-        return '🟡'
-    return '🔴'
+        return em(gid, 'hp_mid') or '-'
+    return em(gid, 'hp_low') or '!'
+
+
+def _hit_tag(gid, eff: float, crit: bool, dmg: int = 1) -> str:
+    """Battle log markers. Render-only: math and behavior unchanged."""
+    if dmg == 0:
+        return ' ' + (em(gid, 'hit_miss') or 'MISS')
+    tag = ''
+    if eff > 1:
+        tag += ' ' + (em(gid, 'hit_super') or '!')
+    elif eff < 1:
+        tag += ' ' + (em(gid, 'shield') or '=')
+    if crit:
+        tag += ' ' + (em(gid, 'hit_crit') or 'CRIT')
+    return tag
 
 
 def catch_chance(rate: int, level: int, hp_frac: float, ball_mult) -> float:
@@ -472,14 +486,14 @@ def get_mon(gid, uid, slot: int) -> dict:
     return {}
 
 
-def mon_name(mon: dict) -> str:
+def mon_name(mon: dict, gid=0) -> str:
     if not mon:
         return '?'
     row = _dex_row(mon['dex'])
     base = (row.get('name') or f"#{mon['dex']}").capitalize()
     name = (mon.get('nick') or base)
     if mon.get('shiny'):
-        name = '✨' + name
+        name = (em(gid, 'rarity_shiny') or '*') + name
     return name
 
 
@@ -610,10 +624,12 @@ def rarity_of(dex_row: dict, shiny: bool = False, gid=0) -> tuple:
     return key, (em(gid, name) if gid else None) or fb, accent
 
 
-def xp_bar(xp: int, nxt: int, width: int = 12) -> str:
+def xp_bar(xp: int, nxt: int, gid=0, width: int = 12) -> str:
     frac = max(0.0, min(1.0, (xp or 0) / max(1, nxt or 1)))
     fill = int(frac * width)
-    return '▓' * fill + '░' * (width - fill)
+    full = em(gid, 'xp_full') or '#'
+    empty = em(gid, 'xp_empty') or '-'
+    return full * fill + empty * (width - fill)
 
 
 def _sky_grass(d, rnd, W, H, weather, horizon=300):
@@ -1003,14 +1019,14 @@ class Pokemon(commands.Cog):
             png = None
         if mystery:
             desc = (t(gid, 'eco.pk_mystery', types=types_str(gid, row["types"])) +
-                    (('\n🧪 ' + t(gid, 'eco.pk_incensed')) if inc else ''))
+                    ((f"\n{em(gid, 'item_incense') or '+'} " + t(gid, 'eco.pk_incensed')) if inc else ''))
         else:
-            name = ('✨' if shiny else '') + row['name'].capitalize()
+            name = ((em(gid, 'rarity_shiny') or '*') if shiny else '') + row['name'].capitalize()
             flags = ''
             if inc:
-                flags += '\n🧪 ' + t(gid, 'eco.pk_incensed')
+                flags += f"\n{em(gid, 'item_incense') or '+'} " + t(gid, 'eco.pk_incensed')
             if repelled:
-                flags += '\n🧪 ' + t(gid, 'eco.pk_repelled')
+                flags += f"\n{em(gid, 'item_repel') or '-'} " + t(gid, 'eco.pk_repelled')
             flags += '\n' + t(gid, 'eco.pk_odds', pct=int(catch_chance(
                 row.get('rate', 45), level, 1.0, BALLS['ultra'][1]) * 100))
             desc = (t(gid, 'eco.pk_wild', name=name,
@@ -1018,7 +1034,7 @@ class Pokemon(commands.Cog):
                       hint=t(gid, 'eco.pk_wild_hint')) + flags)
         slot_of = {m['id']: i + 1 for i, m in enumerate(mons)}
         act = next((m for m in mons if m.get('active')), mons[0])
-        desc += (f"\n-# FIGHT: {mon_name(act)} Lv{act['level']} — "
+        desc += (f"\n-# FIGHT: {mon_name(act, gid)} Lv{act['level']} — "
                  f"`;active {slot_of.get(act['id'], 1)}` / `;battle {slot_of.get(act['id'], 1)}` to change")
         title = t(gid, 'eco.pk_wild_title', level=level)
         if mystery:
@@ -1130,10 +1146,10 @@ class Pokemon(commands.Cog):
                              'VALUES (?,?,?,?,0,?,?,?)',
                              (str(gid), str(uid), e['dex'], e['level'],
                               1 if e['shiny'] else 0, '', 1 if first else 0))
-            msg = t(gid, 'eco.pk_caught', name=('✨' if e['shiny'] else '') + row['name'].capitalize(),
+            msg = t(gid, 'eco.pk_caught', name=((em(gid, 'rarity_shiny') or '*') if e['shiny'] else '') + row['name'].capitalize(),
                     ball=ball, level=e['level'])
             msg = em(gid, {'poke': 'pokeball', 'great': 'greatball', 'ultra': 'ultraball',
-                           'master': 'masterball'}.get(ball, ''), '⚪') + ' ' + msg
+                           'master': 'masterball'}.get(ball, ''), 'o') + ' ' + msg
             for extra in await self._catch_progress(gid, uid, e['dex'], e['shiny']):
                 msg += '\n' + extra
             msg += '\n' + self._catch_meta(gid, uid, e['dex'])
@@ -1302,7 +1318,7 @@ class Pokemon(commands.Cog):
         from discord.ui import LayoutView, Container, TextDisplay, ActionRow
         layout = LayoutView(timeout=180)
         box = Container(accent_color=0xFF4655)
-        box.add_item(TextDisplay(f'# ⚪ {t(gid, "eco.pk_balls_title")}\n'
+        box.add_item(TextDisplay(f"# {em(gid, 'btn_ball') or 'o'} {t(gid, 'eco.pk_balls_title')}\n"
                                  f'-# {t(gid, "eco.pk_balls_wallet", cash=cshort(cash))}\n'
                                  f'-# {self._balls_line(gid, uid)}'))
         row = ActionRow()
@@ -1429,9 +1445,9 @@ class Pokemon(commands.Cog):
         page = min(page, total)
         lines = []
         for i, m in enumerate(mons[(page - 1) * per:page * per], start=(page - 1) * per + 1):
-            star = '⭐' if m['active'] else ''
+            star = (em(gid, 'slot_active') or '*') if m['active'] else ''
             _, re, _ = rarity_of(_dex_row(m['dex']), bool(m['shiny']), gid)
-            lines.append(f"`{i}` {re} {mon_name(m)} — Lv{m['level']}{star}")
+            lines.append(f"`{i}` {re} {mon_name(m, gid)} — Lv{m['level']}{star}")
         lines.append(t(gid, 'eco.pk_box_page', page=page, total=total, n=len(mons)))
         await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_box_title', user=ctx.author.display_name),
                                           '\n'.join(lines)), ephemeral=True)
@@ -1452,13 +1468,13 @@ class Pokemon(commands.Cog):
         img = spr[1] if m['shiny'] and len(spr) > 1 else spr[0]
         rk, re, accent = rarity_of(row, bool(m['shiny']), gid)
         desc = (f'{re} **{rk.upper()}** · {types_str(gid, row["types"])} · Lv{m["level"]}\n'
-                f'`{xp_bar(m["xp"], nxt)}` {m["xp"]}/{nxt} XP\n'
+                f'`{xp_bar(m["xp"], nxt, gid)}` {m["xp"]}/{nxt} XP\n'
                 + t(gid, 'eco.pk_info', level=m['level'], types=types_str(gid, row["types"]),
                     hp=stats['maxhp'], atk=stats['atk'], dfn=stats['dfn'],
                     spa=stats['spa'], spd=stats['spd'], spe=stats['spe'],
                     xp=m['xp'], nxt=nxt,
                     moves=', '.join(move_str(gid, x) for x in moves)))
-        await ctx.reply(view=await self._mage(gid, f'{re} {mon_name(m)}', desc, img, accent))
+        await ctx.reply(view=await self._mage(gid, f'{re} {mon_name(m, gid)}', desc, img, accent))
 
     @commands.command(name='active', description='Wybierz wojownika (;box po numery)')
     async def active(self, ctx, slot: int = 0):
@@ -1468,7 +1484,7 @@ class Pokemon(commands.Cog):
             if not mons:
                 return await ctx.reply(t(gid, 'eco.pk_need_starter'), ephemeral=True)
             if len(mons) == 1:
-                return await ctx.reply(t(gid, 'eco.pk_active', name=mon_name(mons[0])),
+                return await ctx.reply(t(gid, 'eco.pk_active', name=mon_name(mons[0], gid)),
                                        ephemeral=True)
             return await ctx.reply(view=self._fighter_picker(gid, ctx.author.id, 'active'),
                                    ephemeral=True)
@@ -1479,7 +1495,7 @@ class Pokemon(commands.Cog):
             conn.execute('UPDATE pk_mons SET active=0 WHERE guild_id=? AND owner_id=?',
                          (str(gid), str(ctx.author.id)))
             conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (m['id'],))
-        await ctx.reply(t(gid, 'eco.pk_active', name=mon_name(m)), ephemeral=True)
+        await ctx.reply(t(gid, 'eco.pk_active', name=mon_name(m, gid)), ephemeral=True)
 
     @commands.command(name='name', description='Przezwij pokemona')
     async def nick(self, ctx, slot: int, *, name: str = ''):
@@ -1489,7 +1505,7 @@ class Pokemon(commands.Cog):
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE pk_mons SET nick=? WHERE id=?', (name[:24], m['id']))
-        await ctx.reply(t(gid, 'eco.pk_nicked', name=(name[:24] or mon_name(m))), ephemeral=True)
+        await ctx.reply(t(gid, 'eco.pk_nicked', name=(name[:24] or mon_name(m, gid))), ephemeral=True)
 
     @commands.command(name='release', description='Wypuść pokemona')
     async def release(self, ctx, slot: int):
@@ -1499,8 +1515,8 @@ class Pokemon(commands.Cog):
         if not m:
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
         if m.get('locked'):
-            return await ctx.reply(t(gid, 'eco.pk_locked', name=mon_name(m)), ephemeral=True)
-        name = mon_name(m)
+            return await ctx.reply(t(gid, 'eco.pk_locked', name=mon_name(m, gid)), ephemeral=True)
+        name = mon_name(m, gid)
         val = release_value(m)
         b = bal(gid, ctx.author.id)
         set_cash(gid, ctx.author.id, b['cash'] + val)
@@ -1641,7 +1657,7 @@ class Pokemon(commands.Cog):
             self._wild.pop((str(gid), str(ctx.channel.id)), None)
         else:
             self._enc.pop((str(gid), str(ctx.author.id)), None)
-        msg = t(gid, 'eco.pk_guessed', name=('✨' if e['shiny'] else '') + row['name'].capitalize())
+        msg = t(gid, 'eco.pk_guessed', name=((em(gid, 'rarity_shiny') or '*') if e['shiny'] else '') + row['name'].capitalize())
         streak_bump(gid, ctx.author.id, True)
         for extra in await self._catch_progress(gid, ctx.author.id, e['dex'], e['shiny']):
             msg += '\n' + extra
@@ -1734,7 +1750,7 @@ class Pokemon(commands.Cog):
         if not m:
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
         if m.get('locked'):
-            return await ctx.reply(t(gid, 'eco.pk_locked', name=mon_name(m)), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.pk_locked', name=mon_name(m, gid)), ephemeral=True)
         if (price or 0) < 100:
             return await ctx.reply(t(gid, 'eco.pk_market_min'), ephemeral=True)
         with db.conn_ctx() as conn:
@@ -1753,7 +1769,7 @@ class Pokemon(commands.Cog):
             if left:
                 conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (left['id'],))
             lid = conn.execute('SELECT last_insert_rowid() i').fetchone()['i']
-        await ctx.reply(t(gid, 'eco.pk_listed', name=mon_name(m), price=cshort(price), lid=lid),
+        await ctx.reply(t(gid, 'eco.pk_listed', name=mon_name(m, gid), price=cshort(price), lid=lid),
                         ephemeral=True)
 
     @commands.command(name='market', description='Targ pokemonów')
@@ -1770,10 +1786,7 @@ class Pokemon(commands.Cog):
         page = min(page, total)
         lines = []
         for r in rows[(page - 1) * per:page * per]:
-            row = _dex_row(r['dex'])
-            nm = (r['nick'] or (row.get('name') or f"#{r['dex']}").capitalize())
-            if r['shiny']:
-                nm = '✨' + nm
+            nm = mon_name(r, gid)
             lines.append(f"`{r['id']}` {nm} Lv{r['level']} — **{cshort(r['price'])}** ({r['seller_name'] or r['seller_id']})")
         lines.append(t(gid, 'eco.pk_market_page', page=page, total=total))
         await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_market_title'), '\n'.join(lines)),
@@ -1837,7 +1850,7 @@ class Pokemon(commands.Cog):
             conn.execute('UPDATE pk_mons SET locked=? WHERE id=?',
                          (0 if m.get('locked') else 1, m['id']))
         await ctx.reply(t(gid, 'eco.pk_unlocked' if m.get('locked') else 'eco.pk_locked2',
-                          name=mon_name(m)), ephemeral=True)
+                          name=mon_name(m, gid)), ephemeral=True)
 
     @commands.command(name='buddy', description='Kumpel')
     async def buddy(self, ctx, slot: int = 0, *, name: str = ''):
@@ -1856,8 +1869,8 @@ class Pokemon(commands.Cog):
                 return await ctx.reply(t(gid, 'eco.pk_buddy_none'), ephemeral=True)
             m = dict(m)
             row = _dex_row(m['dex'])
-            return await ctx.reply(t(gid, 'eco.pk_buddy_info', name=mon_name(m),
-                                     hearts='❤' * min(10, b.get('hearts', 0)) or '—',
+            return await ctx.reply(t(gid, 'eco.pk_buddy_info', name=mon_name(m, gid),
+                                     hearts=(em(gid, 'heart') or 'v') * min(10, b.get('hearts', 0)) or '-',
                                      level=m['level'],
                                      types='/'.join(row.get('types') or ['?'])), ephemeral=True)
         m = get_mon(gid, uid, slot)
@@ -1870,7 +1883,7 @@ class Pokemon(commands.Cog):
             if name.strip():
                 conn.execute('UPDATE pk_mons SET nick=? WHERE id=?', (name.strip()[:24], m['id']))
         extra = t(gid, 'eco.pk_nicked', name=name.strip()[:24]) if name.strip() else ''
-        await ctx.reply(t(gid, 'eco.pk_buddy_set', name=mon_name(m)) + (('\n' + extra) if extra else ''),
+        await ctx.reply(t(gid, 'eco.pk_buddy_set', name=mon_name(m, gid)) + (('\n' + extra) if extra else ''),
                         ephemeral=True)
 
     @commands.command(name='team', description='Drużyna na pojedynki')
@@ -1882,7 +1895,7 @@ class Pokemon(commands.Cog):
             return await ctx.reply(t(gid, 'eco.pk_need_starter'), ephemeral=True)
         if not a:
             team = team_get(gid, ctx.author.id)
-            lines = [f"`{i}` {mon_name(m)} — Lv{m['level']}" for i, m in enumerate(team, 1)]
+            lines = [f"`{i}` {mon_name(m, gid)} — Lv{m['level']}" for i, m in enumerate(team, 1)]
             return await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_team_title'),
                                                      '\n'.join(lines) + '\n' +
                                                      t(gid, 'eco.pk_team_use')), ephemeral=True)
@@ -1908,7 +1921,7 @@ class Pokemon(commands.Cog):
         if not act:
             return await ctx.reply(t(gid, 'eco.pk_need_starter'), ephemeral=True)
         if act['level'] >= 100:
-            return await ctx.reply(t(gid, 'eco.pk_candy_max', name=mon_name(act)), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.pk_candy_max', name=mon_name(act, gid)), ephemeral=True)
         with db.conn_ctx() as conn:
             row = conn.execute("SELECT qty FROM pk_balls WHERE guild_id=? AND user_id=? AND ball='candy'",
                                (str(gid), str(ctx.author.id))).fetchone()
@@ -1917,7 +1930,7 @@ class Pokemon(commands.Cog):
             conn.execute("UPDATE pk_balls SET qty=qty-1 WHERE guild_id=? AND user_id=? AND ball='candy'",
                          (str(gid), str(ctx.author.id)))
         msgs = await self._gain_xp(gid, ctx.author.id, act['id'], act['level'] ** 3 - (act['xp'] or 0))
-        await ctx.reply('\n'.join(msgs) if msgs else t(gid, 'eco.pk_candy_use', name=mon_name(act)))
+        await ctx.reply('\n'.join(msgs) if msgs else t(gid, 'eco.pk_candy_use', name=mon_name(act, gid)))
 
     @commands.command(name='eggs', description='Jajka')
     async def eggs(self, ctx):
@@ -1969,7 +1982,7 @@ class Pokemon(commands.Cog):
         img = spr[1] if shiny and len(spr) > 1 else spr[0]
         await ctx.reply(view=await self._mage(
             gid, t(gid, 'eco.pk_hatched_title'),
-            t(gid, 'eco.pk_hatched', name=('✨' if shiny else '') + row['name'].capitalize(),
+            t(gid, 'eco.pk_hatched', name=((em(gid, 'rarity_shiny') or '*') if shiny else '') + row['name'].capitalize(),
               level=level), img))
 
     @commands.command(name='swap', description='Losowa wymiana')
@@ -1980,8 +1993,8 @@ class Pokemon(commands.Cog):
         if not m:
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
         if m.get('locked'):
-            return await ctx.reply(t(gid, 'eco.pk_locked', name=mon_name(m)), ephemeral=True)
-        old = mon_name(m)
+            return await ctx.reply(t(gid, 'eco.pk_locked', name=mon_name(m, gid)), ephemeral=True)
+        old = mon_name(m, gid)
         async with aiohttp.ClientSession() as s:
             for _ in range(12):
                 dex = random.randint(1, 493)
@@ -2011,7 +2024,7 @@ class Pokemon(commands.Cog):
         await ctx.reply(view=await self._mage(
             gid, t(gid, 'eco.pk_swapped_title'),
             t(gid, 'eco.pk_swapped', old=old,
-              name=('✨' if shiny else '') + row['name'].capitalize(), level=level), img))
+              name=((em(gid, 'rarity_shiny') or '*') if shiny else '') + row['name'].capitalize(), level=level), img))
 
     @commands.command(name='target', description='Dzienny cel')
     async def target(self, ctx):
@@ -2047,7 +2060,8 @@ class Pokemon(commands.Cog):
             return await ctx.reply(t(gid, 'eco.pk_check_done', win=cshort(CHECKLIST_REWARD)),
                                    ephemeral=True)
         lines = [t(gid, 'eco.pk_check_row', what=k, have=have[k], need=need[k],
-                   ok='✅' if have[k] >= need[k] else '⬜') for k in need]
+                   ok=(em(gid, 'box_done') or 'x') if have[k] >= need[k]
+                   else (em(gid, 'box_empty') or '-')) for k in need]
         if d['checklist']:
             lines.append(t(gid, 'eco.pk_check_claimed'))
         elif done:
@@ -2195,18 +2209,18 @@ class Pokemon(commands.Cog):
         async with aiohttp.ClientSession() as s:
             row = await dex_get(s, m['dex'])
         if not row.get('evo_to'):
-            return await ctx.reply(t(gid, 'eco.pk_evolve_max', name=mon_name(m)), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.pk_evolve_max', name=mon_name(m, gid)), ephemeral=True)
         if not row.get('evo_level'):
-            return await ctx.reply(t(gid, 'eco.pk_evolve_stone', name=mon_name(m)), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.pk_evolve_stone', name=mon_name(m, gid)), ephemeral=True)
         if m['level'] < row['evo_level']:
-            return await ctx.reply(t(gid, 'eco.pk_evolve_soon', name=mon_name(m),
+            return await ctx.reply(t(gid, 'eco.pk_evolve_soon', name=mon_name(m, gid),
                                      level=row['evo_level']), ephemeral=True)
         async with aiohttp.ClientSession() as s:
             nxt = await dex_get(s, row['evo_to'])
         with db.conn_ctx() as conn:
             conn.execute('UPDATE pk_mons SET dex=? WHERE id=?', (row['evo_to'], m['id']))
-        await ctx.reply(t(gid, 'eco.pk_evolve', old=mon_name(m),
-                          new=('✨' if m.get('shiny') else '') + nxt['name'].capitalize()))
+        await ctx.reply(t(gid, 'eco.pk_evolve', old=mon_name(m, gid),
+                          new=((em(gid, 'rarity_shiny') or '*') if m.get('shiny') else '') + nxt['name'].capitalize()))
 
     @commands.command(name='streaks', description='Twoje serie')
     async def streaks(self, ctx, member: discord.Member = None):
@@ -2290,11 +2304,11 @@ class Pokemon(commands.Cog):
 
     # ----- battles -----
 
-    async def _fighter(self, session, mon: dict, level: int = None):
+    async def _fighter(self, session, mon: dict, level: int = None, gid=0):
         row = await dex_get(session, mon['dex'] if 'dex' in mon else mon)
         lv = mon.get('level', level or 5)
         stats = calc_stats(row, lv)
-        return {'name': mon_name(mon) if 'owner_id' in mon or 'nick' in mon else row['name'].capitalize(),
+        return {'name': mon_name(mon, gid) if 'owner_id' in mon or 'nick' in mon else row['name'].capitalize(),
                 'dex': mon.get('dex', mon), 'level': lv, 'types': row.get('types') or ['normal'],
                 'stats': stats, 'hp': stats['maxhp'],
                 'moves': await moveset_for(session, mon.get('dex', mon)),
@@ -2309,8 +2323,8 @@ class Pokemon(commands.Cog):
         box = Container(accent_color=0xFF4655)
         lines = []
         for i, m in enumerate(mons, start=1):
-            star = '⭐' if m.get('active') else ''
-            lines.append(f"`{i}` {mon_name(m)} — Lv{m['level']}{star}")
+            star = (em(gid, 'slot_active') or '*') if m.get('active') else ''
+            lines.append(f"`{i}` {mon_name(m, gid)} — Lv{m['level']}{star}")
         hint = ('\n-# Tap a button, or use `;battle <number>` / `;active <number>`'
                 if mode == 'battle' else '\n-# Tap a button, or use `;active <number>`')
         box.add_item(TextDisplay('## Choose your fighter\n' + '\n'.join(lines) + hint))
@@ -2319,6 +2333,7 @@ class Pokemon(commands.Cog):
             if i % 5 == 0:
                 row = ActionRow()
                 box.add_item(row)
+            # token-free label until the button patch (PartialEmoji)
             nm = mon_name(m)
             b = discord.ui.Button(
                 label=f"{i + 1}. {nm[:14]} Lv{m['level']}"[:80],
@@ -2344,7 +2359,7 @@ class Pokemon(commands.Cog):
                 mons = my_mons(gid, ix.user.id)
                 m = next((x for x in mons if x['id'] == mid), None)
                 return await ix.followup.send(
-                    t(gid, 'eco.pk_active', name=mon_name(m) if m else '?'), ephemeral=True)
+                    t(gid, 'eco.pk_active', name=mon_name(m, gid) if m else '?'), ephemeral=True)
             await self._start_battle(ix, gid, ix.user, lead_mid=mid)
         return _cb
 
@@ -2369,9 +2384,9 @@ class Pokemon(commands.Cog):
                 return await ix_or_ctx.followup.send(msg, ephemeral=True)
             return await ix_or_ctx.reply(msg, ephemeral=True)
         async with aiohttp.ClientSession() as s:
-            me = await self._fighter(s, act)
+            me = await self._fighter(s, act, gid=gid)
             wild = await self._fighter(s, {'dex': e['dex'], 'level': e['level'],
-                                           'shiny': e['shiny'], 'nick': ''})
+                                           'shiny': e['shiny'], 'nick': ''}, gid=gid)
             me_spr = await fetch_sprite(s, pix_url(me['dex'], bool(me['shiny']), back=True))
             wild_spr = await fetch_sprite(s, pix_url(e['dex'], bool(wild['shiny'])))
         wild['hp'] = e['hp']
@@ -2391,14 +2406,14 @@ class Pokemon(commands.Cog):
         await self._send_battle(ix_or_ctx, is_ix, gid, user.id)
 
     def _team_line(self, gid, name: str, hp: int, maxhp: int, fainted: bool = False) -> str:
-        return f"{hp_dot(hp / max(1, maxhp), fainted)} {name} HP {hp}/{maxhp}"
+        return f"{hp_dot(hp / max(1, maxhp), fainted, gid)} {name} HP {hp}/{maxhp}"
 
     def _vs_wild_body(self, gid, uid, st) -> str:
         me, wild, log = st['me'], st['wild'], st['log']
         who = f'<@{uid}>'
         body = t(gid, 'eco.pk_vs', a=who, b=t(gid, 'eco.pk_wild_foe', name=wild['name']))
-        body += '\n' + t(gid, 'eco.pk_sentout', ball='🔴', who=who, name=me['name'])
-        body += '\n' + t(gid, 'eco.pk_sentout_wild', ball='🔵', name=wild['name'])
+        body += '\n' + t(gid, 'eco.pk_sentout', ball=em(gid, 'mark_me') or 'R', who=who, name=me['name'])
+        body += '\n' + t(gid, 'eco.pk_sentout_wild', ball=em(gid, 'mark_foe') or 'B', name=wild['name'])
         if st.get('weather') in WEATHER_LINE:
             body += '\n' + t(gid, WEATHER_LINE[st['weather']])
         body += '\n' + t(gid, 'eco.pk_team_of', user=who)
@@ -2406,11 +2421,8 @@ class Pokemon(commands.Cog):
             if m['id'] == st.get('mid'):
                 body += '\n' + self._team_line(gid, me['name'], me['hp'], me['stats']['maxhp'])
             else:
-                row = _dex_row(m['dex'])
-                nm = (m.get('nick') or (row.get('name') or '?').capitalize())
-                if m.get('shiny'):
-                    nm = '✨' + nm
-                body += f"\n🔵 {nm} Lv{m['level']}"
+                mark = em(gid, 'switch_dot') or '-'
+                body += f"\n{mark} {mon_name(m, gid)} Lv{m['level']}"
         if log:
             body += '\n' + '\n'.join(log[-4:])
         return body
@@ -2422,8 +2434,8 @@ class Pokemon(commands.Cog):
         if st.get('npc'):
             ub = st['npc']
         body = t(gid, 'eco.pk_vs', a=ua, b=ub)
-        body += '\n' + t(gid, 'eco.pk_sentout', ball='🔴', who=ua, name=a['name'])
-        body += '\n' + t(gid, 'eco.pk_sentout', ball='🔵', who=ub, name=b['name'])
+        body += '\n' + t(gid, 'eco.pk_sentout', ball=em(gid, 'mark_me') or 'R', who=ua, name=a['name'])
+        body += '\n' + t(gid, 'eco.pk_sentout', ball=em(gid, 'mark_foe') or 'B', who=ub, name=b['name'])
         if st.get('weather') in WEATHER_LINE:
             body += '\n' + t(gid, WEATHER_LINE[st['weather']])
         for tag, team, mids, idx in (('pa', st['t1'], st['m1'], st['i1']),
@@ -2495,7 +2507,7 @@ class Pokemon(commands.Cog):
         box.add_item(MediaGallery(MediaGalleryItem(media='attachment://battle.png')))
         b = balls_get(gid, uid)
         box.add_item(TextDisplay(
-            f"-# ⚪ Balls: poke x{b['poke']} · great x{b['great']} · ultra x{b['ultra']} · master x{b['master']}"))
+            f"-# {em(gid, 'btn_ball') or 'o'} Balls: poke x{b['poke']} · great x{b['great']} · ultra x{b['ultra']} · master x{b['master']}"))
         moves = (me.get('moves') or [])[:4]
         row = ActionRow()
         for i, mv in enumerate(moves):
@@ -2597,7 +2609,7 @@ class Pokemon(commands.Cog):
             if nm['id'] == st.get('mid'):
                 return await ix.followup.send(view=self._battle_view(gid, user.id, st))
             async with aiohttp.ClientSession() as s:
-                me2 = await self._fighter(s, nm)
+                me2 = await self._fighter(s, nm, gid=gid)
                 me2_spr = await fetch_sprite(s, pix_url(nm['dex'], bool(nm['shiny']), back=True))
             mem = st.setdefault('hp_mem', {})
             mem[st.get('mid')] = me['hp']
@@ -2609,7 +2621,7 @@ class Pokemon(commands.Cog):
                 conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (nm['id'],))
             st['me'], st['mid'], st['me_spr'] = me2, nm['id'], me2_spr
             me = me2
-            log.append(t(gid, 'eco.pk_switched', name=mon_name(nm)))
+            log.append(t(gid, 'eco.pk_switched', name=mon_name(nm, gid)))
             await self._wild_strike(gid, me, wild, log, st.get('weather'))
             return await self._after_turn(ix, gid, user, key, st)
         # chosen move (or fallback): faster strikes first
@@ -2641,9 +2653,7 @@ class Pokemon(commands.Cog):
                            att['types'], dfn['types'], weather)
         dfn['hp'] = max(0, dfn['hp'] - dmg)
         eff = effectiveness(mv.get('ptype', 'normal'), dfn['types'])
-        tag = ' 💥' if eff > 1 else (' 🛡' if eff < 1 else '')
-        if crit:
-            tag += ' ✨CRIT'
+        tag = _hit_tag(gid, eff, crit, dmg)
         who = t(gid, 'eco.pk_you') if is_me else t(gid, 'eco.pk_foe')
         log.append(t(gid, 'eco.pk_hit', who=who, move=mv['name'], dmg=dmg) + tag)
 
@@ -2718,15 +2728,15 @@ class Pokemon(commands.Cog):
         async with aiohttp.ClientSession() as s:
             row = await dex_get(s, m['dex'])
         if ups:
-            msgs.append(t(gid, 'eco.pk_levelup', name=mon_name(m), level=lv))
+            msgs.append(t(gid, 'eco.pk_levelup', name=mon_name(m, gid), level=lv))
         if row.get('evo_to') and row.get('evo_level') and lv >= row['evo_level']:
             async with aiohttp.ClientSession() as s:
                 nxt = await dex_get(s, row['evo_to'])
             with db.conn_ctx() as conn:
                 conn.execute('UPDATE pk_mons SET dex=?, level=?, xp=? WHERE id=?',
                              (row['evo_to'], lv, xp, mid))
-            msgs.append(t(gid, 'eco.pk_evolve', old=mon_name(m),
-                          new=('✨' if m.get('shiny') else '') + nxt['name'].capitalize()))
+            msgs.append(t(gid, 'eco.pk_evolve', old=mon_name(m, gid),
+                          new=((em(gid, 'rarity_shiny') or '*') if m.get('shiny') else '') + nxt['name'].capitalize()))
         else:
             with db.conn_ctx() as conn:
                 conn.execute('UPDATE pk_mons SET level=?, xp=? WHERE id=?', (lv, xp, mid))
@@ -2805,12 +2815,14 @@ class Pokemon(commands.Cog):
         async with aiohttp.ClientSession() as s:
             f1, f2, s1, s2, m1, m2 = [], [], [], [], [], []
             for m in t1:
-                f = await self._fighter(s, m)
+                # gid=0: team names land in switch-button labels (token-free until button patch)
+                f = await self._fighter(s, m, gid=0)
                 f1.append(f)
                 m1.append(m['id'])
                 s1.append(await fetch_sprite(s, pix_url(f['dex'], bool(f['shiny']), back=True)))
             for m in t2:
-                f = await self._fighter(s, m)
+                # gid=0: team names land in switch-button labels (token-free until button patch)
+                f = await self._fighter(s, m, gid=0)
                 f2.append(f)
                 m2.append(m['id'])
                 s2.append(await fetch_sprite(s, pix_url(f['dex'], bool(f['shiny']))))
@@ -2840,7 +2852,7 @@ class Pokemon(commands.Cog):
         box.add_item(MediaGallery(MediaGalleryItem(media='attachment://battle.png')))
         bb = balls_get(gid, st['turn'])
         box.add_item(TextDisplay(
-            f"-# ⚪ Balls: poke x{bb['poke']} · great x{bb['great']} · ultra x{bb['ultra']} · master x{bb['master']}"))
+            f"-# {em(gid, 'btn_ball') or 'o'} Balls: poke x{bb['poke']} · great x{bb['great']} · ultra x{bb['ultra']} · master x{bb['master']}"))
         row = ActionRow()
         for i, mv in enumerate((turn_side.get('moves') or [])[:4]):
             b = discord.ui.Button(label=f"{mv['name'][:14]} {mv['power']}"[:80],
@@ -2913,9 +2925,7 @@ class Pokemon(commands.Cog):
                                        fo_now['types'], tgt['types'], st.get('weather'))
                     tgt['hp'] = max(0, tgt['hp'] - dmg)
                     eff = effectiveness(mv.get('ptype', 'normal'), tgt['types'])
-                    tag = ' 💥' if eff > 1 else (' 🛡' if eff < 1 else '')
-                    if crit:
-                        tag += ' ✨CRIT'
+                    tag = _hit_tag(gid, eff, crit, dmg)
                     log.append(t(gid, 'eco.pk_hit', who=fo_now['name'], move=mv['name'], dmg=dmg) + tag)
                     if tgt['hp'] <= 0:
                         st.setdefault('fainted', set()).add(what[1])
@@ -2957,9 +2967,7 @@ class Pokemon(commands.Cog):
                                st.get('weather'))
             fo['hp'] = max(0, fo['hp'] - dmg)
             eff = effectiveness(mv.get('ptype', 'normal'), fo['types'])
-            tag = ' 💥' if eff > 1 else (' 🛡' if eff < 1 else '')
-            if crit:
-                tag += ' ✨CRIT'
+            tag = _hit_tag(gid, eff, crit, dmg)
             log.append(t(gid, 'eco.pk_hit', who=me['name'], move=mv['name'], dmg=dmg) + tag)
         if fo['hp'] <= 0:
             log.append(t(gid, 'eco.pk_duel_faint', name=fo['name']))
@@ -2987,9 +2995,7 @@ class Pokemon(commands.Cog):
                                st.get('weather'))
             b['hp'] = max(0, b['hp'] - dmg)
             eff = effectiveness(mv.get('ptype', 'normal'), b['types'])
-            tag = ' 💥' if eff > 1 else (' 🛡' if eff < 1 else '')
-            if crit:
-                tag += ' ✨CRIT'
+            tag = _hit_tag(gid, eff, crit, dmg)
             log.append(t(gid, 'eco.pk_hit', who=a['name'], move=mv['name'], dmg=dmg) + tag)
             if b['hp'] <= 0:
                 log.append(t(gid, 'eco.pk_duel_faint', name=b['name']))
@@ -3131,7 +3137,7 @@ class Pokemon(commands.Cog):
         async with aiohttp.ClientSession() as s:
             ms = await moveset_for(s, m['dex'])
         await ctx.reply(view=self._layout(
-            gid, t(gid, 'eco.pk_moves_title', name=mon_name(m)),
+            gid, t(gid, 'eco.pk_moves_title', name=mon_name(m, gid)),
             '\n'.join(t(gid, 'eco.pk_move_row', name=x['name'], power=x['power'],
                          ptype=x['ptype'], acc=x['acc']) for x in ms)), ephemeral=True)
 
@@ -3176,7 +3182,8 @@ class Pokemon(commands.Cog):
         async with aiohttp.ClientSession() as s:
             f1, s1, m1 = [], [], []
             for m in team:
-                f = await self._fighter(s, m)
+                # gid=0: team names land in switch-button labels (token-free until button patch)
+                f = await self._fighter(s, m, gid=0)
                 f1.append(f)
                 m1.append(m['id'])
                 s1.append(await fetch_sprite(s, pix_url(f['dex'], bool(f['shiny']), back=True)))
@@ -3194,7 +3201,7 @@ class Pokemon(commands.Cog):
                     continue
                 f = await self._fighter(
                     s, {'dex': dex, 'level': max(1, lv + random.randint(-3, 3)),
-                        'shiny': 0, 'nick': ''})
+                        'shiny': 0, 'nick': ''}, gid=gid)
                 f2.append(f)
                 s2.append(await fetch_sprite(s, pix_url(f['dex'], bool(f['shiny']))))
         if not f2:
@@ -3238,13 +3245,13 @@ class Pokemon(commands.Cog):
         if not mine or not want:
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
         if mine.get('locked'):
-            return await ctx.reply(t(gid, 'eco.pk_locked', name=mon_name(mine)), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.pk_locked', name=mon_name(mine, gid)), ephemeral=True)
         from discord.ui import ActionRow, Container, TextDisplay
         from discord.ui import LayoutView
         layout = LayoutView(timeout=90)
         box = Container(accent_color=0x57F287)
         box.add_item(TextDisplay(t(gid, 'eco.pk_trade_offer', a=ctx.author.display_name,
-                                   m1=mon_name(mine), b=member.display_name, m2=mon_name(want))))
+                                   m1=mon_name(mine, gid), b=member.display_name, m2=mon_name(want, gid))))
         row = ActionRow()
         ok_b = discord.ui.Button(label='ACCEPT', style=discord.ButtonStyle.success)
         no_b = discord.ui.Button(label='DECLINE', style=discord.ButtonStyle.danger)
@@ -3267,7 +3274,7 @@ class Pokemon(commands.Cog):
                                      'ORDER BY id LIMIT 1', (str(gid), uid)).fetchone()
                     if r:
                         conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (r['id'],))
-            await ix.response.send_message(t(gid, 'eco.pk_traded', m1=mon_name(m1), m2=mon_name(m2)))
+            await ix.response.send_message(t(gid, 'eco.pk_traded', m1=mon_name(m1, gid), m2=mon_name(m2, gid)))
 
         async def _no(ix: discord.Interaction):
             set_ctx_lang(ix.user)
