@@ -448,6 +448,16 @@ def hp_dot(frac: float, fainted: bool = False, gid=0) -> str:
     return em(gid, 'hp_low') or '!'
 
 
+def _weather_line(gid, weather: str) -> str:
+    """Weather line with custom icon; plain text when unresolvable."""
+    key = WEATHER_LINE.get(weather, '')
+    text = t(gid, key) if key else ''
+    if not text:
+        return ''
+    emo = em(gid, 'weather_rain' if weather == 'rain' else 'weather_sun')
+    return f'{emo} {text}' if emo else text
+
+
 def _hit_tag(gid, eff: float, crit: bool, dmg: int = 1) -> str:
     """Battle log markers. Render-only: math and behavior unchanged."""
     if dmg == 0:
@@ -1766,11 +1776,12 @@ class Pokemon(commands.Cog):
             done = claimed.get(track, 0)
             nxt = next((i for i, need in enumerate(QUEST_TIERS) if p < need), None)
             if nxt is None:
-                bar, info = '▰' * 10, t(gid, 'eco.pk_quest_done')
+                bar, info = (em(gid, 'xp_full') or '#') * 10, t(gid, 'eco.pk_quest_done')
             else:
                 need = QUEST_TIERS[nxt]
                 fill = min(10, int(p / need * 10))
-                bar = '▰' * fill + '▱' * (10 - fill)
+                bar = (em(gid, 'xp_full') or '#') * fill \
+                    + (em(gid, 'xp_empty') or '-') * (10 - fill)
                 info = t(gid, 'eco.pk_quest_next', p=p, need=need,
                          win=cshort(QUEST_REWARDS[nxt]))
             lines.append(f"**{track.title()}** {bar} {info}")
@@ -2450,7 +2461,7 @@ class Pokemon(commands.Cog):
         body += '\n' + t(gid, 'eco.pk_sentout', ball=em(gid, 'mark_me') or 'R', who=who, name=me['name'])
         body += '\n' + t(gid, 'eco.pk_sentout_wild', ball=em(gid, 'mark_foe') or 'B', name=wild['name'])
         if st.get('weather') in WEATHER_LINE:
-            body += '\n' + t(gid, WEATHER_LINE[st['weather']])
+            body += '\n' + _weather_line(gid, st['weather'])
         body += '\n' + t(gid, 'eco.pk_team_of', user=who)
         for m in my_mons(gid, uid)[:6]:
             if m['id'] == st.get('mid'):
@@ -2472,7 +2483,7 @@ class Pokemon(commands.Cog):
         body += '\n' + t(gid, 'eco.pk_sentout', ball=em(gid, 'mark_me') or 'R', who=ua, name=a['name'])
         body += '\n' + t(gid, 'eco.pk_sentout', ball=em(gid, 'mark_foe') or 'B', who=ub, name=b['name'])
         if st.get('weather') in WEATHER_LINE:
-            body += '\n' + t(gid, WEATHER_LINE[st['weather']])
+            body += '\n' + _weather_line(gid, st['weather'])
         for tag, team, mids, idx in (('pa', st['t1'], st['m1'], st['i1']),
                                      ('pb', st['t2'], st['m2'], st['i2'])):
             owner = ua if tag == 'pa' else ub

@@ -19,7 +19,8 @@ FAILS: list = []
 
 
 def check(cond: bool, msg: str) -> None:
-    print(('PASS ' if cond else 'FAIL ') + msg, flush=True)
+    safe = msg.encode('ascii', 'backslashreplace').decode()
+    print(('PASS ' if cond else 'FAIL ') + safe, flush=True)
     if not cond:
         FAILS.append(msg)
 
@@ -144,17 +145,20 @@ def pure():
     src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
     tree = ast.parse(src)
     wanted = {'hp_dot', 'xp_bar', 'mon_name', '_hit_tag', '_dex_row',
-              '_move_emoji_name', '_switch_emoji_name', '_picker_emoji_name'}
+              '_move_emoji_name', '_switch_emoji_name', '_picker_emoji_name',
+              '_weather_line'}
+    import lang as LANG
     mod = types.ModuleType('pkpure')
     mod.__dict__['em'] = E.em
     mod.__dict__['db'] = DB
+    mod.__dict__['t'] = LANG.t
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in wanted:
             exec(compile(ast.Module(body=[node], type_ignores=[]), '<pkpure>', 'exec'),
                  mod.__dict__)
         if isinstance(node, ast.Assign) and len(node.targets) == 1 \
-                and getattr(node.targets[0], 'id', '') == 'TYPE_EMOJI':
-            mod.__dict__['TYPE_EMOJI'] = ast.literal_eval(node.value)
+                and getattr(node.targets[0], 'id', '') in ('TYPE_EMOJI', 'WEATHER_LINE'):
+            mod.__dict__[node.targets[0].id] = ast.literal_eval(node.value)
     _PURE = mod
     return mod
 
@@ -276,10 +280,66 @@ def test_partialemoji_shape() -> None:
     check(b.emoji is None, 'button without id can be sent bare')
 
 
+def test_weather_emojis() -> None:
+    gid = '111111111111111111'
+    tmp = use_fixture({'guilds': {gid: {'weather_rain': 777777777777777777,
+                                        'weather_sun': 777777777777777778}}})
+    try:
+        p = pure()
+        rain = p._weather_line(gid, 'rain')
+        sun = p._weather_line(gid, 'sun')
+        check(rain.startswith('<:weather_rain:777777777777777777> ')
+              and rain.endswith('Water moves hit harder.'),
+              'rain resolves custom icon + keeps text')
+        check(sun.startswith('<:weather_sun:777777777777777778> ')
+              and sun.endswith('Fire moves hit harder.'),
+              'sun resolves custom icon + keeps text')
+        check(p._weather_line(gid, 'hail') == '', 'unknown weather renders nothing')
+    finally:
+        tmp.cleanup()
+
+
+def test_weather_plain_fallback() -> None:
+    tmp = use_fixture({'guilds': {}})
+    try:
+        p = pure()
+        gid = '111111111111111111'
+        rain = p._weather_line(gid, 'rain')
+        check(rain == 'Rain! Water moves hit harder.', 'missing rain icon falls back to plain text')
+        check(all(c not in '🌧☀' for c in rain + p._weather_line(gid, 'sun')),
+              'no weather glyphs in fallback output')
+    finally:
+        tmp.cleanup()
+
+
+def test_quest_bars_and_economy() -> None:
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    check('▰' not in src and '▱' not in src, 'no ▰▱ bars remain in pokemon.py')
+    check('🌧' not in src and '☀' not in src, 'no weather glyphs remain in pokemon.py')
+    tree = ast.parse(src)
+    vals = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                and getattr(node.targets[0], 'id', '') in ('QUEST_TIERS', 'QUEST_REWARDS'):
+            vals[node.targets[0].id] = ast.literal_eval(node.value)
+    check(vals.get('QUEST_TIERS') == [10, 30, 75, 150, 300], 'quest tiers unchanged')
+    check(vals.get('QUEST_REWARDS') == [2000, 6000, 15000, 40000, 100000],
+          'quest rewards unchanged')
+    check("em(gid, 'xp_full')" in src and "em(gid, 'xp_empty')" in src,
+          'quest bars use xp_full/xp_empty')
+    import json as _json
+    lang = _json.loads((ROOT / 'lang.json').read_text(encoding='utf-8'))
+    for section in ('en', 'pl'):
+        check('🌧' not in lang[section]['eco.pk_wx_rain']
+              and '☀' not in lang[section]['eco.pk_wx_sun'],
+              f'weather strings glyph-free ({section})')
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
          test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
-         test_button_decisions, test_button_source_hygiene, test_partialemoji_shape)
+         test_button_decisions, test_button_source_hygiene, test_partialemoji_shape,
+         test_weather_emojis, test_weather_plain_fallback, test_quest_bars_and_economy)
 
 if __name__ == '__main__':
     for t in TESTS:
