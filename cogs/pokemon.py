@@ -102,18 +102,6 @@ def release_value(mon: dict) -> int:
     return val
 
 
-def rarity_of(dex: int) -> str:
-    row = _dex_row(dex)
-    if row.get('legendary'):
-        return 'Legendary'
-    rate = row.get('rate') or 45
-    if rate <= 20:
-        return 'Rare'
-    if rate <= 100:
-        return 'Uncommon'
-    return 'Common'
-
-
 def leg_streak_bump(gid, uid, legendary: bool) -> int:
     """Consecutive legendary catches. Returns current streak."""
     with db.conn_ctx() as conn:
@@ -158,19 +146,19 @@ def region_of(dex: int):
 
 
 def silhouette_image(sprite_bytes: bytes) -> bytes:
-    """Black mystery silhouette from artwork bytes."""
+    """Anime-style mystery silhouette: yellow shape on show blue."""
     import io as _io
     from PIL import Image as _Img, ImageDraw as _Dr
     try:
         sp = _Img.open(_io.BytesIO(sprite_bytes)).convert('RGBA')
         sp = sp.resize((360, 360))
         alpha = sp.split()[3].point(lambda a: 255 if a > 20 else 0)
-        black = _Img.new('RGBA', sp.size, (0, 0, 0, 255))
-        black.putalpha(alpha)
-        img = _Img.new('RGB', (420, 420), (12, 12, 15))
-        img.paste(black, (30, 30), black)
+        sil = _Img.new('RGBA', sp.size, (255, 205, 40, 255))
+        sil.putalpha(alpha)
+        img = _Img.new('RGB', (420, 420), (43, 101, 200))
+        img.paste(sil, (30, 30), sil)
         d = _Dr.Draw(img)
-        d.text((210, 392), '? ? ?', fill=(150, 150, 158), anchor='mm')
+        d.text((210, 392), '? ? ?', fill=(255, 255, 255), anchor='mm')
         buf = _io.BytesIO()
         img.save(buf, 'PNG')
         return buf.getvalue()
@@ -758,6 +746,47 @@ def _box_slots(mons: list) -> dict:
     return {m['id']: i + 1 for i, m in enumerate(mons)}
 
 
+def _match_mon(mons: list, species_of, query: str):
+    """Find a mon by nickname or species name. Returns (mon|None, n_matches).
+    Tier order: nick exact, species exact, nick prefix, species prefix,
+    nick contains, species contains. Pure."""
+    q = (query or '').lower().strip()
+    if not q:
+        return None, 0
+    names = [(m, (m.get('nick') or '').lower(), (species_of(m.get('dex', 0)) or '').lower())
+             for m in mons]
+    for tier in range(6):
+        hits = []
+        for m, nick, spec in names:
+            if tier == 0 and nick and nick == q:
+                hits.append(m)
+            elif tier == 1 and spec and spec == q:
+                hits.append(m)
+            elif tier == 2 and nick and nick.startswith(q):
+                hits.append(m)
+            elif tier == 3 and spec and spec.startswith(q):
+                hits.append(m)
+            elif tier == 4 and nick and q in nick:
+                hits.append(m)
+            elif tier == 5 and spec and q in spec:
+                hits.append(m)
+        if hits:
+            return hits[0], len(hits)
+    return None, 0
+
+
+def _evo_text(gid, row: dict) -> str:
+    """Honest evolution line mirroring the evolve command rules."""
+    to = (row or {}).get('evo_to') or 0
+    if not to:
+        return t(gid, 'eco.pk_evo_max')
+    nm = (_dex_row(to).get('name') or f'#{to}').capitalize()
+    lv = (row or {}).get('evo_level') or 0
+    if not lv:
+        return t(gid, 'eco.pk_evo_stone', name=nm)
+    return t(gid, 'eco.pk_evo_at', name=nm, level=lv)
+
+
 def _box_cid(viewer, owner, action: str, pg: int, mode: str, filt: str) -> str:
     """Box button id. The action is part of the id so FIRST/LAST can never
     collide with BACK/NEXT landing on the same page (Discord 400s those)."""
@@ -936,7 +965,7 @@ def battle_image(p1_img: bytes, p2_img: bytes, p1: dict, p2: dict,
 
 def wild_image(sprite_bytes: bytes, weather=None, mystery: bool = False) -> bytes:
     """Bright meadow encounter card: one platform, big centered sprite
-    (or black mystery silhouette), tall foreground grass."""
+    (or anime-yellow mystery silhouette), tall foreground grass."""
     import io as _io
     import random as _r
     from PIL import Image as _Img, ImageDraw as _Dr
@@ -952,9 +981,9 @@ def wild_image(sprite_bytes: bytes, weather=None, mystery: bool = False) -> byte
             sp = sp.resize((300, 300), _Img.NEAREST)
             if mystery:
                 alpha = sp.split()[3].point(lambda a: 255 if a > 20 else 0)
-                black = _Img.new('RGBA', sp.size, (30, 30, 40, 255))
-                black.putalpha(alpha)
-                sp = black
+                sil = _Img.new('RGBA', sp.size, (255, 205, 40, 255))
+                sil.putalpha(alpha)
+                sp = sil
             canvas = img.convert('RGBA')
             canvas.paste(sp, (300, -10), sp)
             img.paste(canvas.convert('RGB'))
@@ -1451,7 +1480,7 @@ class Pokemon(commands.Cog):
                 msg += '\n' + t(gid, 'eco.pk_newdex')
             for extra in await self._catch_progress(gid, uid, e['dex'], e['shiny']):
                 msg += '\n' + extra
-            msg += '\n' + self._catch_meta(gid, uid, e['dex'])
+            msg += '\n' + self._catch_meta(gid, uid, e['dex'], bool(e['shiny']))
             msg += '\n' + t(gid, 'eco.pk_roll_line', roll=int(roll * 100), rate=int(p * 100))
             msg += '\n' + _balls_left_line(gid, uid)
             from cogs.gamble import bal, set_cash
@@ -1562,11 +1591,11 @@ class Pokemon(commands.Cog):
             lines.append(t(gid, 'eco.pk_egg_ready'))
         return lines
 
-    def _catch_meta(self, gid, uid, dex: int) -> str:
+    def _catch_meta(self, gid, uid, dex: int, shiny: bool = False) -> str:
         row = _dex_row(dex)
         streak = leg_streak_bump(gid, uid, bool(row.get('legendary')))
         b = balls_get(gid, uid)
-        return t(gid, 'eco.pk_catchmeta', rarity=rarity_of(dex), streak=streak,
+        return t(gid, 'eco.pk_catchmeta', rarity=_rarity_line(gid, row, shiny), streak=streak,
                  balls=f"poke {b['poke']} | great {b['great']} | ultra {b['ultra']} | master {b['master']}")
 
     def _balls_line(self, gid, uid) -> str:
@@ -2061,7 +2090,7 @@ class Pokemon(commands.Cog):
         streak_bump(gid, ctx.author.id, True)
         for extra in await self._catch_progress(gid, ctx.author.id, e['dex'], e['shiny']):
             msg += '\n' + extra
-        msg += '\n' + self._catch_meta(gid, ctx.author.id, e['dex'])
+        msg += '\n' + self._catch_meta(gid, ctx.author.id, e['dex'], bool(e['shiny']))
         await ctx.reply(msg, mention_author=False)
 
     @commands.command(name='hint', description='Podpowiedź do tajemniczego')
@@ -2253,39 +2282,110 @@ class Pokemon(commands.Cog):
         await ctx.reply(t(gid, 'eco.pk_unlocked' if m.get('locked') else 'eco.pk_locked2',
                           name=mon_name(m, gid)), ephemeral=True)
 
-    @commands.command(name='buddy', description='Kumpel')
-    async def buddy(self, ctx, slot: int = 0, *, name: str = ''):
-        """No buddy: shows. Slot: sets buddy. Extra text: renames buddy."""
-        gid = ctx.guild.id
-        b = buddy_get(gid, uid := ctx.author.id)
-        if not slot:
-            if not b.get('mid'):
-                return await ctx.reply(t(gid, 'eco.pk_buddy_none'), ephemeral=True)
-            with db.conn_ctx() as conn:
-                m = conn.execute('SELECT * FROM pk_mons WHERE id=?', (b['mid'],)).fetchone()
-            if not m:
-                with db.conn_ctx() as c2:
-                    c2.execute('DELETE FROM pk_buddy WHERE guild_id=? AND user_id=?',
-                               (str(gid), str(uid)))
-                return await ctx.reply(t(gid, 'eco.pk_buddy_none'), ephemeral=True)
-            m = dict(m)
-            row = _dex_row(m['dex'])
-            return await ctx.reply(t(gid, 'eco.pk_buddy_info', name=mon_name(m, gid),
-                                     hearts=(em(gid, 'heart') or 'v') * min(10, b.get('hearts', 0)) or '-',
-                                     level=m['level'],
-                                     types='/'.join(row.get('types') or ['?'])), ephemeral=True)
-        m = get_mon(gid, uid, slot)
-        if not m:
-            return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
+    def _set_buddy(self, gid, uid, mid: int):
         with db.conn_ctx() as conn:
             conn.execute('INSERT OR REPLACE INTO pk_buddy (guild_id, user_id, mid, hearts) '
                          'VALUES (?,?,?,COALESCE((SELECT hearts FROM pk_buddy WHERE guild_id=? AND user_id=?),0))',
-                         (str(gid), str(uid), m['id'], str(gid), str(uid)))
-            if name.strip():
-                conn.execute('UPDATE pk_mons SET nick=? WHERE id=?', (name.strip()[:24], m['id']))
-        extra = t(gid, 'eco.pk_nicked', name=name.strip()[:24]) if name.strip() else ''
-        await ctx.reply(t(gid, 'eco.pk_buddy_set', name=mon_name(m, gid)) + (('\n' + extra) if extra else ''),
-                        ephemeral=True)
+                         (str(gid), str(uid), mid, str(gid), str(uid)))
+
+    @commands.command(name='buddy', description='Twój buddy')
+    async def buddy(self, ctx, *, arg: str = ''):
+        """Bare: buddy card. `set <name|slot>`: choose buddy. `<slot> [nick]`:
+        legacy set (+rename). `<text>`: rename current buddy."""
+        import aiohttp
+        gid = ctx.guild.id
+        uid = ctx.author.id
+        parts = (arg or '').strip().split(None, 1)
+        head = (parts[0].lower() if parts else '')
+        rest = (parts[1] if len(parts) > 1 else '')
+        if head == 'set':
+            if not rest:
+                return await ctx.reply(t(gid, 'eco.pk_buddy_none'), ephemeral=True)
+            if rest.strip().isdigit():
+                m = get_mon(gid, uid, int(rest.strip()))
+                if not m:
+                    return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
+                self._set_buddy(gid, uid, m['id'])
+                return await ctx.reply(t(gid, 'eco.pk_buddy_set', name=mon_name(m, gid)),
+                                       ephemeral=True)
+            mons = my_mons(gid, uid)
+            if not mons:
+                return await ctx.reply(t(gid, 'eco.pk_need_starter'), ephemeral=True)
+            spec_of = lambda d: ((_dex_row(d).get('name')) or '').lower()  # noqa: E731
+            m, n = _match_mon(mons, spec_of, rest)
+            if not m:
+                return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
+            self._set_buddy(gid, uid, m['id'])
+            msg = t(gid, 'eco.pk_buddy_set', name=mon_name(m, gid))
+            if n > 1:
+                slot_of = _box_slots(mons)
+                msg += '\n' + t(gid, 'eco.pk_buddy_multi',
+                                list=f'{n} match — #{slot_of.get(m["id"], "?")} taken')
+            return await ctx.reply(msg, ephemeral=True)
+        if head.isdigit():
+            m = get_mon(gid, uid, int(head))
+            if not m:
+                return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
+            self._set_buddy(gid, uid, m['id'])
+            if rest.strip():
+                with db.conn_ctx() as conn:
+                    conn.execute('UPDATE pk_mons SET nick=? WHERE id=?',
+                                 (rest.strip()[:24], m['id']))
+            extra = t(gid, 'eco.pk_nicked', name=rest.strip()[:24]) if rest.strip() else ''
+            return await ctx.reply(t(gid, 'eco.pk_buddy_set', name=mon_name(m, gid))
+                                   + (('\n' + extra) if extra else ''), ephemeral=True)
+        if head:
+            b = buddy_get(gid, uid)
+            if not b.get('mid'):
+                return await ctx.reply(t(gid, 'eco.pk_buddy_none'), ephemeral=True)
+            with db.conn_ctx() as conn:
+                conn.execute('UPDATE pk_mons SET nick=? WHERE id=?',
+                             (arg.strip()[:24], b['mid']))
+                cur = conn.execute('SELECT * FROM pk_mons WHERE id=?', (b['mid'],)).fetchone()
+            m = dict(cur) if cur else {}
+            return await ctx.reply(t(gid, 'eco.pk_nicked', name=arg.strip()[:24])
+                                   + f" ({mon_name(m, gid)})", ephemeral=True)
+        b = buddy_get(gid, uid)
+        if not b.get('mid'):
+            return await ctx.reply(t(gid, 'eco.pk_buddy_none'), ephemeral=True)
+        with db.conn_ctx() as conn:
+            m = conn.execute('SELECT * FROM pk_mons WHERE id=?', (b['mid'],)).fetchone()
+        if not m:
+            with db.conn_ctx() as conn:
+                conn.execute('DELETE FROM pk_buddy WHERE guild_id=? AND user_id=?',
+                             (str(gid), str(uid)))
+            return await ctx.reply(t(gid, 'eco.pk_buddy_none'), ephemeral=True)
+        m = dict(m)
+        row = _dex_row(m['dex'])
+        stats = calc_stats(row, m['level'])
+        nxt = XP_NEXT(m['level'])
+        rk, re, accent = rarity_of(row, bool(m['shiny']), gid)
+        hearts = b.get('hearts', 0) or 0
+        statline = ' '.join(f"{em(gid, n) or n} {v}" for n, v in (
+            ('stat_hp', stats['maxhp']), ('stat_atk', stats['atk']), ('stat_def', stats['dfn']),
+            ('stat_spa', stats['spa']), ('stat_spdef', stats['spd']), ('stat_speed', stats['spe'])))
+        desc = (f"Level: **{m['level']}**\n"
+                f"Type: {types_str(gid, row.get('types') or ['?'])}\n"
+                f"Friendship: {(em(gid, 'heart') or 'v') * min(10, hearts)} ({hearts})\n"
+                f"`{xp_bar(m['xp'], nxt, gid)}` {m['xp']}/{nxt} XP\n"
+                f"{statline}\n"
+                f"{_evo_text(gid, row)}\n"
+                f"-# Buddy bonus: +50% XP share · `;buddy set <name>`")
+        gif = showdown_gif(row.get('name', ''), bool(m['shiny']))
+        if gif:
+            try:
+                to = aiohttp.ClientTimeout(total=10)
+                async with aiohttp.ClientSession(timeout=to) as s3:
+                    async with s3.head(gif) as r:
+                        if r.status != 200:
+                            gif = ''
+            except Exception:
+                gif = ''
+        spr = (row.get('sprite') or '').split('|')
+        img = gif or (spr[1] if m['shiny'] and len(spr) > 1 else spr[0])
+        await ctx.reply(view=await self._mage(
+            gid, f"{t(gid, 'eco.pk_buddy_title', user=ctx.author.display_name)} — "
+                 f"{re} {mon_name(m, gid)}", desc, img, accent))
 
     @commands.command(name='team', description='Drużyna na pojedynki')
     async def team(self, ctx, a: int = 0, b: int = 0, c: int = 0):

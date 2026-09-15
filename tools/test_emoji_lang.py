@@ -149,7 +149,8 @@ def pure():
               '_weather_line', '_rarity_line', '_tier_word', 'rarity_of', 'showdown_gif',
               'streak_get', '_balls_left_line', 'balls_get', 'region_of',
               '_box_tier', '_box_match', '_box_slots', '_box_sort_entries',
-              '_box_cid', '_box_parse', '_species_emoji_name'}
+              '_box_cid', '_box_parse', '_species_emoji_name',
+              '_match_mon', '_evo_text'}
     import lang as LANG
     mod = types.ModuleType('pkpure')
     mod.__dict__['em'] = E.em
@@ -895,6 +896,71 @@ def test_main_guild_gate() -> None:
           'voice sweep skips holder servers')
 
 
+def test_buddy_match_evo() -> None:
+    p = pure()
+    spec = lambda d: {25: 'pikachu', 133: 'eevee', 4: 'charmander'}.get(d, '')  # noqa: E731
+    mons = [
+        {'id': 1, 'dex': 25, 'nick': 'Sparky'},
+        {'id': 2, 'dex': 133, 'nick': ''},
+        {'id': 3, 'dex': 4, 'nick': 'Spark'},
+    ]
+    m, n = p._match_mon(mons, spec, 'sparky')
+    check(m['id'] == 1 and n == 1, 'nick exact wins first tier')
+    m, n = p._match_mon(mons, spec, 'eevee')
+    check(m['id'] == 2 and n == 1, 'species exact matches')
+    m, n = p._match_mon(mons, spec, 'spar')
+    check(m['id'] == 1 and n == 2, 'prefix tier with count')
+    check(p._match_mon(mons, spec, 'zzz') == (None, 0), 'no match')
+    check(p._match_mon(mons, spec, '') == (None, 0), 'empty query')
+    evo = p._evo_text(0, {'evo_to': 134, 'evo_level': 25})
+    check(('Vaporeon' in evo or '#134' in evo) and '25' in evo,
+          'evo line names target (or dex fallback) + level')
+    check(p._evo_text(0, {'evo_to': 0, 'evo_level': 0}) != '', 'max evo renders')
+    check(p._evo_text(0, {'evo_to': 134, 'evo_level': 0}) != '', 'stone evo renders')
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    seg = src[src.find('async def buddy'):src.find('async def buddy') + 9000]
+    check(all(c not in BANNED for c in seg), 'no banned glyphs in buddy command')
+
+
+def test_catchmeta_rarity() -> None:
+    """Regression: _catch_meta passed a dex int into row-based rarity_of
+    (AttributeError after every catch/guess)."""
+    import re as _re
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    check(len(_re.findall(r'^def rarity_of', src, flags=_re.M)) == 1,
+          'single rarity_of definition (dead shadow removed)')
+    seg = src[src.find('def _catch_meta'):src.find('def _catch_meta') + 800]
+    check('_rarity_line(' in seg and 'rarity_of(dex)' not in seg,
+          '_catch_meta renders through _rarity_line')
+
+
+def test_anime_silhouette() -> None:
+    """Mystery sprites render anime-yellow on show blue, never near-black."""
+    import io as _io
+    from PIL import Image as _Img
+    import types
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    tree = ast.parse(src)
+    mod = types.ModuleType('pksil')
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name in (
+                'wild_image', 'silhouette_image', '_sky_grass', '_platform'):
+            exec(compile(ast.Module(body=[node], type_ignores=[]), '<pksil>', 'exec'),
+                 mod.__dict__)
+    sp = _Img.new('RGBA', (96, 96), (200, 30, 30, 255))
+    buf = _io.BytesIO()
+    sp.save(buf, 'PNG')
+    raw = buf.getvalue()
+    meadow = _Img.open(_io.BytesIO(mod.wild_image(raw, mystery=True))).convert('RGB')
+    r, g, b = meadow.getpixel((450, 140))
+    check(r > 200 and g > 150 and b < 120, f'meadow silhouette is yellow (got {r},{g},{b})')
+    card = _Img.open(_io.BytesIO(mod.silhouette_image(raw))).convert('RGB')
+    r, g, b = card.getpixel((10, 10))
+    check(r < 120 and 60 < g < 160 and b > 150, f'silhouette card bg is show blue (got {r},{g},{b})')
+    r, g, b = card.getpixel((210, 180))
+    check(r > 200 and g > 150 and b < 120, f'card silhouette is yellow (got {r},{g},{b})')
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
          test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
@@ -910,7 +976,8 @@ TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_preview_fits_discord, test_upsert_no_race,
          test_dead_stream_matcher, test_conn_ctx_drops_dead_pool,
          test_box_ids_unique, test_species_buttons,
-         test_main_guild_gate)
+         test_main_guild_gate, test_buddy_match_evo,
+         test_catchmeta_rarity, test_anime_silhouette)
 
 if __name__ == '__main__':
     for t in TESTS:
