@@ -556,6 +556,7 @@ TYPE_EMOJI = {'fire': 'fire', 'water': 'water', 'grass': 'leaf',
               'normal': 'type_normal', 'poison': 'type_poison',
               'ground': 'type_ground', 'flying': 'type_flying',
               'psychic': 'type_psychic', 'bug': 'type_bug',
+              'rock': 'rock',
               'ghost': 'type_ghost', 'dragon': 'type_dragon',
               'dark': 'type_dark', 'steel': 'type_steel',
               'fairy': 'type_fairy'}
