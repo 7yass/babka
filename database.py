@@ -130,6 +130,25 @@ def db_mode() -> str:
 _TURSO_CONN = None
 
 
+def _is_dead_stream(e: Exception) -> bool:
+    """True when the shared Turso stream is gone server-side (the same
+    stream id failing forever). Local SQLite never produces these."""
+    m = str(e)
+    return 'stream not found' in m or 'sync error' in m
+
+
+def _drop_turso() -> None:
+    """Forget the shared cloud connection; the next get_conn() reconnects
+    fresh on a new stream. Never raises."""
+    global _TURSO_CONN
+    try:
+        if _TURSO_CONN is not None:
+            _TURSO_CONN.close()
+    except Exception:
+        pass
+    _TURSO_CONN = None
+
+
 def get_conn():
     """One shared cloud connection (connect+sync handshake happens once),
     throwaway connections for local mode."""
@@ -201,8 +220,18 @@ def conn_ctx():
     try:
         yield conn
         conn.commit()
+    except Exception as e:
+        if _is_dead_stream(e):
+            # First caller surfaces the error, but the pool is already reset
+            # so the next call reconnects instead of wedging on the dead
+            # stream forever.
+            _drop_turso()
+        raise
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 # ---------- shared economy rules ----------

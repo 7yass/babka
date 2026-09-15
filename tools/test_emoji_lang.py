@@ -756,6 +756,73 @@ def test_upsert_no_race() -> None:
     check(not bare, 'no bare check-then-insert on guild rows')
 
 
+def test_dead_stream_matcher() -> None:
+    import database as DB
+    check(DB._is_dead_stream(RuntimeError(
+        'Hrana: api error: status=404 Not Found, body={"error":"stream not found: e8f7:fb97"}')),
+        'matches stream-not-found')
+    check(DB._is_dead_stream(RuntimeError('sync error: invalid local state')),
+          'matches sync errors')
+    check(not DB._is_dead_stream(RuntimeError('UNIQUE constraint failed: guild_settings.guild_id')),
+          'constraint errors are not stream deaths')
+    check(not DB._is_dead_stream(RuntimeError('')), 'empty error is not a stream death')
+
+
+def test_conn_ctx_drops_dead_pool() -> None:
+    import database as DB
+
+    class Stub:
+        def __init__(self):
+            self.closed = 0
+
+        def commit(self):
+            raise RuntimeError('Hrana: api error: stream not found: abc')
+
+        def close(self):
+            self.closed += 1
+
+    stub, orig_get, orig_conn = Stub(), DB.get_conn, DB._TURSO_CONN
+    DB._TURSO_CONN = stub
+    DB.get_conn = lambda: DB._TURSO_CONN
+    try:
+        try:
+            with DB.conn_ctx() as c:
+                c.commit()
+            raised = False
+        except RuntimeError:
+            raised = True
+        check(raised, 'dead-stream error still surfaces to caller')
+        check(DB._TURSO_CONN is None and stub.closed >= 1, 'pool dropped after dead stream')
+    finally:
+        DB.get_conn = orig_get
+        DB._TURSO_CONN = orig_conn
+
+    class Fine:
+        committed = False
+
+        def commit(self):
+            Fine.committed = True
+
+        def close(self):
+            pass
+
+    fine = Fine()
+    DB._TURSO_CONN = fine
+    DB.get_conn = lambda: DB._TURSO_CONN
+    try:
+        try:
+            with DB.conn_ctx() as c:
+                raise ValueError('UNIQUE constraint failed: guild_settings.guild_id')
+            raised = False
+        except ValueError:
+            raised = True
+        check(raised, 'ordinary errors still surface')
+        check(DB._TURSO_CONN is fine, 'healthy pool is never dropped')
+    finally:
+        DB.get_conn = orig_get
+        DB._TURSO_CONN = orig_conn
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
          test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
@@ -768,7 +835,8 @@ TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_preflight_empty_and_invalid, test_preflight_abort_safety,
          test_no_content_with_layout, test_hunt_parity_helpers,
          test_box_filter_sort, test_badge_icon_everywhere,
-         test_preview_fits_discord, test_upsert_no_race)
+         test_preview_fits_discord, test_upsert_no_race,
+         test_dead_stream_matcher, test_conn_ctx_drops_dead_pool)
 
 if __name__ == '__main__':
     for t in TESTS:
