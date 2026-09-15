@@ -10,7 +10,7 @@ from discord.ext import commands
 import database as db
 from lang import t, set_ctx_lang
 from utils.cards import short as cshort
-from utils.emojis import em
+from utils.emojis import em, emoji_id
 
 POKEAPI = 'https://pokeapi.co/api/v2'
 HUNT_CD = 60
@@ -624,6 +624,38 @@ def rarity_of(dex_row: dict, shiny: bool = False, gid=0) -> tuple:
     return key, (em(gid, name) if gid else None) or fb, accent
 
 
+def _btn_emoji(gid, name):
+    """PartialEmoji for a fleet emoji, else None (button is sent bare).
+    IDs come only from the deployed registry — never fabricated."""
+    try:
+        eid = emoji_id(name, gid)
+        if eid:
+            return discord.PartialEmoji(name=name, id=eid)
+    except Exception:
+        pass
+    return None
+
+
+def _move_emoji_name(mv: dict) -> str:
+    """Fleet emoji name for a move's type badge, or '' when unsupported."""
+    return TYPE_EMOJI.get((mv or {}).get('ptype', ''), '')
+
+
+def _switch_emoji_name(cur: bool, dead: bool = False) -> str:
+    return 'slot_active' if cur else ('faint_dot' if dead else 'switch_dot')
+
+
+def _picker_emoji_name(m: dict, active: bool) -> str:
+    """Pre-battle picker icon: active marker, else the mon's first type."""
+    if active:
+        return 'slot_active'
+    try:
+        types = _dex_row(m.get('dex', 0)).get('types') or []
+    except Exception:
+        types = []
+    return TYPE_EMOJI.get(types[0], '') if types else ''
+
+
 def xp_bar(xp: int, nxt: int, gid=0, width: int = 12) -> str:
     frac = max(0.0, min(1.0, (xp or 0) / max(1, nxt or 1)))
     fill = int(frac * width)
@@ -1057,11 +1089,13 @@ class Pokemon(commands.Cog):
         from discord.ui import ActionRow
         row = ActionRow()
         fight = discord.ui.Button(label='FIGHT', style=discord.ButtonStyle.danger,
-                                  custom_id=f'pkfight:{uid}')
+                                  custom_id=f'pkfight:{uid}',
+                                  emoji=_btn_emoji(gid, 'btn_fight'))
         best = best_ball(gid, uid)
         ball = discord.ui.Button(label=f'THROW {best.upper()}' if best else 'THROW BALL',
                                  style=discord.ButtonStyle.success,
-                                 custom_id=f'pkball:{uid}')
+                                 custom_id=f'pkball:{uid}',
+                                 emoji=_btn_emoji(gid, 'btn_ball'))
 
         async def _fight(ix: discord.Interaction):
             set_ctx_lang(ix.user)
@@ -2339,7 +2373,8 @@ class Pokemon(commands.Cog):
                 label=f"{i + 1}. {nm[:14]} Lv{m['level']}"[:80],
                 style=discord.ButtonStyle.success if m.get('active')
                 else discord.ButtonStyle.secondary,
-                custom_id=f'pklead:{uid}:{m["id"]}')
+                custom_id=f'pklead:{uid}:{m["id"]}',
+                emoji=_btn_emoji(gid, _picker_emoji_name(m, bool(m.get('active')))))
             b.callback = self._mk_lead_btn(gid, uid, m['id'], mode)
             row.add_item(b)
         layout.add_item(box)
@@ -2513,33 +2548,36 @@ class Pokemon(commands.Cog):
         for i, mv in enumerate(moves):
             b = discord.ui.Button(
                 label=f"{mv['name'][:16]} {mv['power']}"[:80],
-                style=discord.ButtonStyle.primary, custom_id=f'pkmv:{uid}:{i}')
+                style=discord.ButtonStyle.primary, custom_id=f'pkmv:{uid}:{i}',
+                emoji=_btn_emoji(gid, _move_emoji_name(mv)))
             b.callback = self._mk_battle_btn(gid, uid, ('move', i))
             row.add_item(b)
         box.add_item(row)
         row2 = ActionRow()
         pots = potions_get(gid, uid)
         plabel = f"POTION ({pots['potion'] + pots['superpotion']})"
-        for label, cid in ((plabel, 'pk_potion'), ('BALL', 'pk_ball'), ('RUN', 'pk_run')):
+        for label, cid, emo in ((plabel, 'pk_potion', 'btn_potion'),
+                                 ('BALL', 'pk_ball', 'btn_ball'),
+                                 ('RUN', 'pk_run', 'btn_run')):
             b = discord.ui.Button(label=label[:80],
                                   style=discord.ButtonStyle.secondary if label != plabel
                                   else discord.ButtonStyle.success,
-                                  custom_id=f'{cid}:{uid}')
+                                  custom_id=f'{cid}:{uid}',
+                                  emoji=_btn_emoji(gid, emo))
             b.callback = self._mk_battle_btn(gid, uid, cid)
             row2.add_item(b)
         box.add_item(row2)
         row3 = ActionRow()
         for m in my_mons(gid, uid)[:5]:
-            rowm = _dex_row(m['dex'])
-            nm = (m.get('nick') or (rowm.get('name') or '?').capitalize())[:16]
-            if m.get('shiny'):
-                nm = '✨' + nm
+            nm = mon_name(m)[:16]
             cur = (m['id'] == st.get('mid'))
-            b = discord.ui.Button(label=('▶ ' if cur else '') + nm[:80],
+            dead = m['id'] in st.get('fainted', set())
+            b = discord.ui.Button(label=nm[:80],
                                   style=discord.ButtonStyle.success if cur
                                   else discord.ButtonStyle.secondary,
                                   custom_id=f'pksw:{uid}:{m["id"]}',
-                                  disabled=cur)
+                                  disabled=cur,
+                                  emoji=_btn_emoji(gid, _switch_emoji_name(cur, dead)))
             b.callback = self._mk_battle_btn(gid, uid, ('switch', m['id']))
             row3.add_item(b)
             if len(row3.children) >= 5:
@@ -2857,14 +2895,17 @@ class Pokemon(commands.Cog):
         for i, mv in enumerate((turn_side.get('moves') or [])[:4]):
             b = discord.ui.Button(label=f"{mv['name'][:14]} {mv['power']}"[:80],
                                   style=discord.ButtonStyle.primary,
-                                  custom_id=f'pkd:{key[1]}:{i}')
+                                  custom_id=f'pkd:{key[1]}:{i}',
+                                  emoji=_btn_emoji(gid, _move_emoji_name(mv)))
             b.callback = self._mk_duel_btn(gid, key, ('move', i))
             row.add_item(b)
         box.add_item(row)
         row2 = ActionRow()
-        for label, cid in (('POTION', 'potion'), ('FORFEIT', 'forfeit')):
+        for label, cid, emo in (('POTION', 'potion', 'btn_potion'),
+                                  ('FORFEIT', 'forfeit', '')):
             b = discord.ui.Button(label=label, style=discord.ButtonStyle.secondary,
-                                  custom_id=f'pkd:{key[1]}:{cid}')
+                                  custom_id=f'pkd:{key[1]}:{cid}',
+                                  emoji=_btn_emoji(gid, emo))
             b.callback = self._mk_duel_btn(gid, key, cid)
             row2.add_item(b)
         box.add_item(row2)
@@ -2874,11 +2915,12 @@ class Pokemon(commands.Cog):
         for j, (f, mid) in enumerate(zip(st[mine], st['m1' if mine == 't1' else 'm2'])):
             cur = (st['i1' if mine == 't1' else 'i2'] == j)
             dead = f['hp'] <= 0 or mid in st.get('fainted', set())
-            b = discord.ui.Button(label=('▶ ' if cur else '') + f['name'][:14],
+            b = discord.ui.Button(label=f['name'][:14],
                                   style=discord.ButtonStyle.success if cur
                                   else discord.ButtonStyle.secondary,
                                   custom_id=f'pkdsw:{key[1]}:{mid}',
-                                  disabled=(cur or dead))
+                                  disabled=(cur or dead),
+                                  emoji=_btn_emoji(gid, _switch_emoji_name(cur, dead)))
             b.callback = self._mk_duel_btn(gid, key, ('switch', mid))
             row3.add_item(b)
             if len(row3.children) >= 5:

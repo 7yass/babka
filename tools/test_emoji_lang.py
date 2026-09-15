@@ -143,7 +143,8 @@ def pure():
     import database as DB
     src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
     tree = ast.parse(src)
-    wanted = {'hp_dot', 'xp_bar', 'mon_name', '_hit_tag', '_dex_row'}
+    wanted = {'hp_dot', 'xp_bar', 'mon_name', '_hit_tag', '_dex_row',
+              '_move_emoji_name', '_switch_emoji_name', '_picker_emoji_name'}
     mod = types.ModuleType('pkpure')
     mod.__dict__['em'] = E.em
     mod.__dict__['db'] = DB
@@ -151,6 +152,9 @@ def pure():
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in wanted:
             exec(compile(ast.Module(body=[node], type_ignores=[]), '<pkpure>', 'exec'),
                  mod.__dict__)
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                and getattr(node.targets[0], 'id', '') == 'TYPE_EMOJI':
+            mod.__dict__['TYPE_EMOJI'] = ast.literal_eval(node.value)
     _PURE = mod
     return mod
 
@@ -221,9 +225,61 @@ def test_patch2_ascii_fallbacks() -> None:
         tmp.cleanup()
 
 
+def test_button_decisions() -> None:
+    gid = '111111111111111111'
+    tmp = use_fixture({'guilds': {gid: {'btn_fight': 666666666666666666,
+                                        'fire': 333333333333333333}}})
+    try:
+        p = pure()
+        check(p._move_emoji_name({'ptype': 'fire', 'name': 'x', 'power': 1}) == 'fire',
+              'move button maps fire type icon')
+        check(p._move_emoji_name({'ptype': '???'}) == '', 'unknown move type maps to no icon')
+        check(p._switch_emoji_name(True, False) == 'slot_active', 'switch: active marker')
+        check(p._switch_emoji_name(False, True) == 'faint_dot', 'switch: fainted marker')
+        check(p._switch_emoji_name(False, False) == 'switch_dot', 'switch: benched marker')
+        check(p._picker_emoji_name({'dex': 999999}, True) == 'slot_active',
+              'picker: active marker')
+        check(p._picker_emoji_name({'dex': 999999}, False) == '',
+              'picker: unknown dex maps to no icon')
+    finally:
+        tmp.cleanup()
+
+
+def test_button_source_hygiene() -> None:
+    import re as _re
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    emoji_kwargs = _re.findall(r'emoji\s*=\s*([^\n,)]+)', src)
+    check(bool(emoji_kwargs), 'button emoji kwargs exist')
+    check(all(v.strip().startswith('_btn_emoji(') for v in emoji_kwargs),
+          'every button emoji kwarg is a resolver call (never a raw token)')
+    check('<:' not in src, 'no raw <:name:id> tokens anywhere in pokemon.py')
+    label_lines = [ln for ln in src.splitlines() if 'label=' in ln]
+    check(all(c not in BANNED for ln in label_lines for c in ln),
+          'no banned Unicode in button label lines')
+    for cid in ('pkfight:', 'pkball:', 'pklead:', 'pkmv:', "'pk_potion'",
+                "'pk_ball'", "'pk_run'", 'pksw:', 'pkd:', 'pkdsw:'):
+        check(cid in src, f'custom_id family intact: {cid}')
+
+
+def test_partialemoji_shape() -> None:
+    try:
+        import discord
+    except Exception:
+        print('SKIP test_partialemoji_shape (discord not installed)', flush=True)
+        return
+    pe = discord.PartialEmoji(name='btn_fight', id=666666666666666666)
+    check(pe.name == 'btn_fight' and pe.id == 666666666666666666,
+          'PartialEmoji carries resolved name+id')
+    check(str(pe) == '<:btn_fight:666666666666666666>',
+          'PartialEmoji renders standard token')
+    b = discord.ui.Button(label='FIGHT', emoji=None)
+    check(b.emoji is None, 'button without id can be sent bare')
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
-         test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks)
+         test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
+         test_button_decisions, test_button_source_hygiene, test_partialemoji_shape)
 
 if __name__ == '__main__':
     for t in TESTS:
