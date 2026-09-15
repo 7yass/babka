@@ -26,8 +26,8 @@ RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 SLOTS = ['7', '★', '♦', '♣', '●']
 # European roulette reds; 0 is green, rest black
 ROU_REDS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
-# mortals keep ~20% of the spins they'd fairly win; the house always wins
-ROU_RIG = 0.80
+# mortals keep ~35% of the spins they'd fairly win; gods force every 3rd round
+ROU_RIG = 0.65
 # single-zero wheel order (clockwise)
 WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30,
                8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7,
@@ -86,7 +86,7 @@ def roulette_image(n: int) -> bytes:
     buf = _io.BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()
-# house always wins: these users get ~100% win chance on every game of chance
+# rigged house luck: gods force a win every 3rd game of chance, mortal odds otherwise
 GOD_IDS = {'1270782781605154922'}
 
 
@@ -432,6 +432,22 @@ def _gamble_use(gid, uid):
                          (str(gid), str(uid)))
 
 
+def god_tick(gid, uid) -> int:
+    """Count one game of chance for god pity. Returns lifetime count."""
+    bal(gid, uid)  # ensure row exists
+    with db.conn_ctx() as conn:
+        conn.execute('UPDATE eco SET god_pity=COALESCE(god_pity,0)+1 WHERE guild_id=? AND user_id=?',
+                     (str(gid), str(uid)))
+        row = conn.execute('SELECT god_pity FROM eco WHERE guild_id=? AND user_id=?',
+                           (str(gid), str(uid))).fetchone()
+    return (dict(row).get('god_pity') if row else 0) or 0
+
+
+def god_forced(gid, uid) -> bool:
+    """Rigged luck: every 3rd game of chance is a forced win for gods."""
+    return god_tick(gid, uid) % 3 == 0
+
+
 def has_highroller(gid, uid) -> bool:
     """High Roller pass active: no max bet, losing stakes refunded."""
     import time
@@ -586,9 +602,9 @@ def _rou_wins(n: int, kind: str, num: int) -> bool:
     return False
 
 
-def _roulette_spin(kind: str, num: int, god: bool) -> int:
+def _roulette_spin(kind: str, num: int, god: bool, rigged: bool = True) -> int:
     if god:
-        # house always lands on a winner
+        # forced god round always lands on a winner
         if kind == 'number':
             return num
         if kind == 'red':
@@ -615,7 +631,7 @@ def _roulette_spin(kind: str, num: int, god: bool) -> int:
             return random.choice([x for x in range(1, 37) if x % 3 == 2])
         return random.choice([x for x in range(1, 37) if x % 3 == 0])  # col3
     n = random.randint(0, 36)
-    if _rou_wins(n, kind, num) and random.random() < ROU_RIG:
+    if rigged and _rou_wins(n, kind, num) and random.random() < ROU_RIG:
         losers = [x for x in range(37) if not _rou_wins(x, kind, num)]
         n = random.choice(losers)
     return n
@@ -1179,13 +1195,14 @@ class Gamble(commands.Cog):
         return b, None, bet
 
     def _win_chance(self, gid, user_id, bet: int) -> float:
-        """Win chance for a game of chance. The house (GOD_IDS) always wins."""
-        if str(user_id) in GOD_IDS:
+        """Rigged casino: gods force every 3rd game, mortal odds otherwise.
+        Mortals hit ~30% with small payouts (pairs mostly, sevens rarely)."""
+        if str(user_id) in GOD_IDS and god_forced(gid, user_id):
             return 1.0
-        base_chance = 0.15  # 15% base chance (~1 win in 7)
+        base_chance = 0.30  # ~1 win in 3 (small wins mostly)
         # Higher bet = lower chance. Scale logarithmically.
         import math
-        bet_factor = 1 - min(0.95, math.log10(max(1, bet)) * 0.15)
+        bet_factor = 1 - min(0.90, math.log10(max(1, bet)) * 0.10)
         return base_chance * bet_factor
 
     @commands.hybrid_command(name='slots', description='Maszynka')
@@ -1206,13 +1223,23 @@ class Gamble(commands.Cog):
         won = random.random() < win_chance
 
         if won:
-            sym = '7' if random.random() < 0.1 else random.choice([s for s in SLOTS if s != '7'])
-            reels = [sym, sym, sym]
-            mult = 12 if sym == '7' else 5
+            # casino tiers: frequent pairs (x1), rare triples (x3), mythic sevens (x8)
+            r = random.random()
+            if r < 0.05:
+                sym, reels, mult = '7', ['7', '7', '7'], 8
+            elif r < 0.35:
+                sym = random.choice([s for s in SLOTS if s != '7'])
+                reels, mult = [sym, sym, sym], 3
+            else:
+                sym = random.choice(SLOTS)
+                odd = random.choice([s for s in SLOTS if s != sym])
+                reels, mult = [sym, sym, odd], 1
+                random.shuffle(reels)
             win = bet * mult
             if str(ctx.author.id) not in GOD_IDS:
                 win = min(win, SLOTS_MAX_WIN)
-            msg = t(gid, 'eco.slots_jackpot', mult=mult, win=cshort(win))
+            msg = (t(gid, 'eco.slots_jackpot', mult=mult, win=cshort(win)) if mult >= 3
+                   else t(gid, 'eco.slots_small', win=cshort(win)))
         else:
             reels = random.sample(SLOTS, 3)  # guaranteed no pair — matches the loss
             win = 0
@@ -1220,10 +1247,10 @@ class Gamble(commands.Cog):
             hr = highroller_refund(gid, ctx.author.id, bet)
             if hr:
                 msg += '\n' + hr
-        msg += _wallet_line(gid, ctx.author.id)
         if win:
             nb = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, nb['cash'] + bet + win)
+        msg += _wallet_line(gid, ctx.author.id)
         import asyncio as _aio
         spin = await ctx.reply(view=_game_layout(t(gid, 'eco.slots_title', bet=cshort(bet)),
                                                  t(gid, 'eco.spinning')))
@@ -1384,7 +1411,8 @@ class Gamble(commands.Cog):
         """Spin + settle one round. Stake must already be taken.
         Returns (winning_number, result_text)."""
         god = str(uid) in GOD_IDS
-        n = _roulette_spin(kind, num, god)
+        forced = god and god_forced(gid, uid)
+        n = _roulette_spin(kind, num, forced, rigged=not god)
         hist = self._rou_hist.setdefault(str(gid), [])
         hist.append(n)
         del hist[:-8]

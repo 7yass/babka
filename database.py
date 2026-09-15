@@ -614,6 +614,7 @@ def init_db():
                     'ALTER TABLE eco ADD COLUMN bank_at INTEGER DEFAULT 0',
                     'ALTER TABLE eco ADD COLUMN gamble_n INTEGER DEFAULT 0',
                     'ALTER TABLE eco ADD COLUMN gamble_hr INTEGER DEFAULT 0',
+                    'ALTER TABLE eco ADD COLUMN god_pity INTEGER DEFAULT 0',
                     'ALTER TABLE eco ADD COLUMN cookie_n INTEGER DEFAULT 0',
                     'ALTER TABLE eco ADD COLUMN cookie_day INTEGER DEFAULT 0',
                     'ALTER TABLE pk_balls ADD COLUMN expires INTEGER DEFAULT 0',
