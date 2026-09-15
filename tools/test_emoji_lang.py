@@ -335,11 +335,95 @@ def test_quest_bars_and_economy() -> None:
               f'weather strings glyph-free ({section})')
 
 
+def ach_data():
+    """BADGES + PK_FALLBACK + badge_icon from achievements.py without
+    importing discord."""
+    import types
+    src = (ROOT / 'cogs' / 'achievements.py').read_text(encoding='utf-8')
+    tree = ast.parse(src)
+    mod = types.ModuleType('pkach')
+    mod.__dict__['em'] = E.em
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 \
+                and getattr(node.targets[0], 'id', '') in ('BADGES', 'PK_FALLBACK'):
+            mod.__dict__[node.targets[0].id] = ast.literal_eval(node.value)
+        if isinstance(node, ast.FunctionDef) and node.name == 'badge_icon':
+            exec(compile(ast.Module(body=[node], type_ignores=[]), '<pkach>', 'exec'),
+                 mod.__dict__)
+    return mod
+
+
+def test_achievement_icons() -> None:
+    gid = '111111111111111111'
+    ids = {'star': 888888888888888881, 'trophy': 888888888888888882,
+           'region_kanto': 888888888888888883, 'region_johto': 888888888888888884,
+           'region_hoenn': 888888888888888885, 'region_sinnoh': 888888888888888886}
+    tmp = use_fixture({'guilds': {gid: ids}})
+    try:
+        a = ach_data()
+        for key, eid in ids.items():
+            target = [k for k, v in a.BADGES.items() if v[0] == key]
+            check(bool(target), f'achievement key uses fleet name: {key}')
+            for k in target:
+                check(a.badge_icon(gid, k) == f'<:{key}:{eid}>',
+                      f'{k} resolves through shared registry')
+        expect_fb = {'lvl10': '*', 'lvl25': '*', 'lvl50': '*', 'npc_champ': 'T',
+                     'region_kanto': 'K', 'region_johto': 'J',
+                     'region_hoenn': 'H', 'region_sinnoh': 'S'}
+        check(a.PK_FALLBACK == expect_fb, 'ASCII fallback map exact')
+    finally:
+        tmp.cleanup()
+
+
+def test_achievement_fallbacks_and_data() -> None:
+    tmp = use_fixture({'guilds': {}})
+    try:
+        a = ach_data()
+        gid = '111111111111111111'
+        check(a.badge_icon(gid, 'region_kanto') == 'K'
+              and a.badge_icon(gid, 'npc_champ') == 'T'
+              and a.badge_icon(gid, 'lvl25') == '*',
+              'missing ids use ASCII fallbacks')
+        untouched = {
+            'first_job': ('💼', 'HIRED', 'First Job', 'Get hired anywhere.'),
+            'grinder': ('🏭', 'GRIND', 'Grinder', 'Work 25 shifts.'),
+            'lifer': ('⚒️', 'LIFER', 'Lifer', 'Work 100 shifts.'),
+            'rich100k': ('💰', '100K', 'Six Figures', 'Hold 100K cash.'),
+            'rich1m': ('💎', '1M', 'Millionaire', 'Hold 1M cash.'),
+            'rich5m': ('👑', '5M', 'Mogul', 'Hold 5M cash.'),
+            'highroller': ('🎲', 'ROLLER', 'High Roller', 'Buy the High Roller pass.'),
+            'famous': ('📣', 'FAMOUS', 'Famous', 'Reach 1K fans.'),
+        }
+        check(all(tuple(a.BADGES[k]) == v for k, v in untouched.items()),
+              'non-Pokemon badges byte-identical')
+        for k in ('lvl10', 'lvl25', 'lvl50', 'region_kanto', 'region_johto',
+                  'region_hoenn', 'region_sinnoh', 'npc_champ'):
+            check(a.BADGES[k][1:] == {
+                'lvl10': ('LVL10', 'Rising', 'Reach level 10.'),
+                'lvl25': ('LVL25', 'Star', 'Reach level 25.'),
+                'lvl50': ('LVL50', 'Legend', 'Reach level 50.'),
+                'region_kanto': ('KANTO', 'Kanto Master', 'Finish the Kanto quest track.'),
+                'region_johto': ('JOHTO', 'Johto Master', 'Finish the Johto quest track.'),
+                'region_hoenn': ('HOENN', 'Hoenn Master', 'Finish the Hoenn quest track.'),
+                'region_sinnoh': ('SINNOH', 'Sinnoh Master', 'Finish the Sinnoh quest track.'),
+                'npc_champ': ('CHAMP', 'Champion Slayer', 'Beat Champion Cyntia.'),
+            }[k], f'{k} name/desc/short preserved')
+            check(all(c not in '⭐🌟💫🏆🔴🟡🟢🔵' for c in a.BADGES[k][0]),
+                  f'{k} icon holds no legacy glyph')
+        src = (ROOT / 'cogs' / 'achievements.py').read_text(encoding='utf-8')
+        flat = src.replace('_', '')
+        for n in (25, 100, 10, 25, 50, 100000, 1000000, 5000000, 1000):
+            check(str(n) in flat, f'progression threshold present: {n}')
+    finally:
+        tmp.cleanup()
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
          test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
          test_button_decisions, test_button_source_hygiene, test_partialemoji_shape,
-         test_weather_emojis, test_weather_plain_fallback, test_quest_bars_and_economy)
+         test_weather_emojis, test_weather_plain_fallback, test_quest_bars_and_economy,
+         test_achievement_icons, test_achievement_fallbacks_and_data)
 
 if __name__ == '__main__':
     for t in TESTS:

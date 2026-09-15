@@ -7,26 +7,45 @@ from discord.ext import commands
 
 import database as db
 from lang import t
+from utils.emojis import em
 
-# key -> (emoji, short ASCII for the card, name, description)
+# key -> (icon, short ASCII for the card, name, description).
+# Converted keys hold a fleet emoji NAME in [0] (resolved via badge_icon);
+# all other keys keep their legacy glyph untouched.
 BADGES = {
     'first_job': ('💼', 'HIRED', 'First Job', 'Get hired anywhere.'),
     'grinder': ('🏭', 'GRIND', 'Grinder', 'Work 25 shifts.'),
     'lifer': ('⚒️', 'LIFER', 'Lifer', 'Work 100 shifts.'),
-    'lvl10': ('⭐', 'LVL10', 'Rising', 'Reach level 10.'),
-    'lvl25': ('🌟', 'LVL25', 'Star', 'Reach level 25.'),
-    'lvl50': ('💫', 'LVL50', 'Legend', 'Reach level 50.'),
+    'lvl10': ('star', 'LVL10', 'Rising', 'Reach level 10.'),
+    'lvl25': ('star', 'LVL25', 'Star', 'Reach level 25.'),
+    'lvl50': ('star', 'LVL50', 'Legend', 'Reach level 50.'),
     'rich100k': ('💰', '100K', 'Six Figures', 'Hold 100K cash.'),
     'rich1m': ('💎', '1M', 'Millionaire', 'Hold 1M cash.'),
     'rich5m': ('👑', '5M', 'Mogul', 'Hold 5M cash.'),
     'highroller': ('🎲', 'ROLLER', 'High Roller', 'Buy the High Roller pass.'),
     'famous': ('📣', 'FAMOUS', 'Famous', 'Reach 1K fans.'),
-    'region_kanto': ('🔴', 'KANTO', 'Kanto Master', 'Finish the Kanto quest track.'),
-    'region_johto': ('🟡', 'JOHTO', 'Johto Master', 'Finish the Johto quest track.'),
-    'region_hoenn': ('🟢', 'HOENN', 'Hoenn Master', 'Finish the Hoenn quest track.'),
-    'region_sinnoh': ('🔵', 'SINNOH', 'Sinnoh Master', 'Finish the Sinnoh quest track.'),
-    'npc_champ': ('🏆', 'CHAMP', 'Champion Slayer', 'Beat Champion Cyntia.'),
+    'region_kanto': ('region_kanto', 'KANTO', 'Kanto Master', 'Finish the Kanto quest track.'),
+    'region_johto': ('region_johto', 'JOHTO', 'Johto Master', 'Finish the Johto quest track.'),
+    'region_hoenn': ('region_hoenn', 'HOENN', 'Hoenn Master', 'Finish the Hoenn quest track.'),
+    'region_sinnoh': ('region_sinnoh', 'SINNOH', 'Sinnoh Master', 'Finish the Sinnoh quest track.'),
+    'npc_champ': ('trophy', 'CHAMP', 'Champion Slayer', 'Beat Champion Cyntia.'),
 }
+
+# ASCII fallbacks for converted keys (custom emoji missing -> plain text).
+PK_FALLBACK = {
+    'lvl10': '*', 'lvl25': '*', 'lvl50': '*',
+    'region_kanto': 'K', 'region_johto': 'J',
+    'region_hoenn': 'H', 'region_sinnoh': 'S',
+    'npc_champ': 'T',
+}
+
+
+def badge_icon(gid, key: str) -> str:
+    """Render icon for a badge: custom fleet emoji, ASCII fallback,
+    or the legacy glyph for non-converted systems."""
+    if key in PK_FALLBACK:
+        return em(gid, BADGES[key][0]) or PK_FALLBACK[key]
+    return BADGES[key][0]
 
 
 def unlocked(gid, uid) -> set:
@@ -91,7 +110,7 @@ class Achievements(commands.Cog):
         if not have:
             return await ctx.reply(t(gid, 'eco.ach_none', user=member.display_name),
                                    ephemeral=True)
-        lines = [f"{BADGES[k][0]} **{BADGES[k][2]}** — {BADGES[k][3]}"
+        lines = [f"{badge_icon(gid, k)} **{BADGES[k][2]}** — {BADGES[k][3]}"
                  for k in BADGES if k in have]
         await ctx.reply(view=_game_layout(
             t(gid, 'eco.ach_title', user=member.display_name, n=len(have)),
