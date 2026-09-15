@@ -1198,6 +1198,21 @@ def test_phelp_hub() -> None:
         check((ROOT / 'assets' / 'emojis' / f'{f}.png').is_file(), f'hub icon deployable: {f}')
 
 
+def test_catch_mode_text() -> None:
+    """;p cards must never mention FIGHT or weakening (no FIGHT row)."""
+    import json as _j
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    start = src.find("if mode == 'catch':")
+    branch = src[start:src.find('\n            else:', start)]
+    check('pk_wild_catch' in branch and 'pk_odds' not in branch,
+          'catch mode uses its own line, no weaken odds')
+    lang = _j.loads((ROOT / 'lang.json').read_text(encoding='utf-8'))
+    for section in ('en', 'pl'):
+        line = lang[section].get('eco.pk_wild_catch', '')
+        check(bool(line) and 'FIGHT' not in line and 'WALCZ' not in line,
+              f'catch line fight-free ({section})')
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
          test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
@@ -1217,7 +1232,7 @@ TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_catchmeta_rarity, test_anime_silhouette, test_forms,
          test_master_never_fails, test_box_card, test_dextypes_list,
          test_plain_arena, test_turn_armor, test_movesets_ivs,
-         test_hunt_modes, test_phelp_hub)
+         test_hunt_modes, test_phelp_hub, test_catch_mode_text)
 
 if __name__ == '__main__':
     for t in TESTS:

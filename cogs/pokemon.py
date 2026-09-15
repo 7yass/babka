@@ -1571,11 +1571,15 @@ class Pokemon(commands.Cog):
                 flags += f"\n{em(gid, 'item_incense') or '+'} " + t(gid, 'eco.pk_incensed')
             if repelled:
                 flags += f"\n{em(gid, 'item_repel') or '-'} " + t(gid, 'eco.pk_repelled')
-            flags += '\n' + t(gid, 'eco.pk_odds', pct=int(catch_chance(
-                row.get('rate', 45), level, 1.0, BALLS['ultra'][1]) * 100))
-            desc = (t(gid, 'eco.pk_wild', name=name,
-                      types=types_str(gid, row["types"]),
-                      hint=t(gid, 'eco.pk_wild_hint')) + flags)
+            if mode == 'catch':
+                desc = (t(gid, 'eco.pk_wild_catch', name=name,
+                          types=types_str(gid, row["types"])) + flags)
+            else:
+                flags += '\n' + t(gid, 'eco.pk_odds', pct=int(catch_chance(
+                    row.get('rate', 45), level, 1.0, BALLS['ultra'][1]) * 100))
+                desc = (t(gid, 'eco.pk_wild', name=name,
+                          types=types_str(gid, row["types"]),
+                          hint=t(gid, 'eco.pk_wild_hint')) + flags)
         slot_of = {m['id']: i + 1 for i, m in enumerate(mons)}
         act = next((m for m in mons if m.get('active')), mons[0])
         if mode == 'fight':
