@@ -1510,10 +1510,13 @@ class Pokemon(commands.Cog):
         async with aiohttp.ClientSession() as s:
             row = await dex_get(s, e['dex'])
         mult = BALLS[ball][1]
-        p = catch_chance(row.get('rate', 45), e['level'], e['hp'] / max(1, e['maxhp']), mult)
-        if e.get('grazz'):
-            p = min(0.98, p * 1.6)
-        p = min(0.98, p + e.get('pity', 0))
+        if mult is None:  # master ball: it never fails, skips pity math entirely
+            p = 1.0
+        else:
+            p = catch_chance(row.get('rate', 45), e['level'], e['hp'] / max(1, e['maxhp']), mult)
+            if e.get('grazz'):
+                p = min(0.98, p * 1.6)
+            p = min(0.98, p + e.get('pity', 0))
         roll = random.random()
         if roll < p:
             first = not my_mons(gid, uid)

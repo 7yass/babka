@@ -1000,6 +1000,24 @@ def test_forms() -> None:
         tmp.cleanup()
 
 
+def test_master_never_fails() -> None:
+    """Regression: the 0.98 cap applied to master balls too (1-in-50
+    breakouts). Master must bypass pity math with p == 1.0."""
+    import types
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    tree = ast.parse(src)
+    mod = types.ModuleType('pkcatch')
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == 'catch_chance':
+            exec(compile(ast.Module(body=[node], type_ignores=[]), '<pkcatch>', 'exec'),
+                 mod.__dict__)
+    check(mod.catch_chance(3, 100, 1.0, None) == 1.0, 'master mult returns 1.0')
+    seg = src[src.find('mult = BALLS[ball][1]'):src.find('mult = BALLS[ball][1]') + 600]
+    check('if mult is None:' in seg and 'p = 1.0' in seg,
+          'master bypasses the 0.98 cap')
+    check('min(0.98' in seg, 'other balls still capped')
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
          test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
@@ -1016,7 +1034,8 @@ TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_dead_stream_matcher, test_conn_ctx_drops_dead_pool,
          test_box_ids_unique, test_species_buttons,
          test_main_guild_gate, test_buddy_match_evo,
-         test_catchmeta_rarity, test_anime_silhouette, test_forms)
+         test_catchmeta_rarity, test_anime_silhouette, test_forms,
+         test_master_never_fails)
 
 if __name__ == '__main__':
     for t in TESTS:
