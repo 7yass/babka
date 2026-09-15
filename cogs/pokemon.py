@@ -576,6 +576,39 @@ def move_str(gid, mv: dict) -> str:
     return f'{e} {base}' if e else base
 
 
+# (key, emoji, accent_color) — PokeMeow-style rarity treatment
+RARITY_COMMON = ('common', '⚪', 0x58CC02)
+RARITY_UNCOMMON = ('uncommon', '🔵', 0x3498DB)
+RARITY_RARE = ('rare', '🟣', 0x9B59B6)
+RARITY_LEGENDARY = ('legendary', '🔶', 0xFFD700)
+RARITY_SHINY = ('shiny', '✨', 0xFF6FB5)
+
+
+def rarity_of(dex_row: dict, shiny: bool = False) -> tuple:
+    """(key, emoji, accent). Shiny overrides; legendaries gold;
+    the rest split by capture rate (lower = rarer)."""
+    if shiny:
+        return RARITY_SHINY
+    row = dex_row or {}
+    if row.get('legendary'):
+        return RARITY_LEGENDARY
+    try:
+        rate = int(row.get('rate') or 255)
+    except Exception:
+        rate = 255
+    if rate <= 45:
+        return RARITY_RARE
+    if rate <= 120:
+        return RARITY_UNCOMMON
+    return RARITY_COMMON
+
+
+def xp_bar(xp: int, nxt: int, width: int = 12) -> str:
+    frac = max(0.0, min(1.0, (xp or 0) / max(1, nxt or 1)))
+    fill = int(frac * width)
+    return '▓' * fill + '░' * (width - fill)
+
+
 def _sky_grass(d, rnd, W, H, weather, horizon=300):
     """Bright daytime Pokemon terrain shared by battle + hunt cards."""
     if weather == 'rain':
@@ -852,23 +885,23 @@ class Pokemon(commands.Cog):
 
     # ----- shared presentation -----
 
-    def _layout(self, gid, title, desc, img=None):
+    def _layout(self, gid, title, desc, img=None, accent: int = 0xFFFFFF):
         from cogs.gamble import _game_layout
-        return _game_layout(title, desc, img)
+        return _game_layout(title, desc, img, accent)
 
-    async def _mage(self, gid, title, desc, sprite: str):
+    async def _mage(self, gid, title, desc, sprite: str, accent: int = 0xFFFFFF):
         """Message layout with remote sprite image (or no image)."""
         if sprite:
-            return self._layout(gid, title, desc, sprite)
-        return self._layout(gid, title, desc)
+            return self._layout(gid, title, desc, sprite, accent)
+        return self._layout(gid, title, desc, None, accent)
 
-    def _encounter_layout(self, gid, title, desc):
+    def _encounter_layout(self, gid, title, desc, accent: int = 0x58CC02):
         """Hunt card: text + attached bright-meadow art (attachment://hunt.png)."""
         from discord.ui import LayoutView, Container, TextDisplay, MediaGallery
         from discord.ui.media_gallery import MediaGalleryItem
         from cogs.gamble import foot
         layout = LayoutView(timeout=300)
-        box = Container(accent_color=0x58CC02)
+        box = Container(accent_color=accent)
         box.add_item(TextDisplay(f'## {title}\n{desc}'))
         box.add_item(MediaGallery(MediaGalleryItem(media='attachment://hunt.png')))
         try:
@@ -951,17 +984,19 @@ class Pokemon(commands.Cog):
                           'mystery': mystery,
                           'exp': int(time.time()) + ENC_TTL}
         pix = pix_url(dex, shiny)
-        raw = await fetch_sprite(s, pix)
+        try:
+            async with aiohttp.ClientSession() as s2:
+                raw = await fetch_sprite(s2, pix)
+        except Exception:
+            raw = None
         import io as _bio
         try:
-            png = wild_image(raw, weather=None, mystery=mystery)
+            png = wild_image(raw, weather=None, mystery=mystery) if raw else None
         except Exception:
             png = None
         if mystery:
             desc = (t(gid, 'eco.pk_mystery', types=types_str(gid, row["types"])) +
                     (('\n🧪 ' + t(gid, 'eco.pk_incensed')) if inc else ''))
-            act0 = next((m for m in mons if m.get('active')), mons[0])
-            desc += f"\n-# FIGHT: {mon_name(act0)} Lv{act0['level']} — `;active N` / `;battle N` to change"
         else:
             name = ('✨' if shiny else '') + row['name'].capitalize()
             flags = ''
@@ -974,16 +1009,26 @@ class Pokemon(commands.Cog):
             desc = (t(gid, 'eco.pk_wild', name=name,
                       types=types_str(gid, row["types"]),
                       hint=t(gid, 'eco.pk_wild_hint')) + flags)
+        slot_of = {m['id']: i + 1 for i, m in enumerate(mons)}
         act = next((m for m in mons if m.get('active')), mons[0])
-        desc += f"\n-# FIGHT: {mon_name(act)} Lv{act['level']} — `;active N` / `;battle N` to change"
-        view = self._encounter_layout(gid, t(gid, 'eco.pk_wild_title', level=level), desc)
-        self._attach_enc_buttons(view, gid, ctx.author.id)
+        desc += (f"\n-# FIGHT: {mon_name(act)} Lv{act['level']} — "
+                 f"`;active {slot_of.get(act['id'], 1)}` / `;battle {slot_of.get(act['id'], 1)}` to change")
+        title = t(gid, 'eco.pk_wild_title', level=level)
+        if mystery:
+            accent = 0x3A3F4B
+        else:
+            rk, re, accent = rarity_of(row, shiny)
+            title = f'{re} {title}'
         if png:
+            view = self._encounter_layout(gid, title, desc, accent)
+            self._attach_enc_buttons(view, gid, ctx.author.id)
             await ctx.reply(view=view, file=discord.File(_bio.BytesIO(png), 'hunt.png'),
                             mention_author=False)
         else:
-            await ctx.reply(view=self._layout(
-                gid, t(gid, 'eco.pk_wild_title', level=level), desc), mention_author=False)
+            # host couldn't fetch the sprite: let Discord load the remote URL instead
+            view = await self._mage(gid, title, desc, pix)
+            self._attach_enc_buttons(view, gid, ctx.author.id)
+            await ctx.reply(view=view, mention_author=False)
 
     def _attach_enc_buttons(self, view, gid, uid):
         from discord.ui import ActionRow
@@ -1378,7 +1423,8 @@ class Pokemon(commands.Cog):
         lines = []
         for i, m in enumerate(mons[(page - 1) * per:page * per], start=(page - 1) * per + 1):
             star = '⭐' if m['active'] else ''
-            lines.append(f"`{i}` {mon_name(m)} — Lv{m['level']}{star}")
+            _, re, _ = rarity_of(_dex_row(m['dex']), bool(m['shiny']))
+            lines.append(f"`{i}` {re} {mon_name(m)} — Lv{m['level']}{star}")
         lines.append(t(gid, 'eco.pk_box_page', page=page, total=total, n=len(mons)))
         await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_box_title', user=ctx.author.display_name),
                                           '\n'.join(lines)), ephemeral=True)
@@ -1397,12 +1443,15 @@ class Pokemon(commands.Cog):
         nxt = XP_NEXT(m['level'])
         spr = (row.get('sprite') or '').split('|')
         img = spr[1] if m['shiny'] and len(spr) > 1 else spr[0]
-        desc = t(gid, 'eco.pk_info', level=m['level'], types=types_str(gid, row["types"]),
-                 hp=stats['maxhp'], atk=stats['atk'], dfn=stats['dfn'],
-                 spa=stats['spa'], spd=stats['spd'], spe=stats['spe'],
-                 xp=m['xp'], nxt=nxt,
-                 moves=', '.join(move_str(gid, x) for x in moves))
-        await ctx.reply(view=await self._mage(gid, mon_name(m), desc, img))
+        rk, re, accent = rarity_of(row, bool(m['shiny']))
+        desc = (f'{re} **{rk.upper()}** · {types_str(gid, row["types"])} · Lv{m["level"]}\n'
+                f'`{xp_bar(m["xp"], nxt)}` {m["xp"]}/{nxt} XP\n'
+                + t(gid, 'eco.pk_info', level=m['level'], types=types_str(gid, row["types"]),
+                    hp=stats['maxhp'], atk=stats['atk'], dfn=stats['dfn'],
+                    spa=stats['spa'], spd=stats['spd'], spe=stats['spe'],
+                    xp=m['xp'], nxt=nxt,
+                    moves=', '.join(move_str(gid, x) for x in moves)))
+        await ctx.reply(view=await self._mage(gid, f'{re} {mon_name(m)}', desc, img, accent))
 
     @commands.command(name='active', description='Wybierz wojownika (;box po numery)')
     async def active(self, ctx, slot: int = 0):
@@ -1548,7 +1597,8 @@ class Pokemon(commands.Cog):
         names = []
         for dex in sorted(caught)[:12]:
             r = _dex_row(dex)
-            names.append((r.get('name') or f'#{dex}').capitalize())
+            _, re, _ = rarity_of(r, False)
+            names.append(f"{re} {(r.get('name') or f'#{dex}').capitalize()}")
         await ctx.reply(view=self._layout(
             gid, t(gid, 'eco.pk_dex_title', n=len(caught)),
             t(gid, 'eco.pk_dex', names=', '.join(names) if names else '—', total=total)),
@@ -2424,8 +2474,16 @@ class Pokemon(commands.Cog):
         from discord.ui import LayoutView
         from discord.ui.media_gallery import MediaGalleryItem
         me = st['me']
+        wild = st['wild']
+        _, _, me_ac = rarity_of(me.get('row'), bool(me.get('shiny')))
+        _, _, w_ac = rarity_of(wild.get('row'), bool(wild.get('shiny')))
+        accent = 0xFF4655
+        if RARITY_SHINY[2] in (me_ac, w_ac):
+            accent = RARITY_SHINY[2]
+        elif RARITY_LEGENDARY[2] in (me_ac, w_ac):
+            accent = RARITY_LEGENDARY[2]
         layout = LayoutView(timeout=180)
-        box = Container(accent_color=0xFF4655)
+        box = Container(accent_color=accent)
         box.add_item(TextDisplay(self._vs_wild_body(gid, uid, st)))
         box.add_item(MediaGallery(MediaGalleryItem(media='attachment://battle.png')))
         b = balls_get(gid, uid)

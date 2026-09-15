@@ -338,11 +338,11 @@ def poker_image(hand, held) -> bytes:
     return buf.getvalue()
 
 
-def _game_layout(title: str, desc: str, image_url: str = None):
+def _game_layout(title: str, desc: str, image_url: str = None, accent: int = 0xFFFFFF):
     from discord.ui import LayoutView, Container, TextDisplay, ActionRow, MediaGallery
     from discord.ui.media_gallery import MediaGalleryItem
     layout = LayoutView(timeout=120)
-    box = Container(accent_color=0xFFFFFF)
+    box = Container(accent_color=accent)
     box.add_item(TextDisplay(f'## {title}\n{desc}'))
     if image_url:
         box.add_item(MediaGallery(MediaGalleryItem(media=image_url)))
