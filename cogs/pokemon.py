@@ -758,6 +758,35 @@ def _box_slots(mons: list) -> dict:
     return {m['id']: i + 1 for i, m in enumerate(mons)}
 
 
+def _box_cid(viewer, owner, action: str, pg: int, mode: str, filt: str) -> str:
+    """Box button id. The action is part of the id so FIRST/LAST can never
+    collide with BACK/NEXT landing on the same page (Discord 400s those)."""
+    return f'pkbox:{viewer}:{owner}:{action}:{pg}:{mode}:{filt or "-"}'
+
+
+def _box_parse(cid: str):
+    try:
+        _, viewer, owner, action, pg, mode, filt = cid.split(':', 6)
+        return int(viewer), int(owner), action, int(pg or 1), mode, ('' if filt == '-' else filt)
+    except Exception:
+        return None
+
+
+def _species_emoji_name(dex) -> str:
+    """Fleet name for a species mini (p001-p493), or '' out of range."""
+    try:
+        d = int(dex)
+        return f'p{d:03d}' if 1 <= d <= 493 else ''
+    except Exception:
+        return ''
+
+
+def _species_btn_emoji(gid, dex):
+    """Species face for buttons; None when unresolvable (label carries the name)."""
+    name = _species_emoji_name(dex)
+    return _btn_emoji(gid, name) if name else None
+
+
 def _box_sort_entries(entries: list, mode: str) -> list:
     if mode == 'level':
         return sorted(entries, key=lambda e: (-e[0]['level'], e[0]['dex']))
@@ -966,6 +995,7 @@ class Pokemon(commands.Cog):
         self._box_sort = {}  # (gid, viewer) -> sort mode
 
     @commands.Cog.listener()
+    @db.main_guild_only
     async def on_message(self, message: discord.Message):
         """PokeTwo-style chat XP: the active mon grows as you talk (1/min)."""
         if not message.guild or message.author.bot:
@@ -1178,7 +1208,7 @@ class Pokemon(commands.Cog):
         layout.add_item(box)
         await ctx.reply(view=layout, mention_author=False)
 
-    @commands.command(name='hunt', description='Poluj na dzikie')
+    @commands.command(name='hunt', description='Poluj na dzikie', aliases=['p'])
     async def hunt(self, ctx):
         import aiohttp
         gid = ctx.guild.id
@@ -1751,15 +1781,17 @@ class Pokemon(commands.Cog):
         box.add_item(TextDisplay(f"## {t(gid, 'eco.pk_box_title', user=owner_name)}\n"
                                  + '\n'.join(lines)))
         row = ActionRow()
-        for label, pg, dis in (('<<', 1, page <= 1), ('BACK', page - 1, page <= 1),
-                               ('NEXT', page + 1, page >= total), ('>>', total, page >= total)):
+        for label, action, pg, dis in (('<<', 'first', 1, page <= 1),
+                                       ('BACK', 'back', page - 1, page <= 1),
+                                       ('NEXT', 'next', page + 1, page >= total),
+                                       ('>>', 'last', total, page >= total)):
             b = discord.ui.Button(label=label, style=discord.ButtonStyle.secondary,
-                                  custom_id=f'pkbox:{viewer}:{owner}:{pg}:{mode}:{filt or "-"}',
+                                  custom_id=_box_cid(viewer, owner, action, pg, mode, filt),
                                   disabled=dis)
             b.callback = self._mk_box_btn(gid, viewer, owner)
             row.add_item(b)
         sb = discord.ui.Button(label=f'SORT: {mode.upper()}', style=discord.ButtonStyle.primary,
-                               custom_id=f'pkbox:{viewer}:{owner}:{page}:!:{filt or "-"}')
+                               custom_id=_box_cid(viewer, owner, 'sort', page, mode, filt))
         sb.callback = self._mk_box_btn(gid, viewer, owner)
         row.add_item(sb)
         box.add_item(row)
@@ -1771,20 +1803,19 @@ class Pokemon(commands.Cog):
             set_ctx_lang(ix.user)
             if ix.user.id != int(viewer):
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
-            try:
-                _, _, _, pg, mode, filt = ix.data.get('custom_id', '').split(':', 5)
-            except Exception:
+            parsed = _box_parse(ix.data.get('custom_id', ''))
+            if not parsed:
                 return await ix.response.send_message(t(gid, 'eco.pk_box_page',
                      page=1, total=1, n=0), ephemeral=True)
-            if mode == '!':
+            _, owner, action, pg, mode, filt = parsed
+            if action == 'sort':
                 cur = self._box_sort.get((str(gid), str(viewer)), 'rarity')
                 mode = BOX_SORTS[(BOX_SORTS.index(cur) + 1) % len(BOX_SORTS)] if cur in BOX_SORTS else 'rarity'
                 self._box_sort[(str(gid), str(viewer))] = mode
             member = ix.guild.get_member(int(owner)) if ix.guild else None
             name = member.display_name if member else f'User {owner}'
             await ix.response.edit_message(
-                view=self._box_view(gid, viewer, int(owner), name,
-                                    '' if filt == '-' else filt, int(pg or 1)))
+                view=self._box_view(gid, viewer, int(owner), name, filt, pg))
         return _cb
 
     @commands.command(name='box', description='Twoje pokemony')
@@ -2705,14 +2736,15 @@ class Pokemon(commands.Cog):
             if i % 5 == 0:
                 row = ActionRow()
                 box.add_item(row)
-            # token-free label until the button patch (PartialEmoji)
+            spe = _species_btn_emoji(gid, m.get('dex', 0))
             nm = mon_name(m)
+            label = f"{i + 1} Lv{m['level']}" if spe else f"{i + 1}. {nm[:14]} Lv{m['level']}"[:80]
             b = discord.ui.Button(
-                label=f"{i + 1}. {nm[:14]} Lv{m['level']}"[:80],
+                label=label,
                 style=discord.ButtonStyle.success if m.get('active')
                 else discord.ButtonStyle.secondary,
                 custom_id=f'pklead:{uid}:{m["id"]}',
-                emoji=_btn_emoji(gid, _picker_emoji_name(m, bool(m.get('active')))))
+                emoji=spe if spe else _btn_emoji(gid, _picker_emoji_name(m, bool(m.get('active')))))
             b.callback = self._mk_lead_btn(gid, uid, m['id'], mode)
             row.add_item(b)
         layout.add_item(box)
@@ -2910,12 +2942,13 @@ class Pokemon(commands.Cog):
             nm = mon_name(m)[:16]
             cur = (m['id'] == st.get('mid'))
             dead = m['id'] in st.get('fainted', set())
-            b = discord.ui.Button(label=nm[:80],
+            spe = _species_btn_emoji(gid, m.get('dex', 0))
+            b = discord.ui.Button(label=f"Lv{m['level']}" if spe else nm[:80],
                                   style=discord.ButtonStyle.success if cur
                                   else discord.ButtonStyle.secondary,
                                   custom_id=f'pksw:{uid}:{m["id"]}',
                                   disabled=cur,
-                                  emoji=_btn_emoji(gid, _switch_emoji_name(cur, dead)))
+                                  emoji=spe if spe else _btn_emoji(gid, _switch_emoji_name(cur, dead)))
             b.callback = self._mk_battle_btn(gid, uid, ('switch', m['id']))
             row3.add_item(b)
             if len(row3.children) >= 5:
@@ -3255,12 +3288,13 @@ class Pokemon(commands.Cog):
         for j, (f, mid) in enumerate(zip(st[mine], st['m1' if mine == 't1' else 'm2'])):
             cur = (st['i1' if mine == 't1' else 'i2'] == j)
             dead = f['hp'] <= 0 or mid in st.get('fainted', set())
-            b = discord.ui.Button(label=f['name'][:14],
+            spe = _species_btn_emoji(gid, f.get('dex', 0))
+            b = discord.ui.Button(label=f"Lv{f.get('level', '?')}" if spe else f['name'][:14],
                                   style=discord.ButtonStyle.success if cur
                                   else discord.ButtonStyle.secondary,
                                   custom_id=f'pkdsw:{key[1]}:{mid}',
                                   disabled=(cur or dead),
-                                  emoji=_btn_emoji(gid, _switch_emoji_name(cur, dead)))
+                                  emoji=spe if spe else _btn_emoji(gid, _switch_emoji_name(cur, dead)))
             b.callback = self._mk_duel_btn(gid, key, ('switch', mid))
             row3.add_item(b)
             if len(row3.children) >= 5:

@@ -410,6 +410,7 @@ class Levels(commands.Cog):
 
     # ---- events ----
     @commands.Cog.listener()
+    @db.main_guild_only
     async def on_message(self, message: discord.Message):
         if not message.guild or message.author.bot:
             return
@@ -507,6 +508,8 @@ class Levels(commands.Cog):
     async def voice_tick(self):
         await self.bot.wait_until_ready()
         for guild in self.bot.guilds:
+            if not db.is_main_guild(getattr(guild, 'id', 0)):
+                continue  # holder servers only store emojis
             try:
                 await self._voice_guild(guild)
             except Exception as e:

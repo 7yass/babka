@@ -327,6 +327,7 @@ class AutoMod(commands.Cog):
         await interaction.response.edit_message(embed=emb, view=None)
 
     @commands.Cog.listener()
+    @db.main_guild_only
     async def on_message(self, message: discord.Message):
         if not message.guild or message.author.bot:
             return

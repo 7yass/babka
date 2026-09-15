@@ -285,6 +285,7 @@ class Tickets(commands.Cog):
         await self.bot.wait_until_ready()
 
     @commands.Cog.listener()
+    @db.main_guild_only
     async def on_message(self, message: discord.Message):
         if not message.guild or message.author.bot:
             return

@@ -148,7 +148,8 @@ def pure():
               '_move_emoji_name', '_switch_emoji_name', '_picker_emoji_name',
               '_weather_line', '_rarity_line', '_tier_word', 'rarity_of', 'showdown_gif',
               'streak_get', '_balls_left_line', 'balls_get', 'region_of',
-              '_box_tier', '_box_match', '_box_slots', '_box_sort_entries'}
+              '_box_tier', '_box_match', '_box_slots', '_box_sort_entries',
+              '_box_cid', '_box_parse', '_species_emoji_name'}
     import lang as LANG
     mod = types.ModuleType('pkpure')
     mod.__dict__['em'] = E.em
@@ -261,14 +262,15 @@ def test_button_source_hygiene() -> None:
     src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
     emoji_kwargs = _re.findall(r'emoji\s*=\s*([^\n,)]+)', src)
     check(bool(emoji_kwargs), 'button emoji kwargs exist')
-    check(all(v.strip().startswith('_btn_emoji(') for v in emoji_kwargs),
-          'every button emoji kwarg is a resolver call (never a raw token)')
+    check(all('<:' not in v and not v.strip().startswith(("'", '"'))
+              and '_btn_emoji(' in v for v in emoji_kwargs),
+          'every button emoji is a resolver call (never a raw token)')
     check('<:' not in src, 'no raw <:name:id> tokens anywhere in pokemon.py')
     label_lines = [ln for ln in src.splitlines() if 'label=' in ln]
     check(all(c not in BANNED for ln in label_lines for c in ln),
           'no banned Unicode in button label lines')
     for cid in ('pkfight:', 'pkball:', 'pklead:', 'pkmv:', "'pk_potion'",
-                "'pk_ball'", "'pk_run'", 'pksw:', 'pkd:', 'pkdsw:'):
+                "'pk_ball'", "'pk_run'", 'pksw:', 'pkd:', 'pkdsw:', 'pkbox:', 'pkstart:'):
         check(cid in src, f'custom_id family intact: {cid}')
 
 
@@ -823,6 +825,76 @@ def test_conn_ctx_drops_dead_pool() -> None:
         DB._TURSO_CONN = orig_conn
 
 
+def test_box_ids_unique() -> None:
+    """Box button ids are unique per render: action is part of the id, so
+    FIRST/LAST can never collide with BACK/NEXT on edge pages (HTTP 400)."""
+    p = pure()
+    for total in (1, 2, 3):
+        for page in range(1, total + 1):
+            ids = [p._box_cid(1, 2, a, pg, 'rarity', '')
+                   for a, pg in (('first', 1), ('back', page - 1),
+                                 ('next', page + 1), ('last', total),
+                                 ('sort', page))]
+            check(len(set(ids)) == 5, f'box ids unique (page {page}/{total})')
+    parsed = p._box_parse(p._box_cid(111, 222, 'next', 3, 'level', 'hoenn'))
+    check(parsed == (111, 222, 'next', 3, 'level', 'hoenn'), 'box id round-trips')
+    check(p._box_parse('garbage') is None and p._box_parse('pkbox:1:2') is None,
+          'malformed box ids rejected')
+
+
+def test_species_buttons() -> None:
+    p = pure()
+    check(p._species_emoji_name(1) == 'p001', 'dex 1 maps p001')
+    check(p._species_emoji_name(25) == 'p025', 'dex 25 maps p025')
+    check(p._species_emoji_name(493) == 'p493', 'dex 493 maps p493')
+    check(all(p._species_emoji_name(x) == '' for x in (0, 494, -1, 'x', None, '')),
+          'out-of-range dex maps to no icon')
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    check(src.count('_species_btn_emoji(') >= 4, 'species faces wired (picker + 2 switch rows)')
+
+
+def test_main_guild_gate() -> None:
+    import asyncio as _aio
+    import database as DB
+    check(DB.MAIN_GUILD_ID == 1530916477941714974, 'main guild id pinned')
+    check(DB.is_main_guild(1530916477941714974)
+          and DB.is_main_guild('1530916477941714974')
+          and not DB.is_main_guild(1549264681867284581)
+          and not DB.is_main_guild(0) and not DB.is_main_guild(None)
+          and not DB.is_main_guild('nope'), 'main-guild matching exact')
+
+    class Msg:
+        def __init__(self, gid):
+            self.guild = type('G', (), {'id': gid})() if gid else None
+
+    ran = []
+
+    class Cog:
+        @DB.main_guild_only
+        async def on_message(self, message):
+            ran.append(message)
+
+    cog = Cog()
+    _aio.run(cog.on_message(Msg(1530916477941714974)))
+    _aio.run(cog.on_message(Msg(1549264681867284581)))
+    _aio.run(cog.on_message(Msg(None)))
+    check(len(ran) == 1, 'decorator passes main guild, blocks holder + DM')
+
+    import re as _re
+    for f in ('levels', 'automod', 'antiraid', 'counting', 'afk', 'tickets',
+              'wordle', 'fitcheck', 'activity', 'babka', 'clown', 'pokemon'):
+        src = (ROOT / 'cogs' / f'{f}.py').read_text(encoding='utf-8-sig')
+        check(bool(_re.search(r'@commands\.Cog\.listener\(\)\n    @db\.main_guild_only\n'
+                              r'    async def on_message', src)),
+              f'{f} listener gated with correct order')
+    main = (ROOT / 'main.py').read_text(encoding='utf-8')
+    check('is_main_guild' in main and 'is_house' in main and 'CheckFailure' in main,
+          'global command gate in before_invoke (silent CheckFailure)')
+    levels = (ROOT / 'cogs' / 'levels.py').read_text(encoding='utf-8-sig')
+    check('is_main_guild' in levels.split('async def voice_tick')[1].split('async def ')[0],
+          'voice sweep skips holder servers')
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
          test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
@@ -836,7 +908,9 @@ TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_no_content_with_layout, test_hunt_parity_helpers,
          test_box_filter_sort, test_badge_icon_everywhere,
          test_preview_fits_discord, test_upsert_no_race,
-         test_dead_stream_matcher, test_conn_ctx_drops_dead_pool)
+         test_dead_stream_matcher, test_conn_ctx_drops_dead_pool,
+         test_box_ids_unique, test_species_buttons,
+         test_main_guild_gate)
 
 if __name__ == '__main__':
     for t in TESTS:

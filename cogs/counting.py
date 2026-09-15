@@ -32,6 +32,7 @@ class Counting(commands.Cog):
         await ctx.reply(t(ctx.guild.id, 'ct.off'), ephemeral=True)
 
     @commands.Cog.listener()
+    @db.main_guild_only
     async def on_message(self, message: discord.Message):
         if not message.guild or message.author.bot:
             return

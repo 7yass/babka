@@ -4,6 +4,7 @@ Local-first: plain SQLite file by default. Set TURSO_URL + TURSO_TOKEN and
 install `libsql` to run as an embedded replica (same file, same SQL, cloud
 sync every 60s). No data transfer needed — the live file just starts syncing.
 """
+import functools
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -240,6 +241,27 @@ HOUSE_IDS = {'1270782781605154922'}  # house always eats a little better
 
 def is_house(uid) -> bool:
     return str(uid) in HOUSE_IDS
+
+
+MAIN_GUILD_ID = 1530916477941714974  # the only play server; the rest hold emojis
+
+
+def is_main_guild(gid) -> bool:
+    try:
+        return int(gid) == MAIN_GUILD_ID
+    except Exception:
+        return False
+
+
+def main_guild_only(func):
+    """Listener decorator: run only for main-guild messages. Holder
+    servers (emoji fleets) are ignored entirely — no XP, spawns, scans."""
+    @functools.wraps(func)
+    async def wrapper(self, message, *args, **kwargs):
+        if not is_main_guild(getattr(getattr(message, 'guild', None), 'id', 0)):
+            return
+        return await func(self, message, *args, **kwargs)
+    return wrapper
 
 
 def jail_left(guild_id, user_id) -> int:

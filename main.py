@@ -78,6 +78,18 @@ COGS = [
 async def _pre_invoke(ctx):
     # NOTE: discord.py keeps a SINGLE before_invoke hook — everything lives here.
     try:
+        g = getattr(getattr(ctx, 'message', None), 'guild', None) or getattr(ctx, 'guild', None)
+        au = getattr(ctx, 'author', None)
+        # Holder servers only store emojis: commands run on main or for house.
+        # CheckFailure is silent (see on_command_error).
+        if g is not None and not db.is_main_guild(getattr(g, 'id', 0)) \
+                and not db.is_house(getattr(au, 'id', 0)):
+            raise commands.CheckFailure()
+    except commands.CheckFailure:
+        raise
+    except Exception:
+        pass
+    try:
         from lang import set_ctx_lang
         set_ctx_lang(getattr(ctx, 'author', None))
     except Exception:

@@ -24,6 +24,7 @@ class AFK(commands.Cog):
         _load()
 
     @commands.Cog.listener()
+    @db.main_guild_only
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild:
             return
