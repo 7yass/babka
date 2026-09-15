@@ -138,8 +138,26 @@ def get_conn():
     if url and tok:
         if _TURSO_CONN is None:
             import libsql
-            _TURSO_CONN = libsql.connect(str(DB_PATH), sync_url=url, auth_token=tok,
-                                         sync_interval=60)
+            try:
+                _TURSO_CONN = libsql.connect(str(DB_PATH), sync_url=url, auth_token=tok,
+                                             sync_interval=60)
+            except Exception as e:
+                msg = str(e)
+                if 'metadata file exists' in msg or 'invalid local state' in msg:
+                    # stale replica state: db file gone, sync metadata left behind
+                    # (e.g. data.db deleted by hand). Local files are a disposable
+                    # cache — Turso cloud is source of truth — so wipe and
+                    # re-bootstrap with a fresh full sync.
+                    print(f'[-] Turso: stale local replica ({e}), wiping data.db* and re-syncing')
+                    for p in sorted(DB_PATH.parent.glob(DB_PATH.name + '*')):
+                        try:
+                            p.unlink()
+                        except Exception:
+                            pass
+                    _TURSO_CONN = libsql.connect(str(DB_PATH), sync_url=url, auth_token=tok,
+                                                 sync_interval=60)
+                else:
+                    raise
         try:
             return _Conn(_TURSO_CONN, persistent=True)
         except Exception as e:
