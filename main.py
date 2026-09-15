@@ -203,7 +203,21 @@ async def main():
         for cog, e in failed:
             print(f'  [-] Failed {cog}: {e}')
         print(f'  [+] {len(COGS) - len(failed)}/{len(COGS)} cogs online. babka :3')
-        await bot.start(TOKEN)
+        for attempt in (1, 2, 3):
+            try:
+                await bot.start(TOKEN)
+                break
+            except discord.errors.LoginFailure:
+                raise
+            except discord.errors.DiscordServerError as e:
+                # Edge/Cloudflare blips (and flagged host IPs) 500 the login.
+                # Bounded retries ride out the transient case; a sticky IP flag
+                # still fails loud after 3 tries instead of crash-looping.
+                print(f'  [-] login 5xx (attempt {attempt}/3): {e.status}. '
+                      f'{"retrying..." if attempt < 3 else "giving up."}')
+                if attempt == 3:
+                    raise
+                await asyncio.sleep(10 * attempt)
 
 
 asyncio.run(main())
