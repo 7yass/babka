@@ -717,6 +717,45 @@ def test_badge_icon_everywhere() -> None:
     check('def badge_icon' in ach, 'badge_icon defined once in achievements')
 
 
+def test_preview_fits_discord() -> None:
+    """Worst-case 12-guild preview must fit one 2000-char message."""
+    u = upre()
+    snaps, plan, aplan = {}, {}, {}
+    for i, g in enumerate(u.EMOJI_GUILDS):
+        names = [f'very_long_emoji_name_{i:02d}_{j}' for j in range(46)]
+        anames = [f'anim_{i:02d}_{j}' for j in range(5)]
+        snaps[str(g)] = {'name': f'A Very Long Guild Name Number {i}',
+                         'limit': 50, 'static': names[:40], 'animated': 1,
+                         'animated_names': anames[:1]}
+        plan[str(g)] = names
+        aplan[str(g)] = anames
+    snaps[str(u.EMOJI_GUILDS[0])] = {'name': 'Tiny', 'limit': 40, 'static': [],
+                                    'animated': 0, 'animated_names': []}
+    check_result = u._check_capacity(plan, aplan, snaps)
+    text = ('Fleet setup SHARDED: **552** static + **5** animated emojis '
+            'across **12** servers. `em()` resolves cross-server.\n'
+            + '\n'.join(u._format_preflight(
+                check_result, [('bad name.png', 'bad-name'), ('big.png', 'over 256KB')],
+                ['notes.txt'], 557))
+            + '\nType `.emojisetup confirm` to execute. This wipes non-fleet emojis!')
+    check(len(text) <= 1900, f'preview fits one message ({len(text)} chars)')
+    check(check_result['ok'] is False, 'over-capacity still detected in compact rows')
+
+
+def test_upsert_no_race() -> None:
+    """Guild-row ensure must be a single atomic upsert (concurrent tasks
+    on new guilds raced check-then-insert into UNIQUE violations)."""
+    src = (ROOT / 'database.py').read_text(encoding='utf-8')
+    check('INSERT OR IGNORE INTO guild_settings (guild_id) VALUES (?)' in src,
+          'get_settings uses atomic upsert')
+    check('INSERT OR IGNORE INTO antiraid (guild_id) VALUES (?)' in src,
+          'get_antiraid uses atomic upsert')
+    import re as _re
+    bare = [ln.strip() for ln in src.splitlines()
+            if _re.search(r'INSERT INTO (guild_settings|antiraid) \(', ln)]
+    check(not bare, 'no bare check-then-insert on guild rows')
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
          test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
@@ -728,7 +767,8 @@ TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_preflight_ignored_and_kinds,
          test_preflight_empty_and_invalid, test_preflight_abort_safety,
          test_no_content_with_layout, test_hunt_parity_helpers,
-         test_box_filter_sort, test_badge_icon_everywhere)
+         test_box_filter_sort, test_badge_icon_everywhere,
+         test_preview_fits_discord, test_upsert_no_race)
 
 if __name__ == '__main__':
     for t in TESTS:

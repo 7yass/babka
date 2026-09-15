@@ -660,10 +660,9 @@ def get_settings(guild_id: str) -> dict:
     if hit and _t.time() - hit[0] < _CACHE_TTL:
         return dict(hit[1])
     with conn_ctx() as conn:
+        # Single atomic upsert: check-then-insert races between tasks on new guilds.
+        conn.execute('INSERT OR IGNORE INTO guild_settings (guild_id) VALUES (?)', (str(guild_id),))
         row = conn.execute('SELECT * FROM guild_settings WHERE guild_id = ?', (str(guild_id),)).fetchone()
-        if not row:
-            conn.execute('INSERT INTO guild_settings (guild_id) VALUES (?)', (str(guild_id),))
-            row = conn.execute('SELECT * FROM guild_settings WHERE guild_id = ?', (str(guild_id),)).fetchone()
         d = dict(row)
     _settings_cache[key] = (_t.time(), d)
     return dict(d)
@@ -684,8 +683,7 @@ def get_prefix(guild_id) -> str:
 
 def get_antiraid(guild_id) -> dict:
     with conn_ctx() as conn:
+        # Single atomic upsert: check-then-insert races between tasks on new guilds.
+        conn.execute('INSERT OR IGNORE INTO antiraid (guild_id) VALUES (?)', (str(guild_id),))
         row = conn.execute('SELECT * FROM antiraid WHERE guild_id = ?', (str(guild_id),)).fetchone()
-        if not row:
-            conn.execute('INSERT INTO antiraid (guild_id) VALUES (?)', (str(guild_id),))
-            row = conn.execute('SELECT * FROM antiraid WHERE guild_id = ?', (str(guild_id),)).fetchone()
         return dict(row)

@@ -155,14 +155,13 @@ def _format_preflight(check: dict, invalid: list, ignored: list, total: int) -> 
         if not g:
             lines.append(f'• {gid}: unreachable (rechecked on confirm).')
             continue
-        bits = []
-        s_stat = 'OK' if g['remaining'] >= 0 else f"OVER by {-g['remaining']}: {', '.join(g['overflow'])}"
-        bits.append(f'static {g["current"]}/{g["limit"]}, new {len(g["new"])}, '
-                    f'kept {len(g["kept"])}, remaining {g["remaining"]} — {s_stat}')
-        a_stat = 'OK' if g['aremaining'] >= 0 else f"OVER by {-g['aremaining']}: {', '.join(g['aoverflow'])}"
-        bits.append(f'animated {g["animated"]}/{g["limit"]}, new {len(g["anew"])}, '
-                    f'kept {len(g["akept"])}, remaining {g["aremaining"]} — {a_stat}')
-        lines.append(f"• {g['name']} ({gid}): " + ' | '.join(bits))
+        # Compact rows: the full 12-guild report must fit one 2000-char message.
+        nm = str(g['name'])[:24]
+        s_stat = 'OK' if g['remaining'] >= 0 else f"OVER:{','.join(g['overflow'][:3])}"
+        a_stat = 'OK' if g['aremaining'] >= 0 else f"OVER:{','.join(g['aoverflow'][:3])}"
+        lines.append(f"• {nm}: S {g['current']}/{g['limit']}+{len(g['new'])}/k{len(g['kept'])}/"
+                     f"r{g['remaining']} {s_stat} | A {g['animated']}/{g['limit']}+{len(g['anew'])}/"
+                     f"k{len(g['akept'])}/r{g['aremaining']} {a_stat}")
     for gid in check['unreachable']:
         if gid not in check['guilds']:
             lines.append(f'• {gid}: unreachable (rechecked on confirm).')
@@ -242,13 +241,6 @@ class Emojis(commands.Cog):
         if (action or '').lower() != 'confirm':
             lines = [f'Fleet setup SHARDED: **{len(valid)}** static + **{len(valid_a)}** animated emojis '
                      f'across **{len(EMOJI_GUILDS)}** servers. `em()` resolves cross-server.']
-            for g in EMOJI_GUILDS:
-                guild = self.bot.get_guild(g)
-                assigned = [f.stem for f in plan[str(g)]]
-                if guild:
-                    lines.append(f'• {guild.name}: {len(guild.emojis)} now → {len(assigned)} assigned ({", ".join(assigned[:7])})')
-                else:
-                    lines.append(t(gid, 'eco.emoji_missing', gid=g))
             snapshots = {}
             for g in EMOJI_GUILDS:
                 guild = self.bot.get_guild(g)
