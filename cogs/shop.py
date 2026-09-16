@@ -9,6 +9,7 @@ import database as db
 from utils.cards import short as cshort
 from lang import t, set_ctx_lang
 from utils.embeds import ok
+from utils.emojis import em
 
 ITEMS = {
     'cookie': {'price': 5000, 'use': 'shop.u_cookie'},
@@ -56,19 +57,26 @@ def inv_take(gid, uid, item: str) -> bool:
         return True
 
 
-class _IxCtx:
-    """Minimal Context shim so purchase handlers work from button clicks."""
-    def __init__(self, interaction: discord.Interaction):
-        self._ix = interaction
-        self.guild = interaction.guild
-        self.author = interaction.user
-
-    async def reply(self, content=None, **kwargs):
-        kwargs.pop('mention_author', None)
-        try:
-            await self._ix.followup.send(content, ephemeral=True, **kwargs)
-        except Exception:
-            pass
+# storefront display names + fleet emoji per item key
+DISPLAY = {
+    'cookie': 'Cookie', 'scratch': 'Scratcher', 'lootbox': 'Lootbox',
+    'nick': 'Nick Token', 'shield': 'Rob Shield', 'xpboost': 'XP Boost',
+    'pardon': 'Pardon', 'curse': 'Curse Scroll', 'megabox': 'Megabox',
+    'force': 'Force Scroll', 'highroller': 'High Roller', 'bail': 'Bail',
+    'vip': 'VIP',
+}
+ITEM_EMOJI = {
+    'cookie': 'candy', 'scratch': 'price_tag', 'lootbox': 'box_box',
+    'nick': 'lock', 'shield': 'shield', 'xpboost': 'bolt',
+    'pardon': 'check', 'curse': 'check_cross', 'megabox': 'box_done',
+    'force': 'quest_scroll', 'highroller': 'medal_gold', 'bail': 'lock_open',
+    'vip': 'trophy',
+}
+SECTION_EMOJI = {
+    'Cheap thrills': 'candy', 'Identity': 'lock', 'Protection': 'shield',
+    'Power': 'bolt', 'Boxes': 'box_box', 'Freedom': 'lock_open',
+    'Prestige': 'trophy',
+}
 
 
 class Shop(commands.Cog):
@@ -86,133 +94,126 @@ class Shop(commands.Cog):
         ('Prestige', ['highroller', 'vip']),
     ]
 
-    def _shop_layout(self, gid, uid, cash: int):
-        from discord.ui import LayoutView, Container, TextDisplay, ActionRow, Separator
-        layout = LayoutView(timeout=180)
-        box = Container(accent_color=0xFAC43C)
-        box.add_item(TextDisplay(f'# 🛒 {t(gid, "shop.title")}\n'
-                                 f'-# {t(gid, "shop.wallet", cash=cshort(cash))}'))
-        for sec, keys in self.SHOP_SECTIONS:
-            box.add_item(Separator(visible=False))
-            lines = '\n'.join(
-                f"• **{k}** — {cshort(ITEMS[k]['price'])} — {t(gid, ITEMS[k]['use'])}"
-                for k in keys)
-            box.add_item(TextDisplay(f'**{sec}**\n{lines}'))
-        # buy buttons, 5 per row
-        row = ActionRow()
-        for sec, keys in self.SHOP_SECTIONS:
+    @classmethod
+    def id_map(cls) -> dict:
+        """Stable buy-by-id numbers: global across SHOP_SECTIONS order."""
+        out, n = {}, 0
+        for _s, keys in cls.SHOP_SECTIONS:
             for k in keys:
-                if len(row.children) >= 5:
-                    box.add_item(row)
-                    row = ActionRow()
-                b = discord.ui.Button(label=f'{k} · {cshort(ITEMS[k]["price"])}',
-                                      style=discord.ButtonStyle.secondary,
-                                      custom_id=f'shopbuy:{uid}:{k}')
-                b.callback = self._mk_buy(gid, uid, k)
-                row.add_item(b)
-        if row.children:
-            box.add_item(row)
-        layout.add_item(box)
-        return layout
+                n += 1
+                out[n] = k
+        return out
 
-    def _mk_buy(self, gid, uid, item: str):
-        async def _cb(interaction: discord.Interaction):
-            set_ctx_lang(interaction.user)
-            if interaction.user.id != int(uid):
-                return await interaction.response.send_message(
-                    t(gid, 'eco.not_yours'), ephemeral=True)
-            from cogs.gamble import bal
-            price = ITEMS[item]['price']
-            cash = bal(gid, uid)['cash']
-            layout = self._confirm_layout(gid, item, price, cash)
-            await interaction.response.send_message(view=layout, ephemeral=True)
-        return _cb
+    def _shop_layout(self, gid, uid, cash: int, filt=None, owner_name: str = ''):
+        """PokeMeow-style storefront: wallet header, numbered sections,
+        buy instructions, category buttons (filtered views) + Main shop."""
+        from utils.shopui import catalog
+        entries = {k: {'name': DISPLAY[k], 'price': ITEMS[k]['price'],
+                       'emo': ITEM_EMOJI.get(k, ''), 'desc': t(gid, ITEMS[k]['use'])}
+                   for k in ITEMS}
+        secs = self.SHOP_SECTIONS if filt is None else \
+            [(s, ks) for s, ks in self.SHOP_SECTIONS if s == filt]
+        num_of = {k: i for i, k in self.id_map().items()}
+        return catalog(
+            gid, uid,
+            tagline=t(gid, 'shop.tagline'),
+            coins_line=t(gid, 'shop.coins', user=owner_name),
+            cash=cash,
+            sections=secs, all_sections=self.SHOP_SECTIONS, entries=entries,
+            accent=0xFAC43C, cmd='shop',
+            tip=t(gid, 'shop.tip', cmd='shop'),
+            buy_title=t(gid, 'shop.buy_title'),
+            buy_1=t(gid, 'shop.buy_1', cmd='shop'),
+            buy_2=t(gid, 'shop.buy_2', cmd='shop'),
+            ex_label=t(gid, 'shop.ex_label'),
+            ex1='nick 1', ex2=f'{num_of.get("nick", 3)} 1',
+            foot=t(gid, 'shop.foot', cmd='shop'),
+            section_emos=SECTION_EMOJI,
+            on_section=self._section_cb(gid, uid))
 
-    def _confirm_layout(self, gid, item: str, price: int, cash: int):
-        from discord.ui import LayoutView, Container, TextDisplay, ActionRow
-        layout = LayoutView(timeout=120)
-        box = Container(accent_color=0xFAC43C)
-        left = cash - price
-        box.add_item(TextDisplay(
-            f'## {item} — {cshort(price)}\n'
-            f'{t(gid, ITEMS[item]["use"])}\n'
-            f'-# {t(gid, "shop.confirm", cash=cshort(cash), left=cshort(left))}'))
-        row = ActionRow()
-        yes = discord.ui.Button(label=t(gid, 'shop.yes'), style=discord.ButtonStyle.success,
-                                custom_id='shop_yes')
-        no = discord.ui.Button(label=t(gid, 'shop.no'), style=discord.ButtonStyle.danger,
-                               custom_id='shop_no')
-
-        async def _yes(interaction: discord.Interaction):
-            set_ctx_lang(interaction.user)
-            await interaction.response.defer(ephemeral=True)
-            try:
-                await interaction.message.edit(view=None)
-            except Exception:
-                pass
-            await self.buy.callback(self, _IxCtx(interaction), item)
-
-        async def _no(interaction: discord.Interaction):
-            set_ctx_lang(interaction.user)
-            try:
-                await interaction.response.edit_message(
-                    content=t(gid, 'shop.cancelled'), view=None)
-            except Exception:
-                pass
-
-        yes.callback = _yes
-        no.callback = _no
-        row.add_item(yes)
-        row.add_item(no)
-        box.add_item(row)
-        layout.add_item(box)
-        return layout
+    def _section_cb(self, gid, uid):
+        """Category buttons: re-render filtered (idx) or full (idx -1)."""
+        def factory(idx):
+            async def _cb(ix: discord.Interaction):
+                set_ctx_lang(ix.user)
+                if ix.user.id != int(uid):
+                    return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
+                from cogs.gamble import bal
+                member = ix.guild.get_member(int(uid)) if ix.guild else None
+                name = member.display_name if member else f'User {uid}'
+                filt = None if idx < 0 else self.SHOP_SECTIONS[idx][0]
+                layout = self._shop_layout(gid, int(uid), bal(gid, int(uid))['cash'],
+                                           filt=filt, owner_name=name)
+                await ix.response.edit_message(view=layout)
+            return _cb
+        return factory
 
     @commands.group(name='shop', description='Sklep')
     async def shop(self, ctx):
         from cogs.gamble import bal
         gid = ctx.guild.id
-        layout = self._shop_layout(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'])
+        layout = self._shop_layout(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'],
+                                   owner_name=ctx.author.display_name)
         await ctx.reply(view=layout, ephemeral=True)
 
     @shop.command(name='buy', description='Kup przedmiot')
-    async def buy(self, ctx, item: str):
+    async def buy(self, ctx, item: str, n: int = 1):
         import random as _rnd
         from cogs.gamble import bal, set_cash, _gamble_gate
         gid = ctx.guild.id
-        item = (item or '').lower()
-        if item not in ITEMS:
+        key = (item or '').lower().strip()
+        if key.isdigit():
+            key = self.id_map().get(int(key), '')
+        if key not in ITEMS:
             return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
-        price = ITEMS[item]['price']
-        if item in self.GAMBLE_ITEMS:
+        n = max(1, min(99, n or 1))
+        price = ITEMS[key]['price']
+        if key in self.GAMBLE_ITEMS:
             wait = _gamble_gate(gid, ctx.author.id)
             if wait is not None:
                 return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
-        if item in ('lootbox', 'megabox'):
-            return await self._open_box(ctx, item, price)
-        if item == 'vip':
+        if key in ('lootbox', 'megabox'):
+            return await self._open_box(ctx, key, price)
+        if key == 'vip':
             return await self._buy_vip(ctx, price)
-        if item == 'scratch':
+        if key == 'scratch':
             return await self._scratch(ctx, price)
-        if item == 'cookie':
+        if key == 'cookie':
             return await self._cookie(ctx, price)
-        if item == 'pardon':
+        if key == 'pardon':
             return await self._pardon(ctx, price)
-        if item == 'bail':
+        if key == 'bail':
             return await self._buy_bail(ctx, price)
         b = bal(gid, ctx.author.id)
-        if b['cash'] < price:
+        total = price * n
+        if b['cash'] < total:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - price)
-        inv_item, dur = BUY_MAP[item]
+        set_cash(gid, ctx.author.id, b['cash'] - total)
+        inv_item, dur = BUY_MAP[key]
         exp = int(time.time()) + dur if dur else 0
-        inv_add(gid, ctx.author.id, inv_item, 1, exp)
+        inv_add(gid, ctx.author.id, inv_item, n, exp)
         try:
             from cogs.achievements import maybe_award
             maybe_award(gid, ctx.author.id)
         except Exception:
             pass
-        await ctx.reply(t(gid, 'shop.bought', item=item), ephemeral=True)
+        await ctx.reply(t(gid, 'shop.bought_n', n=n, item=DISPLAY.get(key, key)), ephemeral=True)
+
+    @shop.command(name='info', description='Opis przedmiotu')
+    async def item_info(self, ctx, item: str = ''):
+        gid = ctx.guild.id
+        key = (item or '').lower().strip()
+        if key.isdigit():
+            key = self.id_map().get(int(key), '')
+        if key not in ITEMS:
+            return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
+        num_of = {k: i for i, k in self.id_map().items()}
+        item_emo = em(gid, ITEM_EMOJI.get(key, ''))
+        head = (f'{item_emo + " " if item_emo else ""}'
+                f'**{DISPLAY[key]}** — {ITEMS[key]["price"]:,} {em(gid, "coin", "$")}')
+        sec = next((s for s, ks in self.SHOP_SECTIONS if key in ks), '?')
+        await ctx.reply(embed=ok(f'{head}\n{t(gid, ITEMS[key]["use"])}\n'
+                                 f'-# `[{num_of.get(key, "?")}]` {sec}'), ephemeral=True)
 
     # (cash_lo, cash_hi, weight) normal prizes per box; then item/jackpot rolls.
     # Tuned so expected value stays well under the price (house edge).

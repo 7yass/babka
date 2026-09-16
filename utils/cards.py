@@ -1,4 +1,4 @@
-"""Shared card renderer: rank / welcome / leave. Styled from the webpanel (/cards)."""
+"""Shared card renderer: rank / welcome / leave cards (PIL)."""
 import io
 from pathlib import Path
 

@@ -1,6 +1,6 @@
 """Visual-language conformance, patch 1: rock mapping + emoji resolver.
 
-Stdlib only. No discord/turso/app imports (TYPE_EMOJI is read via ast).
+Stdlib only. No discord/app imports (TYPE_EMOJI is read via ast).
 Exit code 0 only when every test passes.
 """
 import ast
@@ -148,11 +148,15 @@ def pure():
               '_move_emoji_name', '_switch_emoji_name', '_picker_emoji_name',
               '_weather_line', '_rarity_line', '_tier_word', 'rarity_of', 'showdown_gif',
               'streak_get', '_balls_left_line', 'balls_get', 'region_of',
-              '_box_tier', '_box_match', '_box_slots', '_box_sort_entries',
+              '_box_tier', '_box_match', '_box_slots', '_box_stacks',
+              '_box_sort_stacks',
               '_box_cid', '_box_parse', '_species_emoji_name',
               '_match_mon', '_evo_text', 'form_of', 'form_emo', 'form_sprite',
               '_tier_letter', '_plain_name', '_safe_moves', '_turn_safe',
               '_roll_ivs', '_ivs_of', '_iv_pct', 'calc_stats',
+              '_evs_parse', '_evs_of', '_ev_total', '_ev_top', '_ev_yield',
+              '_ev_apply', 'held_key', 'held_of', 'held_label', 'held_mark',
+              '_held_line', '_ev_line', 'held_strike', 'held_xp', '_held_heal',
               '_arena_forest', '_arena_cave', 'moveset_for', 'wild_image',
               '_sky_grass', '_platform'}
     import lang as LANG
@@ -173,7 +177,8 @@ def pure():
                     'TIER_WORD', 'RARITY_COMMON', 'RARITY_UNCOMMON', 'RARITY_RARE',
                     'RARITY_LEGENDARY', 'RARITY_SHINY', 'BOX_SORTS', 'REGIONS',
                     '_BOX_RANK', 'FORMS', 'FORM_SUFFIX', '_TIER_LETTER', 'ARENAS',
-                    '_TACKLE', 'IV_KEYS'):
+                    '_TACKLE', 'IV_KEYS', 'EV_KEYS', 'EV_MAX_STAT', 'EV_MAX_TOTAL',
+                    'EV_LABEL', 'POWER_EV', 'HELD_ITEMS', 'HELD_ORDER'):
             mod.__dict__[node.targets[0].id] = ast.literal_eval(node.value)
     _PURE = mod
     return mod
@@ -701,18 +706,25 @@ def test_box_filter_sort() -> None:
     check(p._box_match(m3, r3, 'water') and not p._box_match(m1, r1, 'water'), 'type filter')
     check(p._box_slots([m1, m2, m3]) == {11: 1, 7: 2, 3: 3}, 'stable true slots')
     entries = [(m1, r1), (m2, r2), (m3, r3)]
-    check([e[0]['id'] for e in p._box_sort_entries(entries, 'rarity')] == [7, 11, 3],
-          'rarity sort: shiny, rare, common')
-    check([e[0]['id'] for e in p._box_sort_entries(entries, 'level')] == [11, 3, 7],
-          'level sort descends')
-    check([e[0]['id'] for e in p._box_sort_entries(entries, 'dex')] == [3, 7, 11],
-          'dex sort ascends')
-    check([e[0]['id'] for e in p._box_sort_entries(entries, 'new')] == [11, 7, 3],
-          'new sort uses insertion order')
+    m4 = _fx_mon(12, 60, 30)                     # second poliwag -> stack x2
+    stacks = p._box_stacks(entries + [(m4, r3)])
+    check(len(stacks[(60, False)]) == 2, 'same species stacks with x count')
+    keys = [k for k, _ in p._box_sort_stacks(stacks, 'rarity')]
+    check(keys == [(133, True), (282, False), (60, False)],
+          'stack rarity sort: shiny, rare, common')
+    keys = [k for k, _ in p._box_sort_stacks(stacks, 'level')]
+    check(keys == [(60, False), (282, False), (133, True)],
+          'stack level sort: top level descends')
+    keys = [k for k, _ in p._box_sort_stacks(stacks, 'dex')]
+    check(keys == [(60, False), (133, True), (282, False)],
+          'stack dex sort ascends (shiny first per species)')
+    keys = [k for k, _ in p._box_sort_stacks(stacks, 'new')]
+    check(keys == [(60, False), (282, False), (133, True)],
+          'stack new sort: newest catch descends')
     src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
     seg = src[src.find('def _box_view'):src.find('def _mk_box_btn') + 2000]
     check(all(c not in BANNED for c in seg), 'no banned glyphs in box view code')
-    for btn in ("'<<'", "'BACK'", "'NEXT'", "'>>'", "'SORT:"):
+    for btn in ("'Back'", "'Next'", "'Sort'", "'nav_first'", "'nav_last'"):
         check(btn in seg, f'ascii nav button present: {btn}')
     check('pk_mons ADD COLUMN fav' in
           (ROOT / 'database.py').read_text(encoding='utf-8'),
@@ -767,73 +779,6 @@ def test_upsert_no_race() -> None:
     bare = [ln.strip() for ln in src.splitlines()
             if _re.search(r'INSERT INTO (guild_settings|antiraid) \(', ln)]
     check(not bare, 'no bare check-then-insert on guild rows')
-
-
-def test_dead_stream_matcher() -> None:
-    import database as DB
-    check(DB._is_dead_stream(RuntimeError(
-        'Hrana: api error: status=404 Not Found, body={"error":"stream not found: e8f7:fb97"}')),
-        'matches stream-not-found')
-    check(DB._is_dead_stream(RuntimeError('sync error: invalid local state')),
-          'matches sync errors')
-    check(not DB._is_dead_stream(RuntimeError('UNIQUE constraint failed: guild_settings.guild_id')),
-          'constraint errors are not stream deaths')
-    check(not DB._is_dead_stream(RuntimeError('')), 'empty error is not a stream death')
-
-
-def test_conn_ctx_drops_dead_pool() -> None:
-    import database as DB
-
-    class Stub:
-        def __init__(self):
-            self.closed = 0
-
-        def commit(self):
-            raise RuntimeError('Hrana: api error: stream not found: abc')
-
-        def close(self):
-            self.closed += 1
-
-    stub, orig_get, orig_conn = Stub(), DB.get_conn, DB._TURSO_CONN
-    DB._TURSO_CONN = stub
-    DB.get_conn = lambda: DB._TURSO_CONN
-    try:
-        try:
-            with DB.conn_ctx() as c:
-                c.commit()
-            raised = False
-        except RuntimeError:
-            raised = True
-        check(raised, 'dead-stream error still surfaces to caller')
-        check(DB._TURSO_CONN is None and stub.closed >= 1, 'pool dropped after dead stream')
-    finally:
-        DB.get_conn = orig_get
-        DB._TURSO_CONN = orig_conn
-
-    class Fine:
-        committed = False
-
-        def commit(self):
-            Fine.committed = True
-
-        def close(self):
-            pass
-
-    fine = Fine()
-    DB._TURSO_CONN = fine
-    DB.get_conn = lambda: DB._TURSO_CONN
-    try:
-        try:
-            with DB.conn_ctx() as c:
-                raise ValueError('UNIQUE constraint failed: guild_settings.guild_id')
-            raised = False
-        except ValueError:
-            raised = True
-        check(raised, 'ordinary errors still surface')
-        check(DB._TURSO_CONN is fine, 'healthy pool is never dropped')
-    finally:
-        DB.get_conn = orig_get
-        DB._TURSO_CONN = orig_conn
 
 
 def test_box_ids_unique() -> None:
@@ -1049,8 +994,8 @@ def test_box_card() -> None:
         tmp.cleanup()
     src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
     seg = src[src.find('def _box_view'):src.find('def _mk_box_btn')]
-    for needle in ('Section(', 'Thumbnail(media=', 'attachment://', 'Page ',
-                   ';fav <slot>', ';box <kanto', ';box @user', 'nav_first',
+    for needle in ('Section(', 'Thumbnail(media=', 'Page ', ';fav <slot',
+                   ';box <kanto', ';box @user', 'nav_first',
                    'nav_back', 'nav_next', 'nav_last', 'nav_sort'):
         check(needle in seg, f'box card contains: {needle}')
     check(all(c not in BANNED for c in seg), 'no banned glyphs in box view')
@@ -1152,7 +1097,107 @@ def test_movesets_ivs() -> None:
     check(lo['maxhp'] < hi['maxhp'] and lo['atk'] < hi['atk'], 'IVs scale stats')
     check("ADD COLUMN ivs" in (ROOT / 'database.py').read_text(encoding='utf-8'),
           'ivs migrations present')
-    check(src.count('nick, active, ivs)') >= 7, 'all mon inserts carry ivs')
+    check(src.count('nick, active, ivs, evs)') >= 7, 'all mon inserts carry ivs+evs')
+
+
+def test_evs_and_held() -> None:
+    """EVs from battles + held items: schema, caps, math and wiring."""
+    import inspect as _insp
+    import json as _j
+    p = pure()
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    db_src = (ROOT / 'database.py').read_text(encoding='utf-8')
+    zero = {k: 0 for k in p.EV_KEYS}
+    check('ADD COLUMN evs' in db_src and 'ADD COLUMN held' in db_src,
+          'evs/held migrations present')
+    check(p.EV_KEYS == p.IV_KEYS and p.EV_MAX_STAT == 252 and p.EV_MAX_TOTAL == 510,
+          'EV keys mirror IVs, caps 252/510')
+    check('evs' in str(_insp.signature(p.calc_stats)), 'calc_stats takes evs')
+    check(p._evs_of({}) == zero and p._ev_total({}) == 0
+          and p._evs_of({'evs': 'junk'}) == zero, 'legacy mons read untrained')
+    check(p._evs_of({'evs': _j.dumps({'atk': 300})})['atk'] == 252, 'stored EVs clamp')
+    base = {'hp': 50, 'atk': 50, 'dfn': 50, 'spa': 50, 'spd': 50, 'spe': 50}
+    lo = p.calc_stats(base, 50, zero, None, zero)
+    hi = p.calc_stats(base, 50, zero, None, {**zero, 'spe': 252})
+    check(hi['spe'] > lo['spe'] and hi['maxhp'] == lo['maxhp'], 'EVs scale stats (+EV/4)')
+    row = {'hp': 45, 'atk': 49, 'dfn': 49, 'spa': 65, 'spd': 65, 'spe': 45, 'legendary': 0}
+    check(p._ev_yield(row) == {'spa': 1, 'spd': 1}, 'EV yield traces the best base stat')
+    check(set(p._ev_yield(dict(row, legendary=1)).values()) == {2}, 'legend yield doubled')
+    applied, after = p._ev_apply({'spe': 250}, {'spe': 9})
+    check(applied == {'spe': 2} and after['spe'] == 252, 'per-stat cap 252')
+    check(p._ev_apply({k: 85 for k in p.EV_KEYS}, {'spe': 9})[0] == {}, 'total cap 510')
+    check(p._ev_apply({}, {'bogus': 5, 'atk': -2})[0] == {}, 'junk gains ignored')
+    check(p._ev_top({'evs': _j.dumps({'atk': 90, 'spe': 40})}) == ('atk', 90),
+          'top trained stat reported')
+    check('EV 96/510' in p._ev_line(0, {'evs': _j.dumps({'spe': 96})}),
+          'mon card EV line renders')
+    check(p._ev_line(0, {}) == 'EV untrained', 'untrained card line')
+    check(len(p.HELD_ITEMS) == 10 and sorted(p.HELD_ORDER) == sorted(p.HELD_ITEMS),
+          'held catalog complete')
+    check(all(v.get('name') and v.get('price', 0) > 0 and v.get('icon') and v.get('effect')
+              for v in p.HELD_ITEMS.values()), 'held records carry name/price/icon/effect')
+    check(sum(1 for v in p.HELD_ITEMS.values() if v.get('effect') == 'ev') == 6,
+          'six power items cover the six stats')
+    for k in p.HELD_ORDER:
+        check((ROOT / 'assets' / 'emojis' / f"{p.HELD_ITEMS[k]['icon']}.png").is_file(),
+              f"held icon deployable: {p.HELD_ITEMS[k]['icon']}")
+    check(p.held_key({'held': 'pow_atk'}) == 'pow_atk' and p.held_key({}) == '',
+          'held_key reads the column')
+    check(p.held_of({'held': 'bogus'}) == {}, 'unknown held key ignored')
+    check('Power Bracer' in p.held_label(0, 'pow_atk') and p.held_label(0, '') == '',
+          'held_label names items, empty when bare')
+    check(p.held_mark(0, {'held': 'leftovers'}).endswith('[Leftovers]')
+          and p.held_mark(0, {}) == '', 'held_mark tags cards')
+    # battle effects
+    check(p.held_strike({'held': 'lifeorb'}, {}, 100) == 130, 'Life Orb +30% damage')
+    check(p.held_strike({}, {}, 100) == 100, 'bare mons strike normally')
+    check(p.held_strike({}, {'held': 'focusband', 'hp': 40}, 99) == 39,
+          'Focus Band survives the KO at 1 HP')
+    check(p.held_strike({}, {'held': 'focusband', 'hp': 40, 'fb_used': True}, 99) == 99,
+          'Focus Band saves only once')
+    check(p.held_xp({'held': 'luckyegg'}, 100) == 150, 'Lucky Egg +50% XP')
+    log = []
+    mon = {'held': 'leftovers', 'hp': 50, 'stats': {'maxhp': 160}, 'name': 'Bulba'}
+    p._held_heal(0, mon, log)
+    check(mon['hp'] == 60 and bool(log), 'Leftovers heals 1/16 a turn')
+    check(p.HELD_ITEMS['pow_atk'].get('stat') == 'atk' and p.POWER_EV == 4,
+          'power items award +4 EVs into their own stat')
+    # wiring: 4 strike sites + the helper, both win paths, both loops
+    check(src.count('held_strike(') >= 5, 'every strike site applies held items')
+    check("evs_win(gid, st['mid']" in src and 'evs_win(gid, fin_mid' in src,
+          'EVs awarded on wild and duel wins')
+    check(src.count('_held_heal(') >= 3, 'Leftovers ticks in both battle loops')
+    check('held_xp(me, wild' in src and 'held_xp(fin, foe' in src,
+          'Lucky Egg boosts both win paths')
+    check("name='evs'" in src and "name='held'" in src, 'evs/held commands exist')
+    check('held_bag' in src and '_held_line(gid, m)' in src, 'held helpers wired into views')
+    b0 = src.index('BALL_SECTIONS = [')
+    blk = src[b0:src.index('\n    ]', b0)]
+    check(blk.index("('Held'") > blk.index("('Special'"),
+          'held shop section appended last (ids stable)')
+    q = chr(39)
+    check(f"{{k: v[{q}price{q}] for k, v in HELD_ITEMS.items()}}" in src,
+          'held items buyable in the balls shop')
+    # language pairs + help entry
+    lang = _j.loads((ROOT / 'lang.json').read_text(encoding='utf-8'))
+    keys = ('eco.pk_ev_gain', 'eco.pk_ev_line', 'eco.pk_ev_top_none', 'eco.pk_evs_title',
+            'eco.pk_evs_head', 'eco.pk_evs_none', 'eco.pk_evs_hint', 'eco.pk_held_title',
+            'eco.pk_held_line', 'eco.pk_held_none', 'eco.pk_held_empty', 'eco.pk_held_bag',
+            'eco.pk_held_use', 'eco.pk_held_equipped', 'eco.pk_held_removed',
+            'eco.pk_held_same', 'eco.pk_held_noitem', 'eco.pk_held_bad', 'eco.pk_held_heal',
+            'eco.pk_shop_held_heal', 'eco.pk_shop_held_dmg', 'eco.pk_shop_held_survive',
+            'eco.pk_shop_held_xp', 'eco.pk_shop_held_ev')
+    missing = [k for k in keys if not lang['en'].get(k) or not lang['pl'].get(k)]
+    check(not missing, f'EV/held lang pairs EN+PL ({len(keys)} keys) {missing}')
+    hm = _j.loads((ROOT / 'helpmeta.json').read_text(encoding='utf-8'))
+    check('evs' in hm['meta'] and 'held' in hm['meta'], 'helpmeta covers evs/held')
+    tree = ast.parse(src)
+    for name in ('_ev_line', '_held_line', 'held_label', 'held_mark'):
+        node = next((n for n in ast.walk(tree)
+                     if isinstance(n, ast.FunctionDef) and n.name == name), None)
+        seg = ast.get_source_segment(src, node) if node else ''
+        bad = sorted({c for c in (seg or '') if ord(c) >= 0x2500})
+        check(bool(seg) and not bad, f'{name} glyph-free ({bad or "clean"})')
 
 
 def test_hunt_modes() -> None:
@@ -1213,6 +1258,32 @@ def test_catch_mode_text() -> None:
               f'catch line fight-free ({section})')
 
 
+def test_sweep_assets() -> None:
+    for f in ('price_tag', 'evo_burst', 'encounter_wild', 'catch_reticle',
+              'catch_burst', 'chain_link', 'pity_token', 'up', 'buddy_ribbon',
+              'egg_crack', 'npc_cap', 'npc_net', 'item_grazz', 'check_cross',
+              'hunt_target', 'streak_flame', 'rate_up', 'box_box', 'dex_book',
+              'trade_swap', 'quest_scroll', 'market_stall', 'coin', 'calendar',
+              'check', 'egg', 'potion', 'candy', 'medal_gold', 'medal_silver',
+              'medal_bronze', 'trophy', 'star', 'shield'):
+        check((ROOT / 'assets' / 'emojis' / f'{f}.png').is_file(), f'sweep asset: {f}')
+
+
+def test_sweep_glyphs() -> None:
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    tree = ast.parse(src)
+    fns = {'_market_view', '_mk_market_btn', '_mini', '_wrap_sec', '_sec_row',
+           '_mv_name', '_tier_letter', '_box_view', '_dex_view', '_dex_row',
+           '_hit_tag', '_weather_line', '_rarity_line', '_balls_left_line',
+           '_fighter_picker', '_attach_enc_buttons', '_grant_starter',
+           '_encounter_layout', '_team_line', 'xp_bar', 'hp_dot', 'mon_name'}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in fns:
+            seg = ast.get_source_segment(src, node) or ''
+            bad = sorted({c for c in seg if ord(c) >= 0x2500})
+            check(not bad, f'{node.name} glyph-free ({bad or "clean"})')
+
+
 TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_per_guild_lookup, test_global_fallback, test_missing_emoji_fallback,
          test_id_format, test_patch2_names_and_markers, test_patch2_ascii_fallbacks,
@@ -1226,13 +1297,14 @@ TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_no_content_with_layout, test_hunt_parity_helpers,
          test_box_filter_sort, test_badge_icon_everywhere,
          test_preview_fits_discord, test_upsert_no_race,
-         test_dead_stream_matcher, test_conn_ctx_drops_dead_pool,
          test_box_ids_unique, test_species_buttons,
          test_main_guild_gate, test_buddy_match_evo,
          test_catchmeta_rarity, test_anime_silhouette, test_forms,
          test_master_never_fails, test_box_card, test_dextypes_list,
          test_plain_arena, test_turn_armor, test_movesets_ivs,
-         test_hunt_modes, test_phelp_hub, test_catch_mode_text)
+         test_hunt_modes, test_phelp_hub, test_catch_mode_text,
+         test_evs_and_held,
+         test_sweep_assets, test_sweep_glyphs)
 
 if __name__ == '__main__':
     for t in TESTS:

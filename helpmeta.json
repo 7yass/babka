@@ -1397,16 +1397,16 @@
     ],
     "box": [
       "economy",
-      "Your caught pokemon, 10 per page.",
+      "Your collection: species stacks, 10 per page.",
       [],
-      "[page]",
+      "[filter/@user] [page]",
       "Everyone"
     ],
     "mon": [
       "economy",
       "Full stats card of one pokemon: level, types, moves, XP.",
       [],
-      "<slot>",
+      "<slot|name>",
       "Everyone"
     ],
     "active": [
@@ -1446,7 +1446,7 @@
     ],
     "balls": [
       "economy",
-      "Ball/potion/candy/egg stash. `.balls buy` stocks up.",
+      "Item shop: balls, potions, candy, eggs, lures. Numbered rows — buy by name or ID.",
       [],
       "buy",
       "Everyone"
@@ -1631,6 +1631,20 @@
       "Your pokemon bag: balls, potions, candy, incense, eggs.",
       [],
       "",
+      "Everyone"
+    ],
+    "evs": [
+      "economy",
+      "EV panel: what battles trained, caps and Power items.",
+      [],
+      "<slot|name>",
+      "Everyone"
+    ],
+    "held": [
+      "economy",
+      "Held items: equip, swap or drop one.",
+      [],
+      "<slot> <item|none>",
       "Everyone"
     ],
     "list": [
