@@ -606,6 +606,21 @@ for _k, _v in list(EVO_STONES.items()):
     EVO_STONE_BY_NAME[_k.replace('_', ' ')] = _k
 STONE_ORDER = tuple(EVO_STONES.keys())
 
+# Extra shop items as per spec (Balls/Items/Buddy)
+SHOP_EXTRAS = {
+    'amuletcoin':    {'name': 'Amulet Coin',    'price': 150000,  'icon': 'coin'},
+    'questscroll':   {'name': 'Quest Scroll',   'price': 10000,   'icon': 'quest_scroll'},
+    'repel':         {'name': 'Repel',          'price': 5000,    'icon': 'item_repel'},
+    'shinycharm':    {'name': 'Shiny Charm',    'price': 50000,   'icon': 'star'},
+    'lootbox':       {'name': 'Lootbox',        'price': 10000,   'icon': 'box_box'},
+    'wailmer_pail':  {'name': 'Wailmer Pail',   'price': 1000000, 'icon': 'potion'},
+    'expshare':      {'name': 'EXP Share',      'price': 2500000, 'icon': 'candy'},
+    'evolutionstone':{'name': 'Evolution Stone','price': 25000,   'icon': 'evo_burst'},
+    'mega_bracelet': {'name': 'Mega Bracelet',  'price': 125000,  'icon': 'mega_bracelet'},
+}
+SHOP_EXTRA_ORDER = ('amuletcoin','questscroll','repel','shinycharm','lootbox','wailmer_pail')
+SHOP_BUDDY_ORDER = ('expshare','evolutionstone','mega_bracelet')
+
 
 def _evs_parse(raw) -> dict:
     """EV text -> full stat dict, clamped. Junk/legacy reads as all zeros."""
@@ -2345,21 +2360,25 @@ class Pokemon(commands.Cog):
         ('Special', ['egg', 'incense']),
         ('Held', list(HELD_ORDER)),  # appended last: ids 1-10 stay stable
         ('Stones', list(STONE_ORDER)),
+        ('Items', list(SHOP_EXTRA_ORDER)),
+        ('Buddy', list(SHOP_BUDDY_ORDER)),
     ]
     BALL_EMOJI = {'poke': 'pokeball', 'great': 'greatball', 'ultra': 'ultraball',
                   'master': 'masterball', 'potion': 'potion', 'superpotion': 'potion',
                   'candy': 'candy', 'egg': 'egg', 'grazz': 'item_grazz',
                   'incense': 'fire', 'repel': 'item_repel',
                   **{k: v['icon'] for k, v in HELD_ITEMS.items()},
-                  **{k: v['icon'] for k, v in EVO_STONES.items()}}
+                  **{k: v['icon'] for k, v in EVO_STONES.items()},
+                  **{k: v['icon'] for k, v in SHOP_EXTRAS.items()}}
     PK_NAMES = {'poke': 'Pokeball', 'great': 'Greatball', 'ultra': 'Ultraball',
                 'master': 'Masterball', 'potion': 'Potion', 'superpotion': 'Super Potion',
                 'candy': 'Rare Candy', 'grazz': 'Golden Razz', 'egg': 'Pokemon Egg',
                 'incense': 'Shiny Incense',
                 **{k: v['name'] for k, v in HELD_ITEMS.items()},
-                **{k: v['name'] for k, v in EVO_STONES.items()}}
+                **{k: v['name'] for k, v in EVO_STONES.items()},
+                **{k: v['name'] for k, v in SHOP_EXTRAS.items()}}
     BALL_SECTION_EMOJI = {'Balls': 'btn_ball', 'Battle': 'btn_fight', 'Special': 'egg',
-                          'Held': 'rate_up', 'Stones': 'evo_burst'}
+                          'Held': 'rate_up', 'Stones': 'evo_burst', 'Items': 'box_box', 'Buddy': 'buddy_ribbon'}
 
     @classmethod
     def ball_ids(cls) -> dict:
@@ -2389,6 +2408,8 @@ class Pokemon(commands.Cog):
             return HELD_ITEMS[item]['price']
         if item in EVO_STONES:
             return EVO_STONES[item]['price']
+        if item in SHOP_EXTRAS:
+            return SHOP_EXTRAS[item]['price']
         return 0
 
     @staticmethod
@@ -2413,9 +2434,11 @@ class Pokemon(commands.Cog):
                      stat=EV_LABEL.get(it.get('stat', ''), ''), n=POWER_EV)
         st = EVO_STONES.get(item)
         if st:
-            # list mons it evolves: Eevee -> targets
             mons = ', '.join(str(_dex_row(d).get('name','?').capitalize()) for d in st['mons'].values())
             return t(gid, 'eco.pk_shop_stone', mons=mons or 'Eevee')
+        ex = SHOP_EXTRAS.get(item)
+        if ex:
+            return f"{ex['name']} — {ex['price']:,} PokeCoins"
         return ''
 
     @commands.group(name='balls', description='Balle')
@@ -2436,20 +2459,23 @@ class Pokemon(commands.Cog):
         secs = self.BALL_SECTIONS if filt is None else \
             [(s, ks) for s, ks in self.BALL_SECTIONS if s == filt]
         num_of = {k: i for i, k in self.ball_ids().items()}
+        poke = em(gid, 'coin') or '🪙'
+        tagline = "Buy some items for your adventure!"
+        coins_line = f"{owner_name}'s PokeCoins: {poke} {cash:,}"
         return catalog(
             gid, uid,
-            tagline=t(gid, 'eco.pk_balls_title'),
-            coins_line=t(gid, 'shop.coins', user=owner_name),
+            tagline=tagline,
+            coins_line=coins_line,
             cash=cash,
             sections=secs, all_sections=self.BALL_SECTIONS, entries=entries,
             accent=0xFF4655, cmd='balls',
-            tip=t(gid, 'shop.tip', cmd='balls'),
-            buy_title=t(gid, 'shop.buy_title'),
-            buy_1=t(gid, 'shop.buy_1', cmd='balls'),
-            buy_2=t(gid, 'shop.buy_2', cmd='balls'),
-            ex_label=t(gid, 'shop.ex_label'),
-            ex1='poke 5', ex2=f'{num_of.get("ultra", 3)} 2',
-            foot=t(gid, 'shop.foot', cmd='balls'),
+            tip="`/items info` for item description & usage",
+            buy_title="TO BUY AN ITEM",
+            buy_1="`;balls buy {itemname} {amount}` OR",
+            buy_2="`;balls buy {id #} {amount}`  (e.g. `;balls buy questscroll 1` / `;balls buy 6 1`)",
+            ex_label="Example",
+            ex1='questscroll 1', ex2=f'{num_of.get("questscroll", 6)} 1',
+            foot="View item usage using `;items info`",
             section_emos=self.BALL_SECTION_EMOJI,
             on_section=self._balls_section_cb(gid, uid),
             extra_head=self._balls_line(gid, uid))

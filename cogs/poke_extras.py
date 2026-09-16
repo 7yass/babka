@@ -7,7 +7,7 @@ import random
 import time
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 import database as db
 from lang import t, set_ctx_lang
@@ -36,6 +36,110 @@ def _layout(gid, title, desc, color=0xFF4655):
 class PokeExtras(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.autospawn_loop.start()
+        # ensure table
+        try:
+            with db.conn_ctx() as conn:
+                conn.execute('CREATE TABLE IF NOT EXISTS pk_autospawn (guild_id TEXT, channel_id TEXT, PRIMARY KEY (guild_id, channel_id))')
+        except Exception:
+            pass
+
+    def cog_unload(self):
+        try:
+            self.autospawn_loop.cancel()
+        except Exception:
+            pass
+
+    @tasks.loop(minutes=5)
+    async def autospawn_loop(self):
+        await self.bot.wait_until_ready()
+        # spawn a mystery in each autospawn channel with 30% chance per cycle
+        try:
+            with db.conn_ctx() as conn:
+                rows = conn.execute('SELECT guild_id, channel_id FROM pk_autospawn').fetchall()
+        except Exception:
+            return
+        for r in rows:
+            if random.random() > 0.35:
+                continue
+            guild = self.bot.get_guild(int(r['guild_id']))
+            if not guild:
+                continue
+            ch = guild.get_channel(int(r['channel_id']))
+            if not ch:
+                continue
+            # spawn a mystery via pokemon cog's _wild
+            try:
+                pcog = self.bot.get_cog('Pokemon')
+                if not pcog:
+                    continue
+                # avoid double spawn if channel already has wild
+                if pcog._get_wild(int(r['guild_id']), int(r['channel_id'])):
+                    continue
+                # pick random dex
+                import aiohttp
+                async with aiohttp.ClientSession() as s:
+                    from cogs.pokemon import dex_get, pix_url, silhouette_image, calc_stats
+                    import random as _rnd
+                    for _ in range(12):
+                        dex = _rnd.randint(1, 493)
+                        row = await dex_get(s, dex)
+                        if row and (not row.get('legendary') or _rnd.random() < 0.2):
+                            break
+                    else:
+                        continue
+                    level = _rnd.randint(5, 40)
+                    stats = calc_stats(row, level)
+                    pcog._wild[(str(r['guild_id']), str(r['channel_id']))] = {
+                        'dex': dex, 'level': level, 'shiny': False,
+                        'hp': stats['maxhp'], 'maxhp': stats['maxhp'],
+                        'exp': int(time.time()) + 600}
+                    spr = pix_url(dex, False)
+                    raw = await pcog.fetch_sprite(s, spr) if hasattr(pcog, 'fetch_sprite') else None
+                    # try silhouette
+                    try:
+                        from cogs.pokemon import silhouette_image as _sil
+                        sil = _sil(raw) if raw else None
+                    except Exception:
+                        sil = None
+                    import io as _bio
+                    gid = int(r['guild_id'])
+                    desc = f"Guess the Pokemon! `;guess <name>` — `;hint` for help\n-# Use `;catch` after guessing or guess correctly to claim."
+                    if sil:
+                        view = pcog._layout(gid, "A wild Pokemon appeared! Guess `;guess <name>`", desc, 'attachment://who.png')
+                        await ch.send(view=view, file=discord.File(_bio.BytesIO(sil), 'who.png'))
+                    else:
+                        await ch.send(view=pcog._layout(gid, "A wild Pokemon appeared! Guess `;guess <name>`", desc, spr))
+            except Exception:
+                continue
+
+    @autospawn_loop.before_loop
+    async def _before_autospawn(self):
+        await self.bot.wait_until_ready()
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot or not message.guild:
+            return
+        content = (message.content or '').strip()
+        low = content.lower()
+        # handle ;stats and ;pstats as pokemon trainer stats without registering a command
+        if low.startswith(';stats') or low.startswith(';pstats'):
+            # don't hijack ;stats setup / refresh subcommands
+            parts = low.split()
+            if len(parts) > 1 and parts[1] in ('setup','refresh'):
+                return
+            # try trainer command
+            cmd = self.bot.get_command('trainer')
+            if cmd:
+                ctx = await self.bot.get_context(message)
+                if ctx.command is None:
+                    # avoid double invoke when actual command exists
+                    try:
+                        await ctx.invoke(cmd, member=message.mentions[0] if message.mentions else None)
+                    except Exception:
+                        pass
+            return
 
     # ---------- aliases / wrappers ----------
     @commands.command(name='pokedex', description='Pokedex (alias)')
@@ -75,31 +179,7 @@ class PokeExtras(commands.Cog):
             return await ctx.invoke(cmd, member=member, amount=amount)
         await ctx.reply("Use `;pay @user <amount>`", ephemeral=True)
 
-    # ;stats is taken by ServerStats (setup/refresh). Pokemon stats is ;trainer.
-    # Keep alias via on_message so ;stats @user still shows trainer card without conflict.
-    @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        if message.author.bot or not message.guild:
-            return
-        content = (message.content or '').strip()
-        low = content.lower()
-        # handle ;stats and ;pstats as pokemon trainer stats without registering a command
-        if low.startswith(';stats') or low.startswith(';pstats'):
-            # don't hijack ;stats setup / refresh subcommands
-            parts = low.split()
-            if len(parts) > 1 and parts[1] in ('setup','refresh'):
-                return
-            # try trainer command
-            cmd = self.bot.get_command('trainer')
-            if cmd:
-                ctx = await self.bot.get_context(message)
-                if ctx.command is None:
-                    # avoid double invoke when actual command exists
-                    try:
-                        await ctx.invoke(cmd, member=message.mentions[0] if message.mentions else None)
-                    except Exception:
-                        pass
-            return
+    # stats alias handled in top on_message
 
     # ---------- economy / account stubs that actually work ----------
     @commands.command(name='highscores', description='Highscores')
@@ -169,8 +249,29 @@ class PokeExtras(commands.Cog):
 
     @commands.command(name='autospawn', description='Autospawn')
     async def autospawn(self, ctx, action: str = '', channel: discord.TextChannel = None):
+        from utils.checks import staff_or  # not needed but keep
         gid = ctx.guild.id
-        await ctx.reply(view=_layout(gid, "Autospawn", "Usage: `;autospawn add #channel` / `;autospawn remove #channel` (stub)."), ephemeral=True)
+        act = (action or '').lower().strip()
+        if act in ('add','enable','on') and channel:
+            with db.conn_ctx() as conn:
+                conn.execute('INSERT OR IGNORE INTO pk_autospawn (guild_id, channel_id) VALUES (?,?)', (str(gid), str(channel.id)))
+            return await ctx.reply(view=_layout(gid, "Autospawn", f"Added {channel.mention} to autospawn."), ephemeral=True)
+        if act in ('remove','rem','del','off','disable') and channel:
+            with db.conn_ctx() as conn:
+                conn.execute('DELETE FROM pk_autospawn WHERE guild_id=? AND channel_id=?', (str(gid), str(channel.id)))
+            return await ctx.reply(view=_layout(gid, "Autospawn", f"Removed {channel.mention}."), ephemeral=True)
+        if act in ('list','show','status'):
+            with db.conn_ctx() as conn:
+                rows = conn.execute('SELECT channel_id FROM pk_autospawn WHERE guild_id=?', (str(gid),)).fetchall()
+            if not rows:
+                return await ctx.reply(view=_layout(gid, "Autospawn", "No channels. `;autospawn add #channel`"), ephemeral=True)
+            lst = ', '.join(f"<#{r['channel_id']}>" for r in rows)
+            return await ctx.reply(view=_layout(gid, "Autospawn", f"Channels: {lst}"), ephemeral=True)
+        # default: show help + current
+        with db.conn_ctx() as conn:
+            rows = conn.execute('SELECT channel_id FROM pk_autospawn WHERE guild_id=?', (str(gid),)).fetchall()
+        cur = ', '.join(f"<#{r['channel_id']}>" for r in rows) if rows else "none"
+        await ctx.reply(view=_layout(gid, "Autospawn", f"Usage: `;autospawn add #channel` / `;autospawn remove #channel` / `;autospawn list`\nCurrent: {cur}\nRandom mystery spawns every ~5 min (35% per channel)."), ephemeral=True)
 
     @commands.command(name='lootbox', description='Lootbox')
     async def lootbox(self, ctx):
