@@ -2611,7 +2611,7 @@ class Pokemon(commands.Cog):
             ('stat_spa', stats['spa']), ('stat_spdef', stats['spd']), ('stat_speed', stats['spe'])))
         desc = (f'{re} **{rk.upper()}** · {types_str(gid, row["types"])} · Lv{m["level"]} '
                 f'· IV {_iv_pct(m)}% · {_ev_line(gid, m)}\n'
-                f'`{xp_bar(m["xp"], nxt, gid)}` {m["xp"]}/{nxt} XP\n'
+                f'{xp_bar(m["xp"], nxt, gid)} {m["xp"]}/{nxt} XP\n'
                 f'{statline}\n'
                 f'{_held_line(gid, m)}\n'
                 + t(gid, 'eco.pk_info', level=m['level'], types=types_str(gid, row["types"]),
@@ -3319,7 +3319,7 @@ class Pokemon(commands.Cog):
                 f"Friendship: {(em(gid, 'heart') or 'v') * min(10, hearts)} ({hearts})\n"
                 f"Evolution: {evo_line}\n"
                 f"**{to_next:,} EXP to Level {m['level'] + 1}**\n"
-                f"`{xp_bar(m['xp'], nxt, gid)}` {m['xp']}/{nxt} XP\n"
+                f"{xp_bar(m['xp'], nxt, gid)} {m['xp']}/{nxt} XP\n"
                 f"__**Pokemon IVs**__\n{iv_lines}\n"
                 f"__**Pokemon Stats**__\n{stat_lines}")
         gif = showdown_gif(row.get('name', ''), bool(m['shiny']))
@@ -3738,7 +3738,7 @@ class Pokemon(commands.Cog):
         for k in EV_KEYS:
             ic = em(gid, STAT_EMO.get(k, ''))
             rows.append(f"{ic + ' ' if ic else ''}{EV_LABEL[k]} "
-                        f"`{xp_bar(evs[k], EV_MAX_STAT, gid)}` {evs[k]}/{EV_MAX_STAT}")
+                        f"{xp_bar(evs[k], EV_MAX_STAT, gid)} {evs[k]}/{EV_MAX_STAT}")
         body = (t(gid, 'eco.pk_evs_head', name=mon_name(m, gid), total=total, max=EV_MAX_TOTAL)
                 + '\n' + '\n'.join(rows)
                 + '\n' + _held_line(gid, m))
