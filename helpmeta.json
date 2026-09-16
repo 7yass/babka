@@ -1702,6 +1702,431 @@
       [],
       "",
       "Everyone"
+    ],
+    "pokedex": [
+      "economy",
+      "Pokedex (alias of ;dex).",
+      [
+        "dex"
+      ],
+      "",
+      "Everyone"
+    ],
+    "quest": [
+      "economy",
+      "Quest (alias of ;quests).",
+      [],
+      "",
+      "Everyone"
+    ],
+    "catchbot": [
+      "economy",
+      "Catchbot autospawn status.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "autospawn": [
+      "economy",
+      "Autospawn: add/remove spawn channel.",
+      [],
+      "add #channel",
+      "Manage Server"
+    ],
+    "vote": [
+      "economy",
+      "Vote for Babka.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "news": [
+      "economy",
+      "Bot news.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "lootbox": [
+      "economy",
+      "Lootbox: buy in ;shop, open via ;inv.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "incense": [
+      "economy",
+      "Shiny incense 30 min.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "time": [
+      "economy",
+      "Server time.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "invite": [
+      "economy",
+      "Invite Babka.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "lottery": [
+      "economy",
+      "Lottery pot.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "clan": [
+      "economy",
+      "Clan system (stub).",
+      [],
+      "<create|list>",
+      "Everyone"
+    ],
+    "pokelure": [
+      "economy",
+      "Poke Lure 15 min.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "mistyslure": [
+      "economy",
+      "Misty Lure 15 min.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "seaflute": [
+      "economy",
+      "Sea Flute 15 min.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "fish": [
+      "economy",
+      "Fish: water spawns.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "exclusives": [
+      "economy",
+      "Exclusives.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "research": [
+      "economy",
+      "Research tasks.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "balldex": [
+      "economy",
+      "Balldex: your items.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "faction": [
+      "economy",
+      "Faction.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "grs": [
+      "economy",
+      "Global Ranking System.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "channels": [
+      "economy",
+      "Spawn channels.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "lastseen": [
+      "economy",
+      "Last seen.",
+      [
+        "last_seen"
+      ],
+      "[@user]",
+      "Everyone"
+    ],
+    "safarizone": [
+      "economy",
+      "Safari Zone.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "berry": [
+      "economy",
+      "Berry: use `;berry <name> <slot>`.",
+      [],
+      "<name> <slot>",
+      "Everyone"
+    ],
+    "vivillon": [
+      "economy",
+      "Vivillon patterns.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "serverdex": [
+      "economy",
+      "Server-wide dex completion.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "gym": [
+      "economy",
+      "Gym: fight gym leaders.",
+      [],
+      "[name]",
+      "Everyone"
+    ],
+    "elitefour": [
+      "economy",
+      "Elite Four.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "champion": [
+      "economy",
+      "Champion.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "challenges": [
+      "economy",
+      "Challenges.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "megachamber": [
+      "economy",
+      "Mega Chamber.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "battletower": [
+      "economy",
+      "Battle Tower.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "worldboss": [
+      "economy",
+      "World Boss.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "powerstation": [
+      "economy",
+      "Power Station.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "battlefrontier": [
+      "economy",
+      "Battle Frontier.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "coins": [
+      "economy",
+      "Coins (alias ;bal).",
+      [
+        "bal"
+      ],
+      "[@user]",
+      "Everyone"
+    ],
+    "highscores": [
+      "economy",
+      "Highscores overview.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "perks": [
+      "economy",
+      "Perks.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "contests": [
+      "economy",
+      "Contests.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "sync": [
+      "economy",
+      "Sync patreon/vote.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "unlocks": [
+      "economy",
+      "Unlocks.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "privacy": [
+      "economy",
+      "Privacy.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "claim": [
+      "economy",
+      "Claim checklist.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "counter": [
+      "economy",
+      "Counter: how many mons you own.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "auction": [
+      "economy",
+      "Auction (alias market).",
+      [],
+      "",
+      "Everyone"
+    ],
+    "collection": [
+      "economy",
+      "Collection (alias box).",
+      [
+        "box"
+      ],
+      "",
+      "Everyone"
+    ],
+    "token": [
+      "economy",
+      "Token.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "captcha": [
+      "economy",
+      "Captcha.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "tcg": [
+      "economy",
+      "TCG packs.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "notifications": [
+      "economy",
+      "Notifications toggle.",
+      [],
+      "[on|off]",
+      "Everyone"
+    ],
+    "events": [
+      "economy",
+      "Events.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "promo": [
+      "economy",
+      "Promo code (alias ;code).",
+      [],
+      "<code>",
+      "Everyone"
+    ],
+    "appeal": [
+      "economy",
+      "Appeal.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "explore": [
+      "economy",
+      "Explore.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "rps": [
+      "fun",
+      "Rock Paper Scissors: `;rps <rock|paper|scissors>`.",
+      [],
+      "<choice>",
+      "Everyone"
+    ],
+    "wtp": [
+      "fun",
+      "Who is that Pokemon? `;hint` / `;guess`.",
+      [
+        "whoisthatpokemon"
+      ],
+      "",
+      "Everyone"
+    ],
+    "gif": [
+      "fun",
+      "Gif (level 10+).",
+      [],
+      "[query]",
+      "Everyone"
+    ],
+    "rarecandy": [
+      "economy",
+      "Rare candy (alias ;candy).",
+      [
+        "candy"
+      ],
+      "",
+      "Everyone"
     ]
   },
   "cats": {

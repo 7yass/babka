@@ -587,6 +587,25 @@ HELD_ORDER = ('leftovers', 'lifeorb', 'focusband', 'luckyegg',
               'pow_hp', 'pow_atk', 'pow_dfn', 'pow_spa', 'pow_spd', 'pow_spe')
 HELD_BY_NAME = {v['name'].lower(): k for k, v in HELD_ITEMS.items()}
 
+# Evolution stones — Eevee branching + generic stone evos
+# price 12k, icon fleet name mirrors key
+EVO_STONES = {
+    'water_stone':   {'name': 'Water Stone',   'price': 12000, 'icon': 'water_stone',   'mons': {133: 134}},
+    'thunder_stone': {'name': 'Thunder Stone', 'price': 12000, 'icon': 'thunder_stone', 'mons': {133: 135}},
+    'fire_stone':    {'name': 'Fire Stone',    'price': 12000, 'icon': 'fire_stone',    'mons': {133: 136}},
+    'sun_stone':     {'name': 'Sun Stone',     'price': 12000, 'icon': 'sun_stone',     'mons': {133: 196}},
+    'moon_stone':    {'name': 'Moon Stone',    'price': 12000, 'icon': 'moon_stone',    'mons': {133: 197}},
+    'leaf_stone':    {'name': 'Leaf Stone',    'price': 12000, 'icon': 'leaf_stone',    'mons': {133: 470}},
+    'ice_stone':     {'name': 'Ice Stone',     'price': 12000, 'icon': 'ice_stone',     'mons': {133: 471}},
+    'shiny_stone':   {'name': 'Shiny Stone',   'price': 12000, 'icon': 'shiny_stone',   'mons': {133: 700}},
+}
+EEVEE_STONES = {k: v['mons'][133] for k, v in EVO_STONES.items()}  # stone -> dex
+EVO_STONE_BY_NAME = {v['name'].lower(): k for k, v in EVO_STONES.items()}
+# allow "water stone" and "water_stone"
+for _k, _v in list(EVO_STONES.items()):
+    EVO_STONE_BY_NAME[_k.replace('_', ' ')] = _k
+STONE_ORDER = tuple(EVO_STONES.keys())
+
 
 def _evs_parse(raw) -> dict:
     """EV text -> full stat dict, clamped. Junk/legacy reads as all zeros."""
@@ -2167,6 +2186,13 @@ class Pokemon(commands.Cog):
                     set_cash(gid, uid, b['cash'] + reward)
                     lines.append(t(gid, 'eco.pk_quest', track=reg.title(), need=need,
                                      win=cshort(reward)))
+                    # random stone bonus (35% on any quest tier)
+                    if random.random() < 0.35:
+                        stone = random.choice(list(EVO_STONES.keys()))
+                        balls_add(gid, uid, stone, 1)
+                        emo = em(gid, EVO_STONES[stone]['icon']) or ''
+                        lines.append(t(gid, 'eco.pk_quest_stone',
+                                       item=f"{emo + ' ' if emo else ''}{EVO_STONES[stone]['name']}"))
                     claimed = i + 1
                     with db.conn_ctx() as conn:
                         conn.execute('INSERT OR IGNORE INTO pk_quested (guild_id, user_id, track, tier) '
@@ -2239,19 +2265,22 @@ class Pokemon(commands.Cog):
         ('Battle', ['potion', 'superpotion', 'grazz', 'candy']),
         ('Special', ['egg', 'incense']),
         ('Held', list(HELD_ORDER)),  # appended last: ids 1-10 stay stable
+        ('Stones', list(STONE_ORDER)),
     ]
     BALL_EMOJI = {'poke': 'pokeball', 'great': 'greatball', 'ultra': 'ultraball',
                   'master': 'masterball', 'potion': 'potion', 'superpotion': 'potion',
                   'candy': 'candy', 'egg': 'egg', 'grazz': 'item_grazz',
                   'incense': 'fire', 'repel': 'item_repel',
-                  **{k: v['icon'] for k, v in HELD_ITEMS.items()}}
+                  **{k: v['icon'] for k, v in HELD_ITEMS.items()},
+                  **{k: v['icon'] for k, v in EVO_STONES.items()}}
     PK_NAMES = {'poke': 'Pokeball', 'great': 'Greatball', 'ultra': 'Ultraball',
                 'master': 'Masterball', 'potion': 'Potion', 'superpotion': 'Super Potion',
                 'candy': 'Rare Candy', 'grazz': 'Golden Razz', 'egg': 'Pokemon Egg',
                 'incense': 'Shiny Incense',
-                **{k: v['name'] for k, v in HELD_ITEMS.items()}}
+                **{k: v['name'] for k, v in HELD_ITEMS.items()},
+                **{k: v['name'] for k, v in EVO_STONES.items()}}
     BALL_SECTION_EMOJI = {'Balls': 'btn_ball', 'Battle': 'btn_fight', 'Special': 'egg',
-                          'Held': 'rate_up'}
+                          'Held': 'rate_up', 'Stones': 'evo_burst'}
 
     @classmethod
     def ball_ids(cls) -> dict:
@@ -2279,6 +2308,8 @@ class Pokemon(commands.Cog):
             return INCENSE_PRICE
         if item in HELD_ITEMS:
             return HELD_ITEMS[item]['price']
+        if item in EVO_STONES:
+            return EVO_STONES[item]['price']
         return 0
 
     @staticmethod
@@ -2301,6 +2332,11 @@ class Pokemon(commands.Cog):
             eff = 'ev' if it.get('effect') == 'ev' else it.get('effect', '')
             return t(gid, f'eco.pk_shop_held_{eff}',
                      stat=EV_LABEL.get(it.get('stat', ''), ''), n=POWER_EV)
+        st = EVO_STONES.get(item)
+        if st:
+            # list mons it evolves: Eevee -> targets
+            mons = ', '.join(str(_dex_row(d).get('name','?').capitalize()) for d in st['mons'].values())
+            return t(gid, 'eco.pk_shop_stone', mons=mons or 'Eevee')
         return ''
 
     @commands.group(name='balls', description='Balle')
@@ -3445,12 +3481,83 @@ class Pokemon(commands.Cog):
         return _cb
 
     @commands.command(name='team', description='Drużyna na pojedynki')
-    async def team(self, ctx, a: int = 0, b: int = 0, c: int = 0):
-        """;team — show. `;team 1 2 3` — set duel team by box slots."""
+    async def team(self, ctx, *args):
+        """;team — show. `;team 1 2 3` — set duel team. `;team give <item> <slot>` — hold item."""
         gid = ctx.guild.id
+        # give subcommand: ;team give <item> <slot|dex>
+        if args and str(args[0]).lower() == 'give':
+            if len(args) < 3:
+                return await ctx.reply(t(gid, 'eco.pk_team_give_use'), ephemeral=True)
+            item_raw = str(args[1]).lower().replace(' ', '_')
+            slot_raw = str(args[2])
+            # normalize item
+            key = item_raw
+            if key not in EVO_STONES and key not in HELD_ITEMS:
+                # try name lookup
+                low = item_raw.replace('_', ' ')
+                if low in EVO_STONE_BY_NAME:
+                    key = EVO_STONE_BY_NAME[low]
+                elif low in HELD_BY_NAME:
+                    key = HELD_BY_NAME[low]
+                elif key.replace('_', ' ') in EVO_STONE_BY_NAME:
+                    key = EVO_STONE_BY_NAME[key.replace('_', ' ')]
+            if key not in EVO_STONES and key not in HELD_ITEMS:
+                return await ctx.reply(t(gid, 'eco.pk_held_bad', item=item_raw[:24]), ephemeral=True)
+            # resolve mon by slot or dex
+            m = None
+            if slot_raw.isdigit():
+                # slot may be box slot (1=first) or raw dex 133
+                m = get_mon(gid, ctx.author.id, int(slot_raw))
+                if not m:
+                    # try dex fallback
+                    try:
+                        d = int(slot_raw)
+                        mons = my_mons(gid, ctx.author.id)
+                        m = next((x for x in mons if int(x['dex']) == d), None)
+                    except Exception:
+                        pass
+            else:
+                mons = my_mons(gid, ctx.author.id)
+                spec_of = lambda d: ((_dex_row(d).get('name')) or '').lower()
+                m, _ = _match_mon(mons, spec_of, slot_raw.lower())
+            if not m:
+                return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
+            cur = held_key(m)
+            if cur == key:
+                lab = (HELD_ITEMS.get(key) or EVO_STONES.get(key) or {}).get('name') or key
+                emo = em(gid, (HELD_ITEMS.get(key) or EVO_STONES.get(key) or {}).get('icon','')) 
+                lab_str = f"{emo + ' ' if emo else ''}{lab}"
+                return await ctx.reply(t(gid, 'eco.pk_team_give_held', item=lab_str), ephemeral=True)
+            if not balls_take(gid, ctx.author.id, key):
+                lab = (HELD_ITEMS.get(key) or EVO_STONES.get(key) or {}).get('name') or key
+                emo = em(gid, (HELD_ITEMS.get(key) or EVO_STONES.get(key) or {}).get('icon',''))
+                lab_str = f"{emo + ' ' if emo else ''}{lab}"
+                return await ctx.reply(t(gid, 'eco.pk_team_give_bad', item=lab_str), ephemeral=True)
+            if cur:
+                balls_add(gid, ctx.author.id, cur, 1)
+            with db.conn_ctx() as conn:
+                conn.execute('UPDATE pk_mons SET held=? WHERE id=?', (key, m['id']))
+            lab = (HELD_ITEMS.get(key) or EVO_STONES.get(key) or {}).get('name') or key
+            emo = em(gid, (HELD_ITEMS.get(key) or EVO_STONES.get(key) or {}).get('icon',''))
+            lab_str = f"{emo + ' ' if emo else ''}{lab}"
+            view, files = self._mini(gid, t(gid, 'eco.pk_team_title'),
+                                     t(gid, 'eco.pk_team_give_ok', item=lab_str, name=mon_name(m,gid)), m.get('dex'), 0x58CC02)
+            return await ctx.reply(view=view, files=files or None, ephemeral=True)
+        # numeric team set: ;team 1 2 3
         mons = my_mons(gid, ctx.author.id)
         if not mons:
             return await ctx.reply(t(gid, 'eco.pk_need_starter'), ephemeral=True)
+        # parse numeric args
+        nums = []
+        for a in args[:3]:
+            try:
+                nums.append(int(str(a).split()[0]))
+            except Exception:
+                nums.append(0)
+        # pad to 3
+        while len(nums) < 3:
+            nums.append(0)
+        a, b, c = nums[:3]
         if not a:
             team = team_get(gid, ctx.author.id)
             lines = []
@@ -3891,14 +3998,108 @@ class Pokemon(commands.Cog):
         await ctx.reply(t(gid, 'eco.pk_repel_on'), ephemeral=True)
 
     @commands.command(name='evolve', description='Ewoluuj ręcznie')
-    async def evolve(self, ctx, slot: int):
+    async def evolve(self, ctx, slot: str = '', *, stone: str = ''):
         import aiohttp
         gid = ctx.guild.id
-        m = get_mon(gid, ctx.author.id, slot or 0)
-        if not m:
+        # parse slot + optional stone (e.g. ;evolve 1 water stone)
+        slot_n = 0
+        s_arg = (stone or '').strip().lower()
+        raw_slot = (slot or '').strip()
+        if raw_slot.isdigit():
+            slot_n = int(raw_slot)
+        elif raw_slot:
+            # slot may contain "1 water stone" if user omits split
+            parts = raw_slot.split()
+            if parts[0].isdigit():
+                slot_n = int(parts[0])
+                if not s_arg and len(parts) > 1:
+                    s_arg = ' '.join(parts[1:]).lower()
+            else:
+                # non-numeric slot -> try name lookup later, keep stone as s_arg
+                s_arg = (raw_slot + ' ' + s_arg).strip().lower()
+                slot_n = 0
+        if not slot_n and not s_arg:
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
+        # resolve mon by slot or name
+        m = get_mon(gid, ctx.author.id, slot_n) if slot_n else None
+        if not m and s_arg and not slot_n:
+            # try name lookup for cases like ;evolve eevee water_stone
+            mons = my_mons(gid, ctx.author.id)
+            spec_of = lambda d: ((_dex_row(d).get('name')) or '').lower()
+            m, _ = _match_mon(mons, spec_of, s_arg.split()[0])
+            # if found by name, stone arg is remainder
+            if m:
+                s_arg = ' '.join(s_arg.split()[1:]).lower()
+        if not m:
+            # fallback: if slot_n failed, try name from raw_slot
+            if raw_slot and not raw_slot.isdigit():
+                mons = my_mons(gid, ctx.author.id)
+                spec_of = lambda d: ((_dex_row(d).get('name')) or '').lower()
+                m, _ = _match_mon(mons, spec_of, raw_slot.split()[0].lower())
+            if not m:
+                return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
         async with aiohttp.ClientSession() as s:
             row = await dex_get(s, m['dex'])
+        # Eevee branching — stone required
+        if int(m['dex']) == 133:
+            # normalize stone arg: allow "water stone", "water_stone", "water"
+            key = (s_arg or '').replace(' ', '_').lower()
+            # also allow bare "water" -> water_stone
+            if key and not key.endswith('_stone') and key + '_stone' in EVO_STONES:
+                key = key + '_stone'
+            if key in EVO_STONE_BY_NAME:
+                key = EVO_STONE_BY_NAME[key]
+            bag = balls_get(gid, ctx.author.id)
+            held = held_key(m)
+            def _have(k):
+                return 1 if held == k else int(bag.get(k, 0) or 0)
+            if not key or key not in EVO_STONES:
+                # show all 8 requirements
+                lines = [f"❌ Could not evolve your {em(gid, 'p133') or ''} Eevee.".strip()]
+                for sk in STONE_ORDER:
+                    info = EVO_STONES[sk]
+                    target = info['mons'][133]
+                    have = _have(sk)
+                    emo = em(gid, info['icon']) or ''
+                    # target name via dex row
+                    trow = _dex_row(target)
+                    tname = (trow.get('name') or f'#{target}').capitalize()
+                    spe = em(gid, _species_emoji_name(target)) or ''
+                    lines.append(f"You need a {emo + ' ' if emo else ''}{info['name']} to evolve into {spe + ' ' if spe else ''}{tname}. You have {have}.")
+                lines.append(f"The required item can be held by the Pokemon as well: `;team give {{item_name}} {slot_n or 133}`.")
+                lines.append(f"Ways to get these items: Obtained randomly as a `;quest` reward (all quests) or `;balls buy <stone>`.")
+                return await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_evolve_title', name=mon_name(m, gid)),
+                                                          '\n'.join(lines)), ephemeral=True)
+            # stone specified — validate it is for Eevee
+            if 133 not in EVO_STONES[key]['mons']:
+                return await ctx.reply(t(gid, 'eco.pk_evolve_stone_bad', stone=(EVO_STONES.get(key, {}).get('name') or key)), ephemeral=True)
+            have = _have(key)
+            if not have:
+                info = EVO_STONES[key]
+                emo = em(gid, info['icon']) or ''
+                trow = _dex_row(info['mons'][133])
+                tname = (trow.get('name') or f'#{info["mons"][133]}').capitalize()
+                spe = em(gid, _species_emoji_name(info['mons'][133])) or ''
+                return await ctx.reply(view=self._layout(gid, t(gid, 'eco.pk_evolve_title', name=mon_name(m, gid)),
+                    f"You need a {emo + ' ' if emo else ''}{info['name']} to evolve into {spe + ' ' if spe else ''}{tname}. You have 0."), ephemeral=True)
+            # consume stone: held first, else bag
+            if held == key:
+                with db.conn_ctx() as conn:
+                    conn.execute('UPDATE pk_mons SET held=? WHERE id=?', ('', m['id']))
+            else:
+                balls_take(gid, ctx.author.id, key)
+            target = EVO_STONES[key]['mons'][133]
+            async with aiohttp.ClientSession() as s:
+                nxt = await dex_get(s, target)
+            with db.conn_ctx() as conn:
+                conn.execute('UPDATE pk_mons SET dex=? WHERE id=?', (target, m['id']))
+            burst = em(gid, 'evo_burst')
+            view, files = self._mini(
+                gid, f"{burst + ' ' if burst else ''}{((em(gid, 'rarity_shiny') or '*') if m.get('shiny') else '')}" + nxt['name'].capitalize(),
+                t(gid, 'eco.pk_evolve', old=mon_name(m, gid),
+                  new=((em(gid, 'rarity_shiny') or '*') if m.get('shiny') else '') + nxt['name'].capitalize()),
+                target, 0xFFD43B)
+            return await ctx.reply(view=view, files=files or None, ephemeral=True)
         if not row.get('evo_to'):
             return await ctx.reply(t(gid, 'eco.pk_evolve_max', name=mon_name(m, gid)), ephemeral=True)
         if not row.get('evo_level'):
