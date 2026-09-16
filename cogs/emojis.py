@@ -1,4 +1,4 @@
-"""Emoji fleet setup (SHARDED): local PNGs spread across 15 guilds.
+"""Emoji fleet setup (SHARDED): local PNGs spread across 20 guilds (1k static).
 Bots can use fleet emojis cross-server, so no need for full replicas.
 `.emojisetup` previews (+ capacity preflight), `.emojisetup confirm`
 re-validates then executes, `.emojistop` aborts. Static emojis only:
@@ -34,6 +34,12 @@ EMOJI_GUILDS = [
     1549461883868684360,
     1549462138714849371,
     1549463711972855909,
+    # poke 6-10 (third expansion → 20 guilds = 1k static)
+    1549863612045074452,
+    1549863867046428702,
+    1549864123742027937,
+    1549864380378779658,
+    1549864634687946803,
 ]
 IDS_FILE = Path('data/emoji_ids.json')
 
