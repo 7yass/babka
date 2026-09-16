@@ -1859,32 +1859,40 @@ class Pokemon(commands.Cog):
         await ctx.reply(view=layout, mention_author=False)
 
     @commands.command(name='hunt', description='Poluj i walcz z dzikimi')
-    async def hunt(self, ctx, *, name: str = ''):
-        """Daily hunt target. `;hunt` shows today, `;hunt <name>` sets it."""
-        import aiohttp
+    async def hunt(self, ctx):
+        """Daily hunt — casual quest. Auto-assigned each day, no choosing."""
+        import random as _rnd
         gid = ctx.guild.id
-        if (name or '').strip():
-            # set hunt target (delegate to shinyhunt logic)
-            cmd = self.bot.get_command('shinyhunt')
-            if cmd:
-                return await ctx.invoke(cmd, name=name)
-            return await ctx.reply(t(gid, 'eco.pk_hunt_unknown', name=name[:24]), ephemeral=True)
+        today = int(time.time()) // 86400
         with db.conn_ctx() as conn:
-            h = conn.execute('SELECT target, streak FROM pk_hunt WHERE guild_id=? AND user_id=?',
+            conn.execute('CREATE TABLE IF NOT EXISTS pk_hunt_daily (guild_id TEXT, user_id TEXT, target INT, day INT, PRIMARY KEY (guild_id, user_id))')
+            h = conn.execute('SELECT target, day FROM pk_hunt_daily WHERE guild_id=? AND user_id=?',
                              (str(gid), str(ctx.author.id))).fetchone()
-        if not h or not h['target']:
-            # no hunt set
-            return await ctx.reply(view=self._layout(
-                gid, "Your hunt today is not set!",
-                f"First time using hunt command? Check `;help hunt`!\nUse `;hunt <pokemon>` to set your hunt — e.g. `;hunt Tauros`.\nWhen you do `;p` you have a chance of finding this specific Pokemon!"), ephemeral=True)
+            # also fetch shiny streak for display (from pk_hunt)
+            sh = conn.execute('SELECT streak FROM pk_hunt WHERE guild_id=? AND user_id=?',
+                              (str(gid), str(ctx.author.id))).fetchone()
+            streak = (sh['streak'] if sh else 0) or 0
+            if not h or not h['target'] or (h['day'] or 0) != today:
+                rnd = random.Random(f"{gid}:{ctx.author.id}:{today}")
+                dex = rnd.randint(1, 809)
+                row_try = _dex_row(dex)
+                if row_try and row_try.get('legendary') and rnd.random() < 0.7:
+                    dex = rnd.randint(1, 809)
+                conn.execute('INSERT OR REPLACE INTO pk_hunt_daily (guild_id, user_id, target, day) VALUES (?,?,?,?)',
+                             (str(gid), str(ctx.author.id), dex, today))
+                h = {'target': dex, 'day': today}
+            else:
+                h = dict(h)
         row = _dex_row(h['target'])
         rk, re, _ = rarity_of(row, False, gid)
         spe = em(gid, _species_emoji_name(h['target'])) or ''
         tgt_emo = em(gid, 'hunt_target') or ''
         tname = (row.get('name') or '#' + str(h['target'])).capitalize()
         title = f"{tgt_emo + ' ' if tgt_emo else ''}Your hunt today is {re} {spe + ' ' if spe else ''}{tname}!"
-        streak = f"Streak: **{h['streak'] or 0}**\n-# Check `;help hunt` for hunt streak bonuses."
-        return await ctx.reply(view=self._layout(gid, title, streak), ephemeral=True)
+        streak_txt = (f"Streak: **{streak}**\n"
+                      f"When you do `;p` you have a chance of finding this specific Pokemon!\n"
+                      f"-# Check `;help hunt` for streak bonuses. Resets tomorrow.")
+        return await ctx.reply(view=self._layout(gid, title, streak_txt), ephemeral=True)
 
     @commands.command(name='p', description='Spotkaj dzikiego (tylko łapanie)')
     async def poke_encounter(self, ctx):
@@ -1916,17 +1924,24 @@ class Pokemon(commands.Cog):
                     break
             else:
                 return await ctx.reply(t(gid, 'eco.pk_api'), ephemeral=True)
-            # hunt target 15% chance to appear in ;p
+            # daily hunt (casual) + shiny hunt 15% chance each in ;p
             try:
                 with db.conn_ctx() as conn:
-                    hh = conn.execute('SELECT target FROM pk_hunt WHERE guild_id=? AND user_id=?',
+                    dd = conn.execute('SELECT target FROM pk_hunt_daily WHERE guild_id=? AND user_id=?',
                                       (str(gid), str(ctx.author.id))).fetchone()
-                ht = (hh['target'] or 0) if hh else 0
-                if ht and random.random() < 0.15:
-                    # override with hunt target
-                    trow = await dex_get(s, ht)
-                    if trow:
-                        dex, row = ht, trow
+                    ht_daily = (dd['target'] or 0) if dd else 0
+                    if ht_daily and random.random() < 0.15:
+                        trow = await dex_get(s, ht_daily)
+                        if trow:
+                            dex, row = ht_daily, trow
+                    else:
+                        hh = conn.execute('SELECT target FROM pk_hunt WHERE guild_id=? AND user_id=?',
+                                          (str(gid), str(ctx.author.id))).fetchone()
+                        ht = (hh['target'] or 0) if hh else 0
+                        if ht and random.random() < 0.15:
+                            trow = await dex_get(s, ht)
+                            if trow:
+                                dex, row = ht, trow
             except Exception:
                 pass
         mons = my_mons(gid, ctx.author.id)
@@ -1994,12 +2009,20 @@ class Pokemon(commands.Cog):
         title = (wild_emo + ' ' if wild_emo else '') + t(gid, 'eco.pk_wild_title', level=level)
         rarity = ''
         tgt_line = ''
+        is_daily = False
+        try:
+            with db.conn_ctx() as conn:
+                dd = conn.execute('SELECT target FROM pk_hunt_daily WHERE guild_id=? AND user_id=?',
+                                  (str(gid), str(ctx.author.id))).fetchone()
+                is_daily = bool(dd and (dd['target'] or 0) == dex)
+        except Exception:
+            pass
         if mystery:
             accent = 0x3A3F4B
         else:
             rk, re_, accent = rarity_of(row, shiny, gid)
             rarity = _rarity_line(gid, row, shiny) + '\n'
-            if target and target == dex:
+            if (target and target == dex) or is_daily:
                 tgt_emo = em(gid, 'hunt_target')
                 tgt_line = f"\n{tgt_emo + ' ' if tgt_emo else ''}TARGET"
         desc = (f'{found}\n{rarity}{wild_line}{tgt_line}\n'
@@ -2016,7 +2039,7 @@ class Pokemon(commands.Cog):
                 gif = ''
         media = ([gif] if gif else []) or ([pix] if not mystery else [])
         view = self._encounter_layout(gid, title, desc, accent, media)
-        self._attach_enc_buttons(view, gid, ctx.author.id, mode, is_hunt=bool(target and target == dex and not mystery))
+        self._attach_enc_buttons(view, gid, ctx.author.id, mode, is_hunt=bool(((target and target == dex) or is_daily) and not mystery))
         await ctx.reply(view=view, mention_author=False)
 
     def _attach_enc_buttons(self, view, gid, uid, mode: str = 'fight', is_hunt: bool = False):
