@@ -2079,14 +2079,36 @@ class Pokemon(commands.Cog):
         ok, msg, gif, disp = await self._do_catch(gid, ctx.author.id, e, ball)
         if ok:
             self._enc.pop((str(gid), str(ctx.author.id)), None)
-        if ok and gif:
+        if ok:
+            # spec: Congratulations, y4qs! + pfp + caught line + image + rarity/streak/roll/balls/coins
             rk, re, accent = rarity_of(_dex_row(e['dex']), bool(e['shiny']), gid)
             burst = em(gid, 'catch_burst')
-            await ctx.reply(view=self._layout(
-                gid, f'{burst + " " if burst else ""}{re} ' + t(gid, 'eco.pk_caught_title', name=disp),
-                msg, gif, accent), mention_author=False)
-        elif ok:
-            await ctx.reply(msg, mention_author=False)
+            title = f"Congratulations, {ctx.author.display_name}!"
+            # build congrats card with pfp
+            from discord.ui import LayoutView, Container, TextDisplay, Section, Thumbnail, MediaGallery
+            from discord.ui.media_gallery import MediaGalleryItem
+            layout = LayoutView(timeout=60)
+            box = Container(accent_color=accent)
+            try:
+                av = str(ctx.author.display_avatar.with_size(64).url)
+            except Exception:
+                av = ''
+            head = f"## {title}\n{msg}"
+            if av:
+                try:
+                    box.add_item(Section(TextDisplay(head), accessory=Thumbnail(media=av)))
+                except Exception:
+                    box.add_item(TextDisplay(head))
+            else:
+                box.add_item(TextDisplay(head))
+            if gif:
+                try:
+                    box.add_item(MediaGallery(MediaGalleryItem(media=gif)))
+                except Exception:
+                    pass
+            layout.add_item(box)
+            await ctx.reply(view=layout, mention_author=False)
+            return
         else:
             view, files = self._mini(gid, disp, msg, e.get('dex'), 0x3A3F4B)
             await ctx.reply(view=view, files=files or None, mention_author=False)
@@ -2098,14 +2120,34 @@ class Pokemon(commands.Cog):
         ok, msg, gif, disp = await self._do_catch(gid, user.id, e, ball)
         if ok:
             self._enc.pop((str(gid), str(user.id)), None)
-        if ok and gif:
+        if ok:
             rk, re, accent = rarity_of(_dex_row(e['dex']), bool(e['shiny']), gid)
             burst = em(gid, 'catch_burst')
-            await ix.followup.send(view=self._layout(
-                gid, f'{burst + " " if burst else ""}{re} ' + t(gid, 'eco.pk_caught_title', name=disp),
-                msg, gif, accent))
-        elif ok:
-            await ix.followup.send(msg)
+            title = f"Congratulations, {user.display_name}!"
+            from discord.ui import LayoutView, Container, TextDisplay, Section, Thumbnail, MediaGallery
+            from discord.ui.media_gallery import MediaGalleryItem
+            layout = LayoutView(timeout=60)
+            box = Container(accent_color=accent)
+            try:
+                av = str(user.display_avatar.with_size(64).url)
+            except Exception:
+                av = ''
+            head = f"## {title}\n{msg}"
+            if av:
+                try:
+                    box.add_item(Section(TextDisplay(head), accessory=Thumbnail(media=av)))
+                except Exception:
+                    box.add_item(TextDisplay(head))
+            else:
+                box.add_item(TextDisplay(head))
+            if gif:
+                try:
+                    box.add_item(MediaGallery(MediaGalleryItem(media=gif)))
+                except Exception:
+                    pass
+            layout.add_item(box)
+            await ix.followup.send(view=layout)
+            return
         else:
             view, files = self._mini(gid, disp, msg, e.get('dex'), 0x3A3F4B)
             await ix.followup.send(view=view, files=files or None)
@@ -2137,9 +2179,12 @@ class Pokemon(commands.Cog):
                                     (str(gid), str(uid), e['dex'])).fetchone()
             is_new = not prev or not (prev['count'] or 0)
             disp = row['name'].capitalize()
-            msg = t(gid, 'eco.pk_caught', name=((em(gid, 'rarity_shiny') or '*') if e['shiny'] else '') + disp,
-                    ball=ball, level=e['level'])
-            msg = em(gid, BALL_FLEET.get(ball, ''), 'o') + ' ' + msg
+            spe = em(gid, _species_emoji_name(e['dex'])) or ''
+            ball_emo = em(gid, BALL_FLEET.get(ball, ''), 'o')
+            ball_name = {'poke':'Pokeball','great':'Greatball','ultra':'Ultraball','master':'Masterball'}.get(ball, ball.capitalize())
+            check = em(gid, 'check') or '✅'
+            trainer = em(gid, 'trainer_brendan') or ''
+            msg = f"{check} {trainer + ' ' if trainer else ''}You caught a {spe + ' ' if spe else ''}{disp} with a {ball_emo + ' ' if ball_emo else ''}{ball_name}!"
             msg += '\n' + _rarity_line(gid, row, bool(e['shiny']))
             streak_bump(gid, uid, True)
             st = streak_get(gid, uid)
