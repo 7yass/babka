@@ -77,7 +77,7 @@ def daily_row(gid, uid) -> dict:
             target = 0
             for _ in range(20):
                 import random as _r
-                d = _r.randint(1, 493)
+                d = _r.randint(1, 809)
                 r = _dex_row(d)
                 if r and not r.get('legendary'):
                     target = d
@@ -1272,11 +1272,10 @@ def _box_parse(cid: str):
 
 
 def _species_emoji_name(dex) -> str:
-    """Fleet name for a species mini (p001-p493 + extras like p888), or '' out of range."""
+    """Fleet name for a species mini (p001-p809 + p888), or '' out of range."""
     try:
         d = int(dex)
-        # core 1-493 have minis; allow extras that exist as fleet assets (e.g. Zacian p888)
-        if 1 <= d <= 493 or d == 888:
+        if 1 <= d <= 809 or d == 888:
             return f'p{d:03d}'
         return ''
     except Exception:
@@ -1689,7 +1688,7 @@ class Pokemon(commands.Cog):
         import aiohttp
         async with aiohttp.ClientSession() as s:
             for _ in range(12):
-                dex = random.randint(1, 493)
+                dex = random.randint(1, 809)
                 row = await dex_get(s, dex)
                 if not row:
                     continue
@@ -1906,7 +1905,7 @@ class Pokemon(commands.Cog):
         inc = incense_active(gid, ctx.author.id)
         async with aiohttp.ClientSession() as s:
             for _ in range(12):
-                dex = random.randint(1, 493)
+                dex = random.randint(1, 809)
                 row = await dex_get(s, dex)
                 if not row:
                     continue
@@ -3806,7 +3805,7 @@ class Pokemon(commands.Cog):
             egg_id = egg['id']
         async with aiohttp.ClientSession() as s:
             for _ in range(12):
-                dex = random.randint(1, 493)
+                dex = random.randint(1, 809)
                 row = await dex_get(s, dex)
                 if not row:
                     continue
@@ -3853,7 +3852,7 @@ class Pokemon(commands.Cog):
         old = mon_name(m, gid)
         async with aiohttp.ClientSession() as s:
             for _ in range(12):
-                dex = random.randint(1, 493)
+                dex = random.randint(1, 809)
                 row = await dex_get(s, dex)
                 if not row:
                     continue
@@ -5620,7 +5619,7 @@ class Pokemon(commands.Cog):
             f2, s2, awaited = [], [], None
             for _ in range(size):
                 for _try in range(12):
-                    dex = random.randint(1, 493)
+                    dex = random.randint(1, 809)
                     row = await dex_get(s, dex)
                     if not row:
                         continue

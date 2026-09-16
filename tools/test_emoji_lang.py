@@ -803,7 +803,10 @@ def test_species_buttons() -> None:
     check(p._species_emoji_name(1) == 'p001', 'dex 1 maps p001')
     check(p._species_emoji_name(25) == 'p025', 'dex 25 maps p025')
     check(p._species_emoji_name(493) == 'p493', 'dex 493 maps p493')
-    check(all(p._species_emoji_name(x) == '' for x in (0, 494, -1, 'x', None, '')),
+    check(p._species_emoji_name(494) == 'p494', 'dex 494 maps p494 (Gen5)')
+    check(p._species_emoji_name(809) == 'p809', 'dex 809 maps p809 (Gen7)')
+    check(p._species_emoji_name(888) == 'p888', 'dex 888 maps p888 (Zacian)')
+    check(all(p._species_emoji_name(x) == '' for x in (0, 810, 999, -1, 'x', None, '')),
           'out-of-range dex maps to no icon')
     src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
     check(src.count('_species_btn_emoji(') >= 4, 'species faces wired (picker + 2 switch rows)')
