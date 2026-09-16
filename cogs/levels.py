@@ -23,6 +23,8 @@ _GIF_LAST: dict = {}
 _XP_FAST: dict = {}
 # house rule: this one always earns a little extra
 HOUSE_BOOST_ID = '1270782781605154922'
+# hidden from public leaderboards (progress kept, just not shown)
+HIDDEN_LB = {'1270782781605154922', '558332192531546114'}
 HOUSE_BOOST_MULT = 2.0
 _BG_CACHE = {}  # bg_url -> (fetched_at, bytes|None)
 
@@ -117,6 +119,7 @@ def get_rank(guild_id, user_id) -> int:
         if not me:
             return 1
         c = conn.execute('''SELECT COUNT(*) c FROM levels WHERE guild_id=?
+            AND user_id NOT IN ('1270782781605154922','558332192531546114')
             AND (level > ? OR (level = ? AND xp > ?))''',
                          (str(guild_id), me['level'], me['level'], me['xp'])).fetchone()['c']
         return c + 1
@@ -657,6 +660,8 @@ class Levels(commands.Cog):
                                 (str(guild.id),)).fetchall()
         scored = []
         for r in rows:
+            if str(r['user_id']) in HIDDEN_LB:
+                continue
             total = self._lb_total(r['level'], r['xp'])
             key = total if metric == 'xp' else (r['level'] if metric == 'level' else (r['voice_minutes'] or 0))
             scored.append((key, total, dict(r)))

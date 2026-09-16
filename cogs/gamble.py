@@ -11,6 +11,8 @@ from lang import t, set_ctx_lang
 from utils.embeds import foot
 
 START_CASH, DAILY_CASH, DAILY_CD = 1000, 500, 86400
+# hidden from public leaderboards (progress kept, just not shown)
+HIDDEN_LB = {'1270782781605154922', '558332192531546114'}
 ROB_CD = 3600
 # blackjack anti-abuse: no more 100k wins
 BJ_MAX_BET = 15000   # gods (house) exempt
@@ -1559,8 +1561,9 @@ class Gamble(commands.Cog):
         gid = ctx.guild.id
         await ctx.defer()
         with db.conn_ctx() as conn:
-            rows = conn.execute('SELECT user_id, cash FROM eco WHERE guild_id=? ORDER BY cash DESC LIMIT 10',
+            rows = conn.execute('SELECT user_id, cash FROM eco WHERE guild_id=? ORDER BY cash DESC LIMIT 25',
                                 (str(gid),)).fetchall()
+        rows = [r for r in rows if str(r['user_id']) not in HIDDEN_LB][:10]
         if not rows or rows[0]['cash'] <= 0:
             return await ctx.reply(t(gid, 'eco.rich_empty'), ephemeral=True)
         top = rows[0]['cash']
