@@ -1240,10 +1240,13 @@ def _box_parse(cid: str):
 
 
 def _species_emoji_name(dex) -> str:
-    """Fleet name for a species mini (p001-p493), or '' out of range."""
+    """Fleet name for a species mini (p001-p493 + extras like p888), or '' out of range."""
     try:
         d = int(dex)
-        return f'p{d:03d}' if 1 <= d <= 493 else ''
+        # core 1-493 have minis; allow extras that exist as fleet assets (e.g. Zacian p888)
+        if 1 <= d <= 493 or d == 888:
+            return f'p{d:03d}'
+        return ''
     except Exception:
         return ''
 
@@ -2511,23 +2514,49 @@ class Pokemon(commands.Cog):
         async def _cb(ix: discord.Interaction):
             set_ctx_lang(ix.user)
             if ix.user.id != int(viewer):
-                return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
+                try:
+                    return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
+                except Exception:
+                    return await ix.followup.send(t(gid, 'eco.not_yours'), ephemeral=True)
             parsed = _box_parse(ix.data.get('custom_id', ''))
             if not parsed:
-                return await ix.response.send_message(t(gid, 'eco.pk_box_page',
-                     page=1, total=1, n=0), ephemeral=True)
+                try:
+                    return await ix.response.send_message(t(gid, 'eco.pk_box_page',
+                         page=1, total=1, n=0), ephemeral=True)
+                except Exception:
+                    return await ix.followup.send(t(gid, 'eco.pk_box_page',
+                         page=1, total=1, n=0), ephemeral=True)
             _, owner, action, pg, mode, filt = parsed
             if action == 'sort':
                 cur = self._box_sort.get((str(gid), str(viewer)), 'rarity')
                 mode = BOX_SORTS[(BOX_SORTS.index(cur) + 1) % len(BOX_SORTS)] if cur in BOX_SORTS else 'rarity'
                 self._box_sort[(str(gid), str(viewer))] = mode
-            member = ix.guild.get_member(int(owner)) if ix.guild else None
-            user = member or self.bot.get_user(int(owner))
-            name = member.display_name if member else (user.name if user else f'User {owner}')
-            avatar = str(user.display_avatar.url) if user else ''
-            view, files = self._box_view(gid, viewer, int(owner), name, filt, pg,
-                                         avatar=avatar)
-            await ix.response.edit_message(view=view, attachments=files or None)
+            # defer early to avoid 3s timeout on large boxes / slow fleet lookups
+            try:
+                if not ix.response.is_done():
+                    await ix.response.defer()
+            except Exception:
+                pass
+            try:
+                member = ix.guild.get_member(int(owner)) if ix.guild else None
+                user = member or self.bot.get_user(int(owner))
+                name = member.display_name if member else (user.name if user else f'User {owner}')
+                avatar = str(user.display_avatar.url) if user and hasattr(user, 'display_avatar') else ''
+                view, files = self._box_view(gid, viewer, int(owner), name, filt, pg,
+                                             avatar=avatar)
+                if ix.response.is_done():
+                    await ix.edit_original_response(view=view, attachments=files or None)
+                else:
+                    await ix.response.edit_message(view=view, attachments=files or None)
+            except Exception:
+                # last resort: keep interaction alive
+                try:
+                    if ix.response.is_done():
+                        await ix.followup.send(t(gid, 'eco.pk_box_page', page=pg, total=1, n=0), ephemeral=True)
+                    else:
+                        await ix.response.send_message(t(gid, 'eco.pk_box_page', page=pg, total=1, n=0), ephemeral=True)
+                except Exception:
+                    pass
         return _cb
 
     @commands.command(name='box', description='Twoje pokemony')
