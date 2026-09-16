@@ -114,7 +114,7 @@ class Shop(commands.Cog):
         secs = self.SHOP_SECTIONS if filt is None else \
             [(s, ks) for s, ks in self.SHOP_SECTIONS if s == filt]
         num_of = {k: i for i, k in self.id_map().items()}
-        return catalog(
+        layout, _ids = catalog(
             gid, uid,
             tagline=t(gid, 'shop.tagline'),
             coins_line=t(gid, 'shop.coins', user=owner_name),
@@ -130,6 +130,7 @@ class Shop(commands.Cog):
             foot=t(gid, 'shop.foot', cmd='shop'),
             section_emos=SECTION_EMOJI,
             on_section=self._section_cb(gid, uid))
+        return layout
 
     def _section_cb(self, gid, uid):
         """Category buttons: re-render filtered (idx) or full (idx -1)."""
@@ -160,8 +161,49 @@ class Shop(commands.Cog):
     async def buy(self, ctx, item: str, n: int = 1):
         import random as _rnd
         from cogs.gamble import bal, set_cash, _gamble_gate
+        from utils.cards import short as cshort
         gid = ctx.guild.id
         key = (item or '').lower().strip()
+        # allow pokemon shop via ;shop buy <pokeball etc> — delegate to balls
+        try:
+            from cogs.pokemon import Pokemon as _Pk
+            # normalize pokemon key: allow names and ids
+            pk_by_name = {k.lower(): k for k in _Pk.PK_NAMES}
+            for k, v in _Pk.PK_NAMES.items():
+                pk_by_name[v.lower()] = k
+                pk_by_name[v.lower().replace(' ', '_')] = k
+                pk_by_name[v.lower().replace(' ', '')] = k
+            # also allow ball ids via pokemon shop
+            if key.isdigit():
+                # try pokemon id first if not found in economy?
+                pk_id = _Pk.ball_ids().get(int(key))
+                if pk_id and pk_id not in ITEMS:
+                    key = pk_id
+                else:
+                    key = self.id_map().get(int(key), key)
+                # re-normalize after id
+                if key in pk_by_name:
+                    key = pk_by_name[key]
+            elif key in pk_by_name:
+                key = pk_by_name[key]
+            if key in _Pk.PK_NAMES:
+                # pokemon purchase
+                n = max(1, min(99, n or 1))
+                price = _Pk._pk_price(key)
+                if not price:
+                    return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
+                b = bal(gid, ctx.author.id)
+                total = price * n
+                if b['cash'] < total:
+                    return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
+                set_cash(gid, ctx.author.id, b['cash'] - total)
+                # add to pokemon balls
+                from cogs.pokemon import balls_add
+                balls_add(gid, ctx.author.id, key, n)
+                # handle repel/incense expire etc. via balls already
+                return await ctx.reply(t(gid, 'shop.bought_n', n=n, item=_Pk.PK_NAMES.get(key, key)), ephemeral=True)
+        except Exception:
+            pass
         if key.isdigit():
             key = self.id_map().get(int(key), '')
         if key not in ITEMS:

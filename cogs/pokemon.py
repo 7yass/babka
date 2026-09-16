@@ -2461,7 +2461,7 @@ class Pokemon(commands.Cog):
         poke = em(gid, 'coin') or '🪙'
         tagline = "Buy some items for your adventure!"
         coins_line = f"{owner_name}'s PokeCoins: {poke} {cash:,}"
-        return catalog(
+        layout, _ids = catalog(
             gid, uid,
             tagline=tagline,
             coins_line=coins_line,
@@ -2478,6 +2478,7 @@ class Pokemon(commands.Cog):
             section_emos=self.BALL_SECTION_EMOJI,
             on_section=self._balls_section_cb(gid, uid),
             extra_head=self._balls_line(gid, uid))
+        return layout
 
     def _balls_section_cb(self, gid, uid):
         """Category buttons: re-render filtered (idx) or full (idx -1)."""
