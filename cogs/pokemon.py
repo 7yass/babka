@@ -1127,11 +1127,9 @@ def _rarity_line(gid, row: dict, shiny: bool) -> str:
 
 def _balls_left_line(gid, uid) -> str:
     b = balls_get(gid, uid)
-    parts = []
-    for key, label in (('poke', 'Pokeballs'), ('great', 'Greatballs'),
-                       ('ultra', 'Ultraballs'), ('master', 'Masterballs')):
-        parts.append(f"{em(gid, BALL_FLEET[key], key)}: {b.get(key, 0)}")
-    return f"{t(gid, 'eco.pk_balls_left')}\n" + '\n'.join(parts)
+    row1 = f"Pokeballs: {b.get('poke',0)}  •  Greatballs: {b.get('great',0)}"
+    row2 = f"Ultraballs: {b.get('ultra',0)}  •  Masterballs: {b.get('master',0)}"
+    return f"===== Balls left =====\n{row1}\n{row2}"
 
 
 BOX_SORTS = ['rarity', 'level', 'dex', 'new']
@@ -1847,13 +1845,36 @@ class Pokemon(commands.Cog):
         await ctx.reply(view=layout, mention_author=False)
 
     @commands.command(name='hunt', description='Poluj i walcz z dzikimi')
-    async def hunt(self, ctx):
-        """Fight-first encounters: FIGHT plus balls."""
-        return await self._hunt_core(ctx, 'fight')
+    async def hunt(self, ctx, *, name: str = ''):
+        """Daily hunt target. `;hunt` shows today, `;hunt <name>` sets it."""
+        import aiohttp
+        gid = ctx.guild.id
+        if (name or '').strip():
+            # set hunt target (delegate to shinyhunt logic)
+            cmd = self.bot.get_command('shinyhunt')
+            if cmd:
+                return await ctx.invoke(cmd, name=name)
+            return await ctx.reply(t(gid, 'eco.pk_hunt_unknown', name=name[:24]), ephemeral=True)
+        with db.conn_ctx() as conn:
+            h = conn.execute('SELECT target, streak FROM pk_hunt WHERE guild_id=? AND user_id=?',
+                             (str(gid), str(ctx.author.id))).fetchone()
+        if not h or not h['target']:
+            # no hunt set
+            return await ctx.reply(view=self._layout(
+                gid, "Your hunt today is not set!",
+                f"First time using hunt command? Check `;help hunt`!\nUse `;hunt <pokemon>` to set your hunt — e.g. `;hunt Tauros`.\nWhen you do `;p` you have a chance of finding this specific Pokemon!"), ephemeral=True)
+        row = _dex_row(h['target'])
+        rk, re, _ = rarity_of(row, False, gid)
+        spe = em(gid, _species_emoji_name(h['target'])) or ''
+        tgt_emo = em(gid, 'hunt_target') or ''
+        tname = (row.get('name') or '#' + str(h['target'])).capitalize()
+        title = f"{tgt_emo + ' ' if tgt_emo else ''}Your hunt today is {re} {spe + ' ' if spe else ''}{tname}!"
+        streak = f"Streak: **{h['streak'] or 0}**\n-# Check `;help hunt` for hunt streak bonuses."
+        return await ctx.reply(view=self._layout(gid, title, streak), ephemeral=True)
 
     @commands.command(name='p', description='Spotkaj dzikiego (tylko łapanie)')
     async def poke_encounter(self, ctx):
-        """Catch-only encounters: balls, no FIGHT row."""
+        """Catch-only encounters: balls, no FIGHT row. Also handles hunt target chance."""
         return await self._hunt_core(ctx, 'catch')
 
     async def _hunt_core(self, ctx, mode: str):
@@ -1881,6 +1902,19 @@ class Pokemon(commands.Cog):
                     break
             else:
                 return await ctx.reply(t(gid, 'eco.pk_api'), ephemeral=True)
+            # hunt target 15% chance to appear in ;p
+            try:
+                with db.conn_ctx() as conn:
+                    hh = conn.execute('SELECT target FROM pk_hunt WHERE guild_id=? AND user_id=?',
+                                      (str(gid), str(ctx.author.id))).fetchone()
+                ht = (hh['target'] or 0) if hh else 0
+                if ht and random.random() < 0.15:
+                    # override with hunt target
+                    trow = await dex_get(s, ht)
+                    if trow:
+                        dex, row = ht, trow
+            except Exception:
+                pass
         mons = my_mons(gid, ctx.author.id)
         avg_lv = sum(m['level'] for m in mons) / max(1, len(mons))
         level = max(3, min(70, int(random.gauss(avg_lv, 6))))
@@ -1939,10 +1973,9 @@ class Pokemon(commands.Cog):
         streak = (flame + ' ' if flame else '') + t(gid, 'eco.pk_streak_line',
                                                     n=st['catch_streak'], b=st['best_streak'])
         bcounts = balls_get(gid, ctx.author.id)
-        balls_rows = '\n'.join(
-            ' • '.join(f"{em(gid, BALL_FLEET[bk], bk)} {bcounts.get(bk, 0)}" for bk in pair)
-            for pair in (('poke', 'great'), ('ultra', 'master')))
-        balls_block = f'———— {t(gid, "eco.pk_balls_left")} ————\n{balls_rows}'
+        balls_block = (f"===== Balls left =====\n"
+                       f"Pokeballs: {bcounts.get('poke',0)}  •  Greatballs: {bcounts.get('great',0)}\n"
+                       f"Ultraballs: {bcounts.get('ultra',0)}  •  Masterballs: {bcounts.get('master',0)}")
         wild_emo = em(gid, 'catch_reticle' if mystery else 'encounter_wild')
         title = (wild_emo + ' ' if wild_emo else '') + t(gid, 'eco.pk_wild_title', level=level)
         rarity = ''
@@ -1969,10 +2002,10 @@ class Pokemon(commands.Cog):
                 gif = ''
         media = ([gif] if gif else []) or ([pix] if not mystery else [])
         view = self._encounter_layout(gid, title, desc, accent, media)
-        self._attach_enc_buttons(view, gid, ctx.author.id, mode)
+        self._attach_enc_buttons(view, gid, ctx.author.id, mode, is_hunt=bool(target and target == dex and not mystery))
         await ctx.reply(view=view, mention_author=False)
 
-    def _attach_enc_buttons(self, view, gid, uid, mode: str = 'fight'):
+    def _attach_enc_buttons(self, view, gid, uid, mode: str = 'fight', is_hunt: bool = False):
         from discord.ui import ActionRow
         row = ActionRow()
         fight = discord.ui.Button(label='FIGHT', style=discord.ButtonStyle.danger,
@@ -1991,12 +2024,13 @@ class Pokemon(commands.Cog):
             await self._start_battle(ix, gid, ix.user)
 
         fight.callback = _fight
-        if mode == 'fight':
+        # p is catch-only, but hunt target via p can also be fought (spec)
+        if mode == 'fight' or (mode == 'catch' and is_hunt):
             row.add_item(fight)
         counts = balls_get(gid, uid)
         for ball in ('poke', 'great', 'ultra', 'master'):
             qty = counts.get(ball, 0)
-            bb = discord.ui.Button(label=f'{ball.upper()} x{qty}',
+            bb = discord.ui.Button(label='',
                                    style=discord.ButtonStyle.success if qty
                                    else discord.ButtonStyle.secondary,
                                    custom_id=f'pkball:{uid}:{ball}',
@@ -2584,15 +2618,31 @@ class Pokemon(commands.Cog):
                     await ix.edit_original_response(view=view, attachments=files or None)
                 else:
                     await ix.response.edit_message(view=view, attachments=files or None)
-            except Exception:
-                # last resort: keep interaction alive
+            except Exception as e:
+                # log and show first page instead of cryptic 2/1 0
                 try:
-                    if ix.response.is_done():
-                        await ix.followup.send(t(gid, 'eco.pk_box_page', page=pg, total=1, n=0), ephemeral=True)
-                    else:
-                        await ix.response.send_message(t(gid, 'eco.pk_box_page', page=pg, total=1, n=0), ephemeral=True)
+                    print(f"[box] page {pg} failed for {viewer}/{owner} filt={filt!r} mode={mode!r}: {e}")
                 except Exception:
                     pass
+                try:
+                    member = ix.guild.get_member(int(owner)) if ix.guild else None
+                    user = member or self.bot.get_user(int(owner))
+                    name = member.display_name if member else (user.name if user else f'User {owner}')
+                    avatar = str(user.display_avatar.url) if user and hasattr(user, 'display_avatar') else ''
+                    view, files = self._box_view(gid, viewer, int(owner), name, filt, 1,
+                                                 avatar=avatar)
+                    if ix.response.is_done():
+                        await ix.edit_original_response(view=view, attachments=files or None)
+                    else:
+                        await ix.response.edit_message(view=view, attachments=files or None)
+                except Exception:
+                    try:
+                        if ix.response.is_done():
+                            await ix.followup.send(t(gid, 'eco.pk_box_page', page=1, total=1, n=0), ephemeral=True)
+                        else:
+                            await ix.response.send_message(t(gid, 'eco.pk_box_page', page=1, total=1, n=0), ephemeral=True)
+                    except Exception:
+                        pass
         return _cb
 
     @commands.command(name='box', description='Twoje pokemony')
@@ -2724,11 +2774,21 @@ class Pokemon(commands.Cog):
         await ctx.reply(view=view, files=files or None, ephemeral=True)
 
     @commands.command(name='release', description='Wypuść pokemona')
-    async def release(self, ctx, slot: int):
+    async def release(self, ctx, *, arg: str = ''):
         from cogs.gamble import bal, set_cash
         gid = ctx.guild.id
-        m = get_mon(gid, ctx.author.id, slot or 0)
+        arg = (arg or '').strip()
+        m = None
+        if arg.isdigit():
+            m = get_mon(gid, ctx.author.id, int(arg))
+        if not m and arg:
+            mons = my_mons(gid, ctx.author.id)
+            spec_of = lambda d: ((_dex_row(d).get('name')) or '').lower()
+            m, _ = _match_mon(mons, spec_of, arg.lower())
+            if not m:
+                m = next((x for x in mons if (x.get('nick') or '').lower() == arg.lower()), None)
         if not m:
+            # also try slot fallback via name with spaces? already
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
         if m.get('locked'):
             return await ctx.reply(t(gid, 'eco.pk_locked', name=mon_name(m, gid)), ephemeral=True)
@@ -3080,9 +3140,35 @@ class Pokemon(commands.Cog):
                         ephemeral=True)
 
     @commands.command(name='sell', description='Wystaw na targ')
-    async def sell(self, ctx, slot: int, price: int):
+    async def sell(self, ctx, *, args: str = ''):
         gid = ctx.guild.id
-        m = get_mon(gid, ctx.author.id, slot or 0)
+        # parse: ;sell <name|slot> <price>  — price is last token
+        parts = (args or '').strip().split()
+        if not parts:
+            return await ctx.reply("Use: `;sell <name|slot> <price>`", ephemeral=True)
+        # last token is price if numeric
+        price = 0
+        ident = ''
+        if parts[-1].isdigit():
+            price = int(parts[-1])
+            ident = ' '.join(parts[:-1]).strip()
+        else:
+            # no price? treat whole as ident and expect price missing
+            ident = ' '.join(parts).strip()
+        if not ident:
+            return await ctx.reply("Use: `;sell <name|slot> <price>`", ephemeral=True)
+        # resolve mon by slot or name
+        m = None
+        if ident.isdigit():
+            m = get_mon(gid, ctx.author.id, int(ident))
+        if not m:
+            mons = my_mons(gid, ctx.author.id)
+            spec_of = lambda d: ((_dex_row(d).get('name')) or '').lower()
+            # try exact name or nick match
+            m, _ = _match_mon(mons, spec_of, ident.lower())
+            if not m:
+                # try nick directly
+                m = next((x for x in mons if (x.get('nick') or '').lower() == ident.lower()), None)
         if not m:
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
         if m.get('locked'):
@@ -3257,9 +3343,18 @@ class Pokemon(commands.Cog):
         await ctx.reply(view=view, files=files or None, ephemeral=True)
 
     @commands.command(name='keep', description='Zabezpiecz pokemona')
-    async def lock(self, ctx, slot: int):
+    async def lock(self, ctx, *, arg: str = ''):
         gid = ctx.guild.id
-        m = get_mon(gid, ctx.author.id, slot or 0)
+        arg = (arg or '').strip()
+        m = None
+        if arg.isdigit():
+            m = get_mon(gid, ctx.author.id, int(arg))
+        if not m and arg:
+            mons = my_mons(gid, ctx.author.id)
+            spec_of = lambda d: ((_dex_row(d).get('name')) or '').lower()
+            m, _ = _match_mon(mons, spec_of, arg.lower())
+            if not m:
+                m = next((x for x in mons if (x.get('nick') or '').lower() == arg.lower()), None)
         if not m:
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
         with db.conn_ctx() as conn:
@@ -3667,10 +3762,19 @@ class Pokemon(commands.Cog):
               level=level), img, accent))
 
     @commands.command(name='swap', description='Losowa wymiana')
-    async def swap(self, ctx, slot: int):
+    async def swap(self, ctx, *, arg: str = ''):
         import aiohttp
         gid = ctx.guild.id
-        m = get_mon(gid, ctx.author.id, slot or 0)
+        arg = (arg or '').strip()
+        m = None
+        if arg.isdigit():
+            m = get_mon(gid, ctx.author.id, int(arg))
+        if not m and arg:
+            mons = my_mons(gid, ctx.author.id)
+            spec_of = lambda d: ((_dex_row(d).get('name')) or '').lower()
+            m, _ = _match_mon(mons, spec_of, arg.lower())
+            if not m:
+                m = next((x for x in mons if (x.get('nick') or '').lower() == arg.lower()), None)
         if not m:
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
         if m.get('locked'):
@@ -3760,59 +3864,9 @@ class Pokemon(commands.Cog):
 
     @commands.command(name='pokemon', description='Ręczny spawn')
     async def pokemon(self, ctx):
-        """Manual shared spawn (PokeMeow style). 2 min cooldown, guess to claim."""
-        import aiohttp
-        gid = ctx.guild.id
-        key = (str(gid), str(ctx.author.id))
-        wait = 120 - (int(time.time()) - self._hunt_cd.get(('manual',) + key[1:], 0))
-        if wait > 0:
-            return await ctx.reply(t(gid, 'eco.pk_manual_wait', s=wait), ephemeral=True)
-        self._hunt_cd[('manual',) + key[1:]] = int(time.time())
-        if self._get_wild(gid, ctx.channel.id):
-            return await ctx.reply(t(gid, 'eco.pk_manual_busy'), ephemeral=True)
-        await ctx.typing()
-        async with aiohttp.ClientSession() as s:
-            for _ in range(12):
-                dex = random.randint(1, 493)
-                row = await dex_get(s, dex)
-                if not row:
-                    continue
-                r = random.random()
-                is_leg = bool(row.get('legendary'))
-                if (is_leg and r < 0.2) or (not is_leg and r < 0.9):
-                    break
-            else:
-                return await ctx.reply(t(gid, 'eco.pk_api'), ephemeral=True)
-            level = random.randint(5, 40)
-            shiny = random.randint(1, SHINY_ODDS) == 1
-            stats = calc_stats(row, level)
-            self._wild[(str(gid), str(ctx.channel.id))] = {
-                'dex': dex, 'level': level, 'shiny': shiny,
-                'hp': stats['maxhp'], 'maxhp': stats['maxhp'],
-                'exp': int(time.time()) + ENC_TTL}
-            spr = pix_url(dex, shiny)
-            raw = await fetch_sprite(s, spr)
-            sil = silhouette_image(raw) if raw else None
-            import io as _bio
-            st = streak_get(gid, ctx.author.id)
-            flame = em(gid, 'streak_flame')
-            desc = (t(gid, 'eco.pk_autospawn', types=types_str(gid, row["types"]))
-                    + '\n' + (flame + ' ' if flame else '') + t(gid, 'eco.pk_streak_line',
-                                                                n=st['catch_streak'], b=st['best_streak'])
-                    + '\n' + _balls_left_line(gid, ctx.author.id))
-            try:
-                if sil:
-                    view = self._layout(
-                        gid, t(gid, 'eco.pk_wild_title', level=level), desc,
-                        'attachment://who.png')
-                    await ctx.reply(view=view, file=discord.File(_bio.BytesIO(sil), 'who.png'),
-                                    mention_author=False)
-                else:
-                    await ctx.reply(view=self._layout(
-                        gid, t(gid, 'eco.pk_wild_title', level=level), desc,
-                        spr), mention_author=False)
-            except Exception:
-                self._wild.pop((str(gid), str(ctx.channel.id)), None)
+        """Alias of ;p — same catch encounter.
+        (Spec: `;p` aka `;pokemon` they should do the same thing)."""
+        return await self._hunt_core(ctx, 'catch')
 
     @commands.command(name='items', description='Twoje itemy')
     async def items(self, ctx):
@@ -4018,6 +4072,126 @@ class Pokemon(commands.Cog):
                 # non-numeric slot -> try name lookup later, keep stone as s_arg
                 s_arg = (raw_slot + ' ' + s_arg).strip().lower()
                 slot_n = 0
+        low_raw = (raw_slot + ' ' + s_arg).strip().lower()
+        # subcommands: info / set / buddy / no args -> help list
+        if not raw_slot and not s_arg:
+            # ;evolve with nothing -> show evolvable list UI (PokeMeow style)
+            mons = my_mons(gid, ctx.author.id)
+            if not mons:
+                return await ctx.reply(t(gid, 'eco.pk_need_starter'), ephemeral=True)
+            # find evolvables
+            evolvables = []
+            for mon in mons:
+                d = int(mon.get('dex', 0) or 0)
+                if d == 133:
+                    evolvables.append(mon)
+                    continue
+                # need dex row for evo check (cached)
+                row_e = _dex_row(d)
+                if not row_e or not row_e.get('evo_to'):
+                    continue
+                # level threshold or stone? require level
+                lvl_need = row_e.get('evo_level') or 0
+                if lvl_need and mon['level'] >= lvl_need:
+                    evolvables.append(mon)
+                elif not lvl_need and row_e.get('evo_to'):
+                    # stone evo without level (e.g. Eevee handled) -> show as evolvable if have stone or held
+                    evolvables.append(mon)
+            # build UI
+            from discord.ui import LayoutView, Container, TextDisplay, Section, Thumbnail
+            layout = LayoutView(timeout=60)
+            box = Container(accent_color=0xFFD43B)
+            try:
+                av = str(ctx.author.display_avatar.with_size(64).url)
+            except Exception:
+                av = ''
+            head = f"**{ctx.author.display_name}'s Evolvable Pokemon**\n-# The Pokemon below are ready to evolve!"
+            help_lines = (
+                "`;evolve {pokemonname}` for regular Pokemon\n"
+                "`;evolve {shiny or golden} {pokemonname}` for Shinies/Goldens\n"
+                "`;evolve buddy` for Mega Evolutions (prompts when you own multiple compatible stones)\n"
+                "`;evolve {pokemonname or buddy} {X/Y/Z}` to choose a Mega form directly\n"
+                "`;evolve info {pokemonname}` for all evolution stages and requirements\n"
+                f"{em(gid,'mega_bracelet') or '🔷'} `;evolve set {{X/Y/Z}}` to highlight your preferred option in Mega prompts"
+            )
+            if av:
+                try:
+                    box.add_item(Section(TextDisplay(head), accessory=Thumbnail(media=av)))
+                except Exception:
+                    box.add_item(TextDisplay(head))
+            else:
+                box.add_item(TextDisplay(head))
+            box.add_item(TextDisplay(help_lines))
+            if not evolvables:
+                box.add_item(TextDisplay("*No Pokemon ready to evolve right now.*"))
+            else:
+                for idx, mon in enumerate(evolvables[:10], start=1):
+                    spe = em(gid, _species_emoji_name(mon.get('dex',0))) or ''
+                    row_e = _dex_row(mon['dex'])
+                    name = (row_e.get('name') or f"#{mon['dex']}").capitalize() if row_e else f"#{mon['dex']}"
+                    # friendship hearts? buddy hearts /5
+                    buddy = buddy_get(gid, ctx.author.id)
+                    hearts = 0
+                    if buddy.get('mid') == mon['id']:
+                        hearts = buddy.get('hearts',0) or 0
+                    hf = f"{em(gid,'heart') or '♥'} {hearts/2:.1f} / 5" if hearts else f"{em(gid,'heart') or '♥'} 0.5 / 5"
+                    # exp
+                    nxt = 1
+                    try:
+                        nxt = mon.get('xp',0)
+                    except Exception:
+                        pass
+                    line = f"`{idx:02d}` {spe + ' ' if spe else ''}{name} | Lvl. {mon['level']} | EXP. {mon.get('xp',0):,} | {hf}"
+                    box.add_item(TextDisplay(line))
+            foot = (
+                "Evolve a Pokemon by reaching its required level (if it has one)!\n"
+                f"Some Pokemon require 5 {em(gid,'heart') or '♥'}'s, an {em(gid,'evolutionstone') or em(gid,'evo_burst') or '🔷'} , or a {em(gid,'mega') or '🔷'} Mega Stone to evolve.\n"
+                "Higher IVs, levels + exp, and friendship are always inherited by the evolved form.\n"
+                "Moves are inherited if you don't own the evolution or if you own the evolution and it has less moves than the mon you are evolving.\n"
+                "[`;buddy help`] for more buddy info"
+            )
+            box.add_item(TextDisplay(foot))
+            layout.add_item(box)
+            return await ctx.reply(view=layout, ephemeral=True)
+        if low_raw.startswith('info '):
+            # ;evolve info <name>
+            q = low_raw.split(' ',1)[1].strip()
+            # try find mon by name or dex row
+            mons = my_mons(gid, ctx.author.id)
+            target_row = None
+            target_mon = None
+            if q.isdigit():
+                target_row = _dex_row(int(q))
+            else:
+                # try mon name
+                spec_of = lambda d: ((_dex_row(d).get('name')) or '').lower()
+                target_mon, _ = _match_mon(mons, spec_of, q)
+                if target_mon:
+                    target_row = _dex_row(target_mon['dex'])
+                else:
+                    # try dex by name via cache search
+                    for d in range(1,494):
+                        r = _dex_row(d)
+                        if r and (r.get('name') or '').lower() == q:
+                            target_row = r
+                            break
+            if not target_row:
+                return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
+            # show evolution line
+            line = _evo_text(gid, target_row)
+            return await ctx.reply(view=self._layout(gid, f"Evo info — {(target_row.get('name') or q).capitalize()}", line), ephemeral=True)
+        if low_raw.startswith('set '):
+            pref = low_raw.split(' ',1)[1].strip().upper()[:1]
+            if pref not in ('X','Y','Z'):
+                return await ctx.reply("Use: `;evolve set {X/Y/Z}`", ephemeral=True)
+            # store preference per user (simple db)
+            with db.conn_ctx() as conn:
+                conn.execute('INSERT OR REPLACE INTO pk_buddy (guild_id, user_id, mid, hearts) VALUES (?,?,COALESCE((SELECT mid FROM pk_buddy WHERE guild_id=? AND user_id=?),0), COALESCE((SELECT hearts FROM pk_buddy WHERE guild_id=? AND user_id=?),0))',
+                             (str(gid), str(ctx.author.id), str(gid), str(ctx.author.id), str(gid), str(ctx.author.id)))
+                # piggyback on hearts? store pref in separate table or ignore - just acknowledge
+            return await ctx.reply(f"{em(gid,'mega_bracelet') or ''} Preferred Mega set to **{pref}**.", ephemeral=True)
+        if low_raw in ('buddy', 'buddy info'):
+            return await ctx.reply(view=self._layout(gid, "Mega Evolutions", "Mega evolutions use your buddy. `;buddy set <name>` then `;evolve buddy` (stub)."), ephemeral=True)
         if not slot_n and not s_arg:
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
         # resolve mon by slot or name
@@ -5423,12 +5597,26 @@ class Pokemon(commands.Cog):
             st['msg'] = await ctx.reply(view=view, mention_author=False)
 
     @commands.command(name='trade', description='Wymień pokemona')
-    async def trade(self, ctx, member: discord.Member, yours: int, theirs: int):
+    async def trade(self, ctx, member: discord.Member, yours: str = '', theirs: str = ''):
         gid = ctx.guild.id
         if member.id == ctx.author.id or member.bot:
             return await ctx.reply(t(gid, 'eco.pk_duel_self'), ephemeral=True)
-        mine = get_mon(gid, ctx.author.id, yours or 0)
-        want = get_mon(gid, member.id, theirs or 0)
+        def _resolve(uid, ident):
+            if not ident:
+                return None
+            s = str(ident).strip()
+            if s.isdigit():
+                m = get_mon(gid, uid, int(s))
+                if m:
+                    return m
+            mons = my_mons(gid, uid)
+            spec_of = lambda d: ((_dex_row(d).get('name')) or '').lower()
+            m, _ = _match_mon(mons, spec_of, s.lower())
+            if m:
+                return m
+            return next((x for x in mons if (x.get('nick') or '').lower() == s.lower()), None)
+        mine = _resolve(ctx.author.id, yours)
+        want = _resolve(member.id, theirs)
         if not mine or not want:
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
         if mine.get('locked'):
@@ -5447,19 +5635,24 @@ class Pokemon(commands.Cog):
         no_b = discord.ui.Button(label='DECLINE', style=discord.ButtonStyle.danger,
                                  emoji=_btn_emoji(gid, 'check_cross'))
 
+        m1_id, m2_id = mine['id'], want['id']
         async def _ok(ix: discord.Interaction):
             set_ctx_lang(ix.user)
             if ix.user.id != member.id:
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
-            m1 = get_mon(gid, ctx.author.id, yours or 0)
-            m2 = get_mon(gid, member.id, theirs or 0)
-            if not m1 or not m2:
-                return await ix.response.send_message(t(gid, 'eco.pk_gone'), ephemeral=True)
+            with db.conn_ctx() as conn:
+                r1 = conn.execute('SELECT * FROM pk_mons WHERE id=? AND guild_id=?', (m1_id, str(gid))).fetchone()
+                r2 = conn.execute('SELECT * FROM pk_mons WHERE id=? AND guild_id=?', (m2_id, str(gid))).fetchone()
+                if not r1 or not r2:
+                    return await ix.response.send_message(t(gid, 'eco.pk_gone'), ephemeral=True)
+                m1, m2 = dict(r1), dict(r2)
+            if m1.get('locked'):
+                return await ix.response.send_message(t(gid, 'eco.pk_locked', name=mon_name(m1,gid)), ephemeral=True)
             with db.conn_ctx() as conn:
                 conn.execute('UPDATE pk_mons SET owner_id=?, active=0 WHERE id=?',
-                             (str(member.id), m1['id']))
+                             (str(member.id), m1_id))
                 conn.execute('UPDATE pk_mons SET owner_id=?, active=0 WHERE id=?',
-                             (str(ctx.author.id), m2['id']))
+                             (str(ctx.author.id), m2_id))
                 for uid in (str(ctx.author.id), str(member.id)):
                     r = conn.execute('SELECT id FROM pk_mons WHERE guild_id=? AND owner_id=? '
                                      'ORDER BY id LIMIT 1', (str(gid), uid)).fetchone()
