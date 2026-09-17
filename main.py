@@ -96,8 +96,14 @@ async def _pre_invoke(ctx):
         pass
     try:
         cog = getattr(getattr(ctx, 'cog', None), 'qualified_name', '')
-        is_pk = cog == 'Pokemon' or (cog == 'Help' and (ctx.prefix or '') == ';')
-        if (ctx.prefix or '') == ';' and not is_pk:
+        prefix = ctx.prefix or ''
+        is_pk = cog == 'Pokemon' or (cog == 'Help' and prefix == ';')
+        # `shop` is shared: economy store on the guild prefix, pokemon
+        # storefront on ';' (PokeMeow-style). Let the Shop cog's shop tree
+        # through on ';' — its callback branches on the prefix itself.
+        if cog == 'Shop' and prefix == ';' and (ctx.invoked_with or '').lower() == 'shop':
+            is_pk = True
+        if prefix == ';' and not is_pk:
             raise commands.CheckFailure()
         if (ctx.prefix or '') != ';' and cog == 'Pokemon':
             try:

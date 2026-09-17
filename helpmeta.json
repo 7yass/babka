@@ -1155,7 +1155,7 @@
     ],
     "shop": [
       "economy",
-      "Spend money on power: tokens, boosts, shields, boxes, curses, bail, VIP. `;shop pokemon` shows the pokemon item shop (`;shop buy` buys from both).",
+      "Two stores, one name: `.shop` = babka store (tokens, boosts, shields, boxes, curses, bail, VIP). `;shop` = pokemon item store, PokeMeow-style (`;shop buy <name|id> [n]`).",
       [],
       "buy",
       "Everyone"
@@ -1446,7 +1446,7 @@
     ],
     "balls": [
       "economy",
-      "Pokemon item shop: balls, potions, candy, eggs, lures. Numbered rows — buy by name or ID. Also `;pokeshop` / `;shop pokemon`.",
+      "Pokemon item shop: balls, potions, candy, eggs, lures. Numbered rows — buy by name or ID via `;shop buy`. Also `;pokeshop` / `;shop pokemon`.",
       [
         "pokeshop",
         "pshop",
