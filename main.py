@@ -107,7 +107,11 @@ async def _pre_invoke(ctx):
         # `shop` is shared: economy store on the guild prefix, pokemon
         # storefront on ';' (PokeMeow-style). Let the Shop cog's shop tree
         # through on ';' — its callback branches on the prefix itself.
-        if cog == 'Shop' and prefix == ';' and (ctx.invoked_with or '').lower() == 'shop':
+        # NOTE: for `;shop buy ...` invoked_with is 'buy', so match the
+        # whole invocation chain, not just the leaf.
+        invoked = [(ctx.invoked_with or '').lower()] + \
+            [str(p or '').lower() for p in (getattr(ctx, 'invoked_parents', None) or [])]
+        if cog == 'Shop' and prefix == ';' and 'shop' in invoked:
             is_pk = True
         if prefix == ';' and not is_pk:
             try:

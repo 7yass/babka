@@ -230,68 +230,11 @@ class Shop(commands.Cog):
         return await ctx.reply(t(gid, 'shop.bought_n', n=n, item=_Pk.PK_NAMES.get(key, key)),
                                ephemeral=True)
 
-    @shop.command(name='buy', description='Kup przedmiot')
-    async def buy(self, ctx, item: str = '', n: str = '1'):
-        import random as _rnd
+    async def _buy_economy(self, ctx, key: str, n: int):
+        """Economy-catalog purchase (`.shop` board's own numbers/names)."""
         from cogs.gamble import bal, set_cash, _gamble_gate
         from utils.cards import short as cshort
         gid = ctx.guild.id
-        key = (item or '').lower().strip()
-        try:
-            n = max(1, min(99, int(n or 1)))
-        except (ValueError, TypeError):
-            n = 1
-        if (ctx.prefix or '') == ';':
-            # Pokemon storefront only on the pokemon prefix.
-            return await self._buy_pokemon(ctx, key, n)
-        if not key:
-            layout = self._shop_layout(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'],
-                                       owner_name=ctx.author.display_name)
-            return await ctx.reply(view=layout, ephemeral=True)
-        # allow pokemon shop via ;shop buy <pokeball etc> — delegate to balls
-        try:
-            from cogs.pokemon import Pokemon as _Pk
-            # normalize pokemon key: allow names and ids
-            pk_by_name = {k.lower(): k for k in _Pk.PK_NAMES}
-            for k, v in _Pk.PK_NAMES.items():
-                pk_by_name[v.lower()] = k
-                pk_by_name[v.lower().replace(' ', '_')] = k
-                pk_by_name[v.lower().replace(' ', '')] = k
-            # also allow ball ids via pokemon shop
-            if key.isdigit():
-                # try pokemon id first if not found in economy?
-                pk_id = _Pk.ball_ids().get(int(key))
-                if pk_id and pk_id not in ITEMS:
-                    key = pk_id
-                else:
-                    key = self.id_map().get(int(key), key)
-                # re-normalize after id
-                if key in pk_by_name:
-                    key = pk_by_name[key]
-            elif key in pk_by_name:
-                key = pk_by_name[key]
-            if key in _Pk.PK_NAMES:
-                # pokemon purchase
-                n = max(1, min(99, n or 1))
-                price = _Pk._pk_price(key)
-                if not price:
-                    return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
-                b = bal(gid, ctx.author.id)
-                total = price * n
-                if b['cash'] < total:
-                    return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-                set_cash(gid, ctx.author.id, b['cash'] - total)
-                # add to pokemon balls
-                from cogs.pokemon import balls_add
-                balls_add(gid, ctx.author.id, key, n)
-                # handle repel/incense expire etc. via balls already
-                return await ctx.reply(t(gid, 'shop.bought_n', n=n, item=_Pk.PK_NAMES.get(key, key)), ephemeral=True)
-        except Exception:
-            pass
-        if key.isdigit():
-            key = self.id_map().get(int(key), '')
-        if key not in ITEMS:
-            return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
         n = max(1, min(99, n or 1))
         price = ITEMS[key]['price']
         if key in self.GAMBLE_ITEMS:
@@ -324,6 +267,68 @@ class Shop(commands.Cog):
         except Exception:
             pass
         await ctx.reply(t(gid, 'shop.bought_n', n=n, item=DISPLAY.get(key, key)), ephemeral=True)
+
+    @shop.command(name='buy', description='Kup przedmiot')
+    async def buy(self, ctx, item: str = '', n: str = '1'):
+        import random as _rnd
+        from cogs.gamble import bal, set_cash, _gamble_gate
+        from utils.cards import short as cshort
+        gid = ctx.guild.id
+        key = (item or '').lower().strip()
+        try:
+            n = max(1, min(99, int(n or 1)))
+        except (ValueError, TypeError):
+            n = 1
+        if (ctx.prefix or '') == ';':
+            # Pokemon storefront only on the pokemon prefix.
+            return await self._buy_pokemon(ctx, key, n)
+        if not key:
+            layout = self._shop_layout(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'],
+                                       owner_name=ctx.author.display_name)
+            return await ctx.reply(view=layout, ephemeral=True)
+        # Economy first on the guild prefix: the `.shop` board's own
+        # numbers/names win. Pokemon ids overlap numerically, so resolving
+        # pokemon first hijacked e.g. `.shop buy 8` (xpboost) into candy.
+        ekey = self.id_map().get(int(key), '') if key.isdigit() else key
+        if ekey not in ITEMS:
+            flat = key.replace(' ', '').replace('_', '')
+            ekey = {v.lower().replace(' ', ''): k for k, v in DISPLAY.items()}.get(flat, ekey)
+        if ekey in ITEMS:
+            return await self._buy_economy(ctx, ekey, n)
+        # ...otherwise the pokemon catalog (names + its own ids).
+        # allow pokemon shop via ;shop buy <pokeball etc> — delegate to balls
+        try:
+            from cogs.pokemon import Pokemon as _Pk
+            # normalize pokemon key: allow names and ids
+            pk_by_name = {k.lower(): k for k in _Pk.PK_NAMES}
+            for k, v in _Pk.PK_NAMES.items():
+                pk_by_name[v.lower()] = k
+                pk_by_name[v.lower().replace(' ', '_')] = k
+                pk_by_name[v.lower().replace(' ', '')] = k
+            # also allow ball ids via pokemon shop
+            if key.isdigit():
+                key = _Pk.ball_ids().get(int(key), key)
+            if key in pk_by_name:
+                key = pk_by_name[key]
+            if key in _Pk.PK_NAMES:
+                # pokemon purchase
+                n = max(1, min(99, n or 1))
+                price = _Pk._pk_price(key)
+                if not price:
+                    return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
+                b = bal(gid, ctx.author.id)
+                total = price * n
+                if b['cash'] < total:
+                    return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
+                set_cash(gid, ctx.author.id, b['cash'] - total)
+                # add to pokemon balls
+                from cogs.pokemon import balls_add
+                balls_add(gid, ctx.author.id, key, n)
+                # handle repel/incense expire etc. via balls already
+                return await ctx.reply(t(gid, 'shop.bought_n', n=n, item=_Pk.PK_NAMES.get(key, key)), ephemeral=True)
+        except Exception:
+            pass
+        return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
 
     @shop.command(name='pokemon', aliases=['balls', 'poke', 'pk'],
                      description='Sklep pokemon')
