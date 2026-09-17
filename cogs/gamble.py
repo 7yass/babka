@@ -28,7 +28,7 @@ RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 SLOTS = ['7', '★', '♦', '♣', '●']
 # European roulette reds; 0 is green, rest black
 ROU_REDS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
-# mortals keep ~35% of the spins they'd fairly win; gods force every 3rd round
+# mortals keep ~35% of the spins they'd fairly win; gods tilt every 4th round
 ROU_RIG = 0.65
 # single-zero wheel order (clockwise)
 WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30,
@@ -406,6 +406,7 @@ def parse_bet(raw, cash: int):
 
 
 def split_allin(bet: str, *rest: str):
+
     """Fold `all in <choice>` (and `allin <choice>`) so `.roulette all in
     black` parses. Returns (bet_part, choice_part)."""
     toks = ' '.join([bet or '', *[r or '' for r in rest]]).split()
@@ -417,6 +418,16 @@ def split_allin(bet: str, *rest: str):
     if not toks:
         return '', ''
     return toks[0], ' '.join(toks[1:])
+
+
+def max_bet_for(level: int, base: int = GAMBLES_MAX_BET) -> int:
+    """Betting limit grows with level: base + 1.5k/level, 100k cap.
+    Lv0 plays at base, lv10 ~30k, lv30 ~60k — high rollers still bypass."""
+    try:
+        lv = max(0, int(level or 0))
+    except Exception:
+        lv = 0
+    return min(100000, base + lv * 1500)
 
 
 def _jailed(gid, uid):
@@ -1209,6 +1220,8 @@ class Gamble(commands.Cog):
 
     @commands.hybrid_command(name='blackjack', description='Oczko', aliases=['bj'])
     async def blackjack(self, ctx, bet: str, extra: str = ''):
+        await ctx.defer()
+        from cogs.levels import get_user
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
         if jm:
@@ -1219,8 +1232,9 @@ class Gamble(commands.Cog):
         if not bet:
             return await ctx.reply(t(gid, 'eco.bet_pos'), ephemeral=True)
         if not god:
-            if bet > BJ_MAX_BET and not has_highroller(gid, ctx.author.id):
-                return await ctx.reply(t(gid, 'eco.bj_maxbet', max=cshort(BJ_MAX_BET)), ephemeral=True)
+            cap = max_bet_for(get_user(gid, ctx.author.id).get('level', 0), BJ_MAX_BET)
+            if bet > cap and not has_highroller(gid, ctx.author.id):
+                return await ctx.reply(t(gid, 'eco.bj_maxbet', max=cshort(cap)), ephemeral=True)
             wait = _gamble_gate(gid, ctx.author.id)
             if wait is not None:
                 return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
@@ -1252,13 +1266,15 @@ class Gamble(commands.Cog):
         view.message = await ctx.reply(view=view, files=[await view._table_file(True)])
 
     def _take_bet(self, ctx, bet):
+        from cogs.levels import get_user
         gid = ctx.guild.id
         bet = parse_bet(bet, bal(gid, ctx.author.id)['cash'])
         if not bet:
             return None, t(gid, 'eco.bet_pos'), 0
+        cap = max_bet_for(get_user(gid, ctx.author.id).get('level', 0))
         if (str(ctx.author.id) not in GOD_IDS and not has_highroller(gid, ctx.author.id)
-                and bet > GAMBLES_MAX_BET):
-            return None, t(gid, 'eco.max_bet', max=cshort(GAMBLES_MAX_BET))
+                and bet > cap):
+            return None, t(gid, 'eco.max_bet', max=cshort(cap))
         b = bal(gid, ctx.author.id)
         if bet > b['cash']:
             return None, t(gid, 'eco.broke', cash=cshort(b['cash'])), 0
@@ -1280,6 +1296,9 @@ class Gamble(commands.Cog):
 
     @commands.hybrid_command(name='slots', description='Maszynka')
     async def slots(self, ctx, bet: str):
+        # ACK slash interactions up front: image renders must never outrun
+        # the 3s interaction window (10062 Unknown interaction).
+        await ctx.defer()
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
         if jm:
@@ -1350,6 +1369,7 @@ class Gamble(commands.Cog):
 
     @commands.hybrid_command(name='coinflip', description='Orzeł czy reszka', aliases=['moneta'])
     async def coinflip(self, ctx, bet: str, side: str = '', extra: str = ''):
+        await ctx.defer()
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
         if jm:
@@ -1403,6 +1423,7 @@ class Gamble(commands.Cog):
 
     @commands.hybrid_command(name='roulette', description='Ruletka', aliases=['ruletka'])
     async def roulette(self, ctx, bet: str, choice: str = '', extra: str = ''):
+        await ctx.defer()
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
         if jm:
@@ -1534,7 +1555,11 @@ class Gamble(commands.Cog):
                     t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
             _gamble_use(gid, uid)
             n, msg = cog._roulette_round(gid, uid, bet, kind, num)
-            png = cog._rou_wheels.get(n) or roulette_image(n)
+            png = cog._rou_wheels.get(n)
+            if png is None:
+                import asyncio as _aioec
+                png = await _aioec.get_running_loop().run_in_executor(
+                    None, roulette_image, n)
             layout = _game_layout(t(gid, 'eco.rou_title', bet=cshort(bet)), msg,
                                   'attachment://rou2.png')
             _attach_roulette_again(
@@ -1557,6 +1582,7 @@ class Gamble(commands.Cog):
 
     @commands.hybrid_command(name='poker', description='Video poker: Jacks or better')
     async def poker(self, ctx, bet: str):
+        await ctx.defer()
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
         if jm:

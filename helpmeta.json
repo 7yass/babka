@@ -127,7 +127,7 @@
     ],
     "nick": [
       "economy",
-      "Spend a 100k nick token to change your own nickname: `.nick <name>`. No token = no change.",
+      "Spend a 125k nick token to change your own nickname: `.nick <name>`. No token = no change.",
       [],
       "NowyNick",
       "Everyone"
@@ -896,7 +896,7 @@
     ],
     "blackjack": [
       "economy",
-      "HOW TO PLAY: `.blackjack <bet>` (max 15000). You vs dealer, closest to 21 wins. HIT takes a card, STAND holds, DOUBLE doubles the stake for one card. Dealer draws to 17, ties push. Blackjack pays 6:5, bust = bet lost, max profit 15k/hand. 10 plays/hour shared with other games. Bets accept 1k / 2.5k / 1m / all.",
+      "HOW TO PLAY: `.blackjack <bet>` (limit grows with level from 15k, High Roller lifts it). You vs dealer, closest to 21 wins. HIT takes a card, STAND holds, DOUBLE doubles the stake for one card. Dealer draws to 17, ties push. Blackjack pays 6:5, bust = bet lost, max profit 15k/hand. 10 plays/hour shared with other games. Bets accept 1k / 2.5k / 1m / all.",
       [
         "bj"
       ],
@@ -942,6 +942,14 @@
       [],
       "<subcommand>",
       "Manage Server",
+      false
+    ],
+    "health": [
+      "setup",
+      "Dev command audits: registry vs help, stale numbers, currency safety. `.health commands [category:X] [issue:Y]`.",
+      [],
+      "[category:<mod>] [issue:<help|aliases|registry|currency|safety>]",
+      "Administrator",
       false
     ],
     "tickets": [
@@ -1667,7 +1675,7 @@
     ],
     "grazz": [
       "economy",
-      "Feed a golden razz (3k in ball shop): way better catch odds.",
+      "Feed a golden razz (4k in ball shop): way better catch odds.",
       [],
       "",
       "Everyone"
