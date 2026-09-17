@@ -1996,7 +1996,7 @@ class Pokemon(commands.Cog):
             hint = (f"FIGHT: {mon_name(act, gid)} Lv{act['level']} — "
                     f"`;active {slot_of.get(act['id'], 1)}` / `;battle {slot_of.get(act['id'], 1)}` to change")
         else:
-            hint = "`;catch <ball>` or tap a ball below"
+            hint = "`;catch <ball>` or tap a ball below — one throw!"
         st = streak_get(gid, ctx.author.id)
         flame = em(gid, 'streak_flame')
         streak = (flame + ' ' if flame else '') + t(gid, 'eco.pk_streak_line',
@@ -2040,7 +2040,24 @@ class Pokemon(commands.Cog):
         media = ([gif] if gif else []) or ([pix] if not mystery else [])
         view = self._encounter_layout(gid, title, desc, accent, media)
         self._attach_enc_buttons(view, gid, ctx.author.id, mode, is_hunt=bool(((target and target == dex) or is_daily) and not mystery))
-        await ctx.reply(view=view, mention_author=False)
+        # Catch-mode resolves by EDITING this message (one throw, win or gone):
+        # remember it, and strip the dead buttons off any encounter this replaces
+        # (stale buttons would otherwise throw at the NEW encounter).
+        old = self._enc.get(key)
+        sent = await ctx.reply(view=view, mention_author=False)
+        try:
+            if old and old.get('mid') and int(old.get('cid') or 0) == int(ctx.channel.id):
+                try:
+                    prev = await ctx.channel.fetch_message(int(old['mid']))
+                    await prev.edit(view=None)
+                except Exception:
+                    pass
+            cur = self._enc.get(key)
+            if cur is not None and getattr(sent, 'id', None):
+                cur['mid'] = sent.id
+                cur['cid'] = ctx.channel.id
+        except Exception:
+            pass
 
     def _attach_enc_buttons(self, view, gid, uid, mode: str = 'fight', is_hunt: bool = False):
         from discord.ui import ActionRow
@@ -2098,6 +2115,59 @@ class Pokemon(commands.Cog):
             return None
         return e
 
+    async def _edit_enc_message(self, ctx, gid, e, layout) -> bool:
+        """Edit the stored encounter message (catch-mode resolves in place).
+        Returns False when the message is unknown/gone — caller falls back
+        to a fresh reply."""
+        try:
+            mid, cid = e.get('mid'), e.get('cid')
+            if not mid or int(cid or 0) != int(ctx.channel.id):
+                return False
+            msg = await ctx.channel.fetch_message(int(mid))
+            await msg.edit(view=layout)
+            return True
+        except Exception:
+            return False
+
+    def _congrats_layout(self, gid, display_name: str, avatar_url: str,
+                         msg: str, gif: str, accent: int):
+        """Caught card (no buttons) — shared by the command, button and
+        fallback paths so the result looks identical everywhere."""
+        from discord.ui import LayoutView, Container, TextDisplay, Section, Thumbnail, MediaGallery
+        from discord.ui.media_gallery import MediaGalleryItem
+        layout = LayoutView(timeout=60)
+        box = Container(accent_color=accent)
+        head = f"## Congratulations, {display_name}!\n{msg}"
+        if avatar_url:
+            try:
+                box.add_item(Section(TextDisplay(head), accessory=Thumbnail(media=avatar_url)))
+            except Exception:
+                box.add_item(TextDisplay(head))
+        else:
+            box.add_item(TextDisplay(head))
+        if gif:
+            try:
+                box.add_item(MediaGallery(MediaGalleryItem(media=gif)))
+            except Exception:
+                pass
+        layout.add_item(box)
+        return layout
+
+    def _catch_result_layout(self, gid, uid, e, *, ok: bool, msg: str, gif: str,
+                             user_name: str, avatar_url: str = ''):
+        """Final card for a finished catch-mode (`;p`) encounter: no buttons,
+        one throw only — caught or gone."""
+        if ok:
+            rk, re, accent = rarity_of(_dex_row(e['dex']), bool(e.get('shiny')), gid)
+            return self._congrats_layout(gid, user_name, avatar_url, msg, gif, accent)
+        disp = (_dex_row(e['dex']).get('name') or f"#{e['dex']}").capitalize()
+        if e.get('shiny'):
+            disp = ((em(gid, 'rarity_shiny') or '*') + ' ' + disp)
+        bust = em(gid, 'catch_burst')
+        title = f"{bust + ' ' if bust else ''}{disp} escaped..."
+        return self._encounter_layout(
+            gid, title, f'{msg}\n{_balls_left_line(gid, uid)}', 0x3A3F4B)
+
     @commands.command(name='catch', description='Rzuć ball')
     async def catch(self, ctx, ball: str = ''):
         gid = ctx.guild.id
@@ -2112,39 +2182,34 @@ class Pokemon(commands.Cog):
         e = self._get_enc(gid, ctx.author.id)
         if not e:
             return await ctx.reply(t(gid, 'eco.pk_noenc'), ephemeral=True)
-        await ctx.typing()
-        ok, msg, gif, disp = await self._do_catch(gid, ctx.author.id, e, ball)
-        if ok:
+        one_shot = e.get('mode') == 'catch'
+        if one_shot:
+            # ;p is one throw: consume up front so a double-tap can't double-spend.
             self._enc.pop((str(gid), str(ctx.author.id)), None)
-        if ok:
-            # spec: Congratulations, y4qs! + pfp + caught line + image + rarity/streak/roll/balls/coins
-            rk, re, accent = rarity_of(_dex_row(e['dex']), bool(e['shiny']), gid)
-            burst = em(gid, 'catch_burst')
-            title = f"Congratulations, {ctx.author.display_name}!"
-            # build congrats card with pfp
-            from discord.ui import LayoutView, Container, TextDisplay, Section, Thumbnail, MediaGallery
-            from discord.ui.media_gallery import MediaGalleryItem
-            layout = LayoutView(timeout=60)
-            box = Container(accent_color=accent)
+        await ctx.typing()
+        ok, msg, gif, disp = await self._do_catch(gid, ctx.author.id, e, ball, one_shot=one_shot)
+        if ok and not one_shot:
+            self._enc.pop((str(gid), str(ctx.author.id)), None)
+        if one_shot:
             try:
                 av = str(ctx.author.display_avatar.with_size(64).url)
             except Exception:
                 av = ''
-            head = f"## {title}\n{msg}"
-            if av:
-                try:
-                    box.add_item(Section(TextDisplay(head), accessory=Thumbnail(media=av)))
-                except Exception:
-                    box.add_item(TextDisplay(head))
-            else:
-                box.add_item(TextDisplay(head))
-            if gif:
-                try:
-                    box.add_item(MediaGallery(MediaGalleryItem(media=gif)))
-                except Exception:
-                    pass
-            layout.add_item(box)
-            await ctx.reply(view=layout, mention_author=False)
+            layout = self._catch_result_layout(
+                gid, ctx.author.id, e, ok=ok, msg=msg, gif=gif,
+                user_name=ctx.author.display_name, avatar_url=av)
+            if await self._edit_enc_message(ctx, gid, e, layout):
+                return
+            # original message gone: fall back to a fresh one (old behavior)
+        if ok:
+            # spec: Congratulations, y4qs! + pfp + caught line + image + rarity/streak/roll/balls/coins
+            rk, re, accent = rarity_of(_dex_row(e['dex']), bool(e['shiny']), gid)
+            try:
+                av = str(ctx.author.display_avatar.with_size(64).url)
+            except Exception:
+                av = ''
+            await ctx.reply(view=self._congrats_layout(
+                gid, ctx.author.display_name, av, msg, gif, accent), mention_author=False)
             return
         else:
             view, files = self._mini(gid, disp, msg, e.get('dex'), 0x3A3F4B)
@@ -2154,42 +2219,39 @@ class Pokemon(commands.Cog):
         e = self._get_enc(gid, user.id)
         if not e:
             return await ix.followup.send(t(gid, 'eco.pk_noenc'), ephemeral=True)
-        ok, msg, gif, disp = await self._do_catch(gid, user.id, e, ball)
-        if ok:
+        one_shot = e.get('mode') == 'catch'
+        if one_shot:
             self._enc.pop((str(gid), str(user.id)), None)
-        if ok:
-            rk, re, accent = rarity_of(_dex_row(e['dex']), bool(e['shiny']), gid)
-            burst = em(gid, 'catch_burst')
-            title = f"Congratulations, {user.display_name}!"
-            from discord.ui import LayoutView, Container, TextDisplay, Section, Thumbnail, MediaGallery
-            from discord.ui.media_gallery import MediaGalleryItem
-            layout = LayoutView(timeout=60)
-            box = Container(accent_color=accent)
+        await ix.response.defer()
+        ok, msg, gif, disp = await self._do_catch(gid, user.id, e, ball, one_shot=one_shot)
+        if ok and not one_shot:
+            self._enc.pop((str(gid), str(user.id)), None)
+        if one_shot:
             try:
                 av = str(user.display_avatar.with_size(64).url)
             except Exception:
                 av = ''
-            head = f"## {title}\n{msg}"
-            if av:
-                try:
-                    box.add_item(Section(TextDisplay(head), accessory=Thumbnail(media=av)))
-                except Exception:
-                    box.add_item(TextDisplay(head))
-            else:
-                box.add_item(TextDisplay(head))
-            if gif:
-                try:
-                    box.add_item(MediaGallery(MediaGalleryItem(media=gif)))
-                except Exception:
-                    pass
-            layout.add_item(box)
-            await ix.followup.send(view=layout)
+            layout = self._catch_result_layout(
+                gid, user.id, e, ok=ok, msg=msg, gif=gif,
+                user_name=user.display_name, avatar_url=av)
+            try:
+                return await ix.edit_original_response(view=layout)
+            except Exception:
+                pass
+        if ok:
+            rk, re, accent = rarity_of(_dex_row(e['dex']), bool(e['shiny']), gid)
+            try:
+                av = str(user.display_avatar.with_size(64).url)
+            except Exception:
+                av = ''
+            await ix.followup.send(view=self._congrats_layout(
+                gid, user.display_name, av, msg, gif, accent))
             return
         else:
             view, files = self._mini(gid, disp, msg, e.get('dex'), 0x3A3F4B)
             await ix.followup.send(view=view, files=files or None)
 
-    async def _do_catch(self, gid, uid, e, ball: str):
+    async def _do_catch(self, gid, uid, e, ball: str, one_shot: bool = False):
         import aiohttp
         if not balls_take(gid, uid, ball):
             return False, t(gid, 'eco.pk_noball', ball=ball), '', ''
@@ -2252,12 +2314,14 @@ class Pokemon(commands.Cog):
                 except Exception:
                     gif = ''
             return True, msg, gif, disp
-        # broke out: pity grows, next throw is kinder
-        e['pity'] = min(0.4, e.get('pity', 0) + 0.08)
+        # broke out: pity grows, next throw is kinder (one-shot ;p has no next throw)
+        if not one_shot:
+            e['pity'] = min(0.4, e.get('pity', 0) + 0.08)
         streak_bump(gid, uid, False)
-        pity_emo = em(gid, 'pity_token')
-        broke = (t(gid, 'eco.pk_broke', name=row['name'].capitalize(), ball=ball)
-                 + f"\n{pity_emo + ' ' if pity_emo else ''}Pity +8% (now {int(e['pity'] * 100)}%)")
+        broke = t(gid, 'eco.pk_broke', name=row['name'].capitalize(), ball=ball)
+        if not one_shot:
+            pity_emo = em(gid, 'pity_token')
+            broke += (f"\n{pity_emo + ' ' if pity_emo else ''}Pity +8% (now {int(e['pity'] * 100)}%)")
         return False, broke, '', ''
 
     def _region_progress(self, gid, uid) -> dict:
@@ -3138,12 +3202,28 @@ class Pokemon(commands.Cog):
         if gif:
             rk, re, accent = rarity_of(row, bool(e['shiny']), gid)
             burst = em(gid, 'catch_burst')
+            title = (f'{burst + " " if burst else ""}{re} '
+                     + t(gid, 'eco.pk_caught_title', name=row['name'].capitalize()))
+            if not wild and e.get('mode') == 'catch':
+                # guessed a ;p mystery: resolve the encounter card in place
+                if await self._edit_enc_message(
+                        ctx, gid, e, self._encounter_layout(
+                            gid, title, msg, accent, [gif])):
+                    return
             await ctx.reply(view=self._layout(
-                gid, f'{burst + " " if burst else ""}{re} ' + t(gid, 'eco.pk_caught_title', name=row['name'].capitalize()),
-                msg, gif, accent), mention_author=False)
+                gid, title, msg, gif, accent), mention_author=False)
         else:
             spr = (row.get('sprite') or '').split('|')
             img = spr[1] if e['shiny'] and len(spr) > 1 else spr[0]
+            if not wild and e.get('mode') == 'catch':
+                rk, re, accent = rarity_of(row, bool(e['shiny']), gid)
+                burst = em(gid, 'catch_burst')
+                if await self._edit_enc_message(
+                        ctx, gid, e, self._encounter_layout(
+                            gid, f'{burst + " " if burst else ""}{re} '
+                            + t(gid, 'eco.pk_caught_title', name=row['name'].capitalize()),
+                            msg, accent, [img] if img else [])):
+                    return
             await ctx.reply(view=await self._mage(
                 gid, t(gid, 'eco.pk_caught_title', name=row['name'].capitalize()), msg, img),
                 mention_author=False)
