@@ -929,14 +929,14 @@ def balls_add(gid, uid, ball: str, n: int):
 
 
 def balls_take(gid, uid, ball: str) -> bool:
+    # Atomic: single guarded UPDATE so a fast double-click can't take twice
+    # (the old SELECT-then-UPDATE raced to qty=-1).
     with db.conn_ctx() as conn:
-        row = conn.execute('SELECT qty FROM pk_balls WHERE guild_id=? AND user_id=? AND ball=?',
-                           (str(gid), str(uid), ball)).fetchone()
-        if not row or (row['qty'] or 0) <= 0:
-            return False
-        conn.execute('UPDATE pk_balls SET qty=qty-1 WHERE guild_id=? AND user_id=? AND ball=?',
+        conn.execute('INSERT OR IGNORE INTO pk_balls (guild_id, user_id, ball, qty) VALUES (?,?,?,0)',
                      (str(gid), str(uid), ball))
-        return True
+        cur = conn.execute('UPDATE pk_balls SET qty=qty-1 WHERE guild_id=? AND user_id=? AND ball=? AND qty>0',
+                           (str(gid), str(uid), ball))
+        return (cur.rowcount or 0) > 0
 
 
 def best_ball(gid, uid):
@@ -1419,7 +1419,44 @@ def _turn_safe(fn):
                 try:
                     await ix.response.send_message(t(gid, 'eco.pk_turn_broke'), ephemeral=True)
                 except Exception:
-                    pass
+                        pass
+    return wrapper
+
+
+def _turn_lock(fn):
+    """One turn at a time per battle/duel: a double-tapped button resolves
+    once; the stale tap lands on the already-updated card and is ignored
+    (the button callback already deferred, so silence is correct here).
+    Stack OUTSIDE @_turn_safe so the flag always releases."""
+    import functools as _ft
+
+    @_ft.wraps(fn)
+    async def wrapper(self, ix, gid, *args, **kwargs):
+        key = kwargs.get('key')
+        if key is None:
+            for a in args:
+                # duel key: tuple of str ids. Switch/move payloads like
+                # ('switch', 123) fail the all-str check and are skipped.
+                if isinstance(a, tuple) and len(a) >= 2 \
+                        and all(isinstance(x, str) for x in a):
+                    key = a
+                    break
+        if key is None and args:
+            try:
+                key = (str(gid), str(int(getattr(args[0], 'id', args[0]))))
+            except Exception:
+                key = None
+        st = self._battle.get(key) if key is not None else None
+        if st is None:
+            return await fn(self, ix, gid, *args, **kwargs)
+        if st.get('busy') or st.get('done') or st.get('starting'):
+            return
+        st['busy'] = True
+        try:
+            return await fn(self, ix, gid, *args, **kwargs)
+        finally:
+            if self._battle.get(key) is st:
+                st['busy'] = False
     return wrapper
 
 
@@ -4879,14 +4916,31 @@ class Pokemon(commands.Cog):
             if is_ix:
                 return await ix_or_ctx.followup.send(msg, ephemeral=True)
             return await ix_or_ctx.reply(msg, ephemeral=True)
-        async with aiohttp.ClientSession() as s:
-            me = await self._fighter(s, act, gid=gid)
-            wild = await self._fighter(s, {'dex': e['dex'], 'level': e['level'],
-                                           'shiny': e['shiny'], 'nick': ''}, gid=gid)
-            me_spr = await fetch_sprite(
-                s, form_sprite(act, bool(me['shiny']))
-                or pix_url(me['dex'], bool(me['shiny']), back=True))
-            wild_spr = await fetch_sprite(s, pix_url(e['dex'], bool(wild['shiny'])))
+        key = (str(gid), str(user.id))
+        if key in self._battle and not self._battle[key].get('starting'):
+            msg = t(gid, 'eco.pk_busy')
+            if is_ix:
+                return await ix_or_ctx.followup.send(msg, ephemeral=True)
+            return await ix_or_ctx.reply(msg, ephemeral=True)
+        # Claim the slot before slow sprite/learnset fetches: a double FIGHT
+        # used to overwrite (orphaning the first card) or interleave state.
+        self._battle[key] = {'starting': True}
+        try:
+            async with aiohttp.ClientSession() as s:
+                me = await self._fighter(s, act, gid=gid)
+                wild = await self._fighter(s, {'dex': e['dex'], 'level': e['level'],
+                                               'shiny': e['shiny'], 'nick': ''}, gid=gid)
+                me_spr = await fetch_sprite(
+                    s, form_sprite(act, bool(me['shiny']))
+                    or pix_url(me['dex'], bool(me['shiny']), back=True))
+                wild_spr = await fetch_sprite(s, pix_url(e['dex'], bool(wild['shiny'])))
+        except Exception:
+            if self._battle.get(key, {}).get('starting'):
+                self._battle.pop(key, None)
+            msg = t(gid, 'eco.pk_api')
+            if is_ix:
+                return await ix_or_ctx.followup.send(msg, ephemeral=True)
+            return await ix_or_ctx.reply(msg, ephemeral=True)
         wild['hp'] = e['hp']
         # picked lead becomes the active mon so bench display stays correct
         try:
@@ -4902,7 +4956,19 @@ class Pokemon(commands.Cog):
                              'weather': roll_weather(), 'fainted': set(),
                              'arena': random.choice(ARENAS),
                              'sent': False}
-        await self._send_battle(ix_or_ctx, is_ix, gid, user.id)
+        try:
+            await self._send_battle(ix_or_ctx, is_ix, gid, user.id)
+        except Exception:
+            # Card never landed: don't strand a battle with no message.
+            self._battle.pop(key, None)
+            msg = t(gid, 'eco.pk_api')
+            try:
+                if is_ix:
+                    await ix_or_ctx.followup.send(msg, ephemeral=True)
+                else:
+                    await ix_or_ctx.reply(msg, ephemeral=True)
+            except Exception:
+                pass
 
     def _team_line(self, gid, name: str, hp: int, maxhp: int, fainted: bool = False,
                    mark: str = '') -> str:
@@ -5069,6 +5135,7 @@ class Pokemon(commands.Cog):
             await self._battle_turn(ix, gid, ix.user, what)
         return _cb
 
+    @_turn_lock
     @_turn_safe
     async def _battle_turn(self, ix: discord.Interaction, gid, user, what):
         key = (str(gid), str(user.id))
@@ -5080,18 +5147,38 @@ class Pokemon(commands.Cog):
         if what == 'pk_run':
             self._battle.pop(key, None)
             self._enc.pop(key, None)
-            return await ix.followup.send(view=self._layout(
-                gid, t(gid, 'eco.pk_fled_title'), t(gid, 'eco.pk_fled')))
+            fled = self._layout(gid, t(gid, 'eco.pk_fled_title'), t(gid, 'eco.pk_fled'))
+            # Resolve on the battle card instead of spawning a second message.
+            if st.get('msg') is not None:
+                try:
+                    await st['msg'].edit(view=fled)
+                    return
+                except Exception:
+                    pass
+            return await ix.followup.send(view=fled)
         if what == 'pk_ball':
             e = self._get_enc(gid, user.id)
             if e:
                 e['hp'] = wild['hp']
-            ok, msg = await self._do_catch(gid, user.id, e or {'dex': 0}, 'ultra'
-                                           if balls_get(gid, user.id).get('ultra', 0) else
-                                           'great' if balls_get(gid, user.id).get('great', 0) else 'poke')
+            ok, msg, gif, disp = await self._do_catch(gid, user.id, e or {'dex': 0}, 'ultra'
+                                                      if balls_get(gid, user.id).get('ultra', 0) else
+                                                      'great' if balls_get(gid, user.id).get('great', 0) else 'poke')
             if ok:
                 self._battle.pop(key, None)
                 self._enc.pop(key, None)
+                try:
+                    av = str(user.display_avatar.with_size(64).url)
+                except Exception:
+                    av = ''
+                rk, re, accent = rarity_of(_dex_row((e or {}).get('dex', 0)), False, gid)
+                layout = self._congrats_layout(gid, user.display_name, av, msg, gif, accent)
+                if st.get('msg') is not None:
+                    try:
+                        await st['msg'].edit(view=layout)
+                        return
+                    except Exception:
+                        pass
+                return await ix.followup.send(view=layout)
             return await ix.followup.send(msg)
         if what == 'pk_potion':
             pots = potions_get(gid, user.id)
@@ -5099,10 +5186,9 @@ class Pokemon(commands.Cog):
                    else 'potion' if pots['potion'] else 'superpotion' if pots['superpotion'] else None)
             if not use:
                 log.append(t(gid, 'eco.pk_no_potion'))
+            elif not balls_take(gid, user.id, use):
+                log.append(t(gid, 'eco.pk_no_potion'))
             else:
-                with db.conn_ctx() as conn:
-                    conn.execute('UPDATE pk_balls SET qty=qty-1 WHERE guild_id=? AND user_id=? AND ball=?',
-                                 (str(gid), str(user.id), use))
                 heal = int(me['stats']['maxhp'] * POTIONS[use][1])
                 me['hp'] = min(me['stats']['maxhp'], me['hp'] + heal)
                 log.append(t(gid, 'eco.pk_healed', name=me['name'], hp=heal))
@@ -5119,7 +5205,9 @@ class Pokemon(commands.Cog):
                 return await ix.followup.send(t(gid, 'eco.pk_noslot'), ephemeral=True)
             nm = dict(nm)
             if nm['id'] == st.get('mid'):
-                return await ix.followup.send(view=self._battle_view(gid, user.id, st))
+                # Same bench slot: refresh the card in place, don't duplicate it.
+                return await self._show_battle(ix, False, st,
+                                               self._battle_view(gid, user.id, st), None)
             async with aiohttp.ClientSession() as s:
                 me2 = await self._fighter(s, nm, gid=gid)
                 me2_spr = await fetch_sprite(
@@ -5309,10 +5397,19 @@ class Pokemon(commands.Cog):
         no_b = discord.ui.Button(label='DECLINE', style=discord.ButtonStyle.danger,
                                  emoji=_btn_emoji(gid, 'check_cross'))
 
+        _claimed = {'done': False}  # double-ACCEPT guard for the challenge below
         async def _ok(ix: discord.Interaction):
             set_ctx_lang(ix.user)
             if ix.user.id != member.id:
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
+            if _claimed['done']:
+                return await ix.response.send_message(t(gid, 'eco.pk_gone'), ephemeral=True)
+            _claimed['done'] = True
+            # Strip the challenge buttons first: a double ACCEPT can't start twice.
+            try:
+                await ix.message.edit(view=None)
+            except Exception:
+                pass
             await ix.response.defer()
             await self._duel_start(ix, gid, ctx.author, member, wager)
 
@@ -5320,6 +5417,11 @@ class Pokemon(commands.Cog):
             set_ctx_lang(ix.user)
             if ix.user.id != member.id:
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
+            _claimed['done'] = True
+            try:
+                await ix.message.edit(view=None)
+            except Exception:
+                pass
             await ix.response.send_message(t(gid, 'eco.pk_declined'))
 
         ok_b.callback = _ok
@@ -5336,31 +5438,54 @@ class Pokemon(commands.Cog):
         t2 = team_get(gid, u2.id)[:3]
         if not t1 or not t2:
             return await ix.followup.send(t(gid, 'eco.pk_duel_need'), ephemeral=True)
+        for _uid in (u1.id, u2.id):
+            if any(str(_uid) in k[1:] for k in self._battle):
+                return await ix.followup.send(t(gid, 'eco.pk_busy'), ephemeral=True)
+        # Wager escrow: both sides pay into the pot up front, so cash spent
+        # mid-duel can't inflate/deflate the payout (old code split live
+        # balances at settle = money creation).
+        pot = 0
         if wager:
-            from cogs.gamble import bal
+            from cogs.gamble import bal, take_cash, set_cash
             if bal(gid, u1.id)['cash'] < wager or bal(gid, u2.id)['cash'] < wager:
                 return await ix.followup.send(t(gid, 'eco.pk_duel_cash'), ephemeral=True)
-        async with aiohttp.ClientSession() as s:
-            f1, f2, s1, s2, m1, m2 = [], [], [], [], [], []
-            for m in t1:
-                # gid=0: team names land in switch-button labels (token-free until button patch)
-                f = await self._fighter(s, m, gid=0)
-                f1.append(f)
-                m1.append(m['id'])
-                s1.append(await fetch_sprite(
-                    s, form_sprite(f, bool(f['shiny']))
-                    or pix_url(f['dex'], bool(f['shiny']), back=True)))
-            for m in t2:
-                # gid=0: team names land in switch-button labels (token-free until button patch)
-                f = await self._fighter(s, m, gid=0)
-                f2.append(f)
-                m2.append(m['id'])
-                s2.append(await fetch_sprite(s, pix_url(f['dex'], bool(f['shiny']))))
+            ok1 = take_cash(gid, u1.id, wager)
+            ok2 = take_cash(gid, u2.id, wager)
+            if not (ok1 and ok2):
+                if ok1:
+                    set_cash(gid, u1.id, bal(gid, u1.id)['cash'] + wager)
+                if ok2:
+                    set_cash(gid, u2.id, bal(gid, u2.id)['cash'] + wager)
+                return await ix.followup.send(t(gid, 'eco.pk_duel_cash'), ephemeral=True)
+            pot = wager * 2
+        try:
+            async with aiohttp.ClientSession() as s:
+                f1, f2, s1, s2, m1, m2 = [], [], [], [], [], []
+                for m in t1:
+                    # gid=0: team names land in switch-button labels (token-free until button patch)
+                    f = await self._fighter(s, m, gid=0)
+                    f1.append(f)
+                    m1.append(m['id'])
+                    s1.append(await fetch_sprite(
+                        s, form_sprite(f, bool(f['shiny']))
+                        or pix_url(f['dex'], bool(f['shiny']), back=True)))
+                for m in t2:
+                    # gid=0: team names land in switch-button labels (token-free until button patch)
+                    f = await self._fighter(s, m, gid=0)
+                    f2.append(f)
+                    m2.append(m['id'])
+                    s2.append(await fetch_sprite(s, pix_url(f['dex'], bool(f['shiny']))))
+        except Exception:
+            if pot:
+                from cogs.gamble import bal as _bal, set_cash as _set
+                _set(gid, u1.id, _bal(gid, u1.id)['cash'] + wager)
+                _set(gid, u2.id, _bal(gid, u2.id)['cash'] + wager)
+            return await ix.followup.send(t(gid, 'eco.pk_api'), ephemeral=True)
         key = (str(gid), str(u1.id), str(u2.id))
         self._battle[key] = {'duel': True, 't1': f1, 't2': f2, 'm1': m1, 'm2': m2,
                              'i1': 0, 'i2': 0, 's1': s1, 's2': s2,
                              'u1': u1.id, 'u2': u2.id,
-                             'wager': wager, 'turn': u1.id, 'log': [],
+                             'wager': wager, 'pot': pot, 'turn': u1.id, 'log': [],
                              'weather': roll_weather(), 'fainted': set(),
                              'arena': random.choice(ARENAS),
                              'sent': False}
@@ -5436,6 +5561,7 @@ class Pokemon(commands.Cog):
             await self._duel_turn(ix, gid, key, what)
         return _cb
 
+    @_turn_lock
     @_turn_safe
     async def _duel_turn(self, ix: discord.Interaction, gid, key, what):
         from cogs.gamble import bal, set_cash
@@ -5488,9 +5614,8 @@ class Pokemon(commands.Cog):
                    else 'potion' if pots['potion'] else 'superpotion' if pots['superpotion'] else None)
             if not use:
                 return await ix.followup.send(t(gid, 'eco.pk_no_potion'), ephemeral=True)
-            with db.conn_ctx() as conn:
-                conn.execute('UPDATE pk_balls SET qty=qty-1 WHERE guild_id=? AND user_id=? AND ball=?',
-                             (str(gid), str(uid), use))
+            if not balls_take(gid, uid, use):
+                return await ix.followup.send(t(gid, 'eco.pk_no_potion'), ephemeral=True)
             heal = int(me['stats']['maxhp'] * POTIONS[use][1])
             me['hp'] = min(me['stats']['maxhp'], me['hp'] + heal)
             log.append(t(gid, 'eco.pk_healed', name=me['name'], hp=heal))
@@ -5587,12 +5712,11 @@ class Pokemon(commands.Cog):
         fin_mid = (wmid + [0])[max(0, widx)]
         foe = lteam[max(0, lidx)]
         if is_npc and not won1:
-            # NPC takes no prisoners and no prizes
-            await ix.followup.send(view=self._layout(
+            # NPC takes no prisoners and no prizes. Resolve on the duel card.
+            await self._show_battle(ix, False, st, self._layout(
                 gid, t(gid, 'eco.pk_duel_title'),
                 '\n'.join(st['log'][-6:] + [t(gid, 'eco.pk_npc_lose', name=st['npc'])]),
-                'attachment://battle.png'),
-                file=self._duel_final_file(st))
+                'attachment://battle.png'), self._duel_final_file(st))
             return
         gain = held_xp(fin, foe['level'] * 12)
         ev = await self._gain_party_xp(gid, uwin, fin_mid, gain)
@@ -5607,20 +5731,33 @@ class Pokemon(commands.Cog):
         if is_npc and won1:
             import time as _t
             prize = st.get('prize', 0)
-            b = bal(gid, uwin)
-            set_cash(gid, uwin, b['cash'] + prize)
-            line += '\n' + t(gid, 'eco.pk_npc_win', prize=cshort(prize))
+            today = int(_t.time()) // 86400
             with db.conn_ctx() as conn:
-                conn.execute('INSERT OR REPLACE INTO pk_npc (guild_id, user_id, npc, day) VALUES (?,?,?,?)',
-                             (str(gid), str(uwin), st.get('npckey', ''), int(_t.time()) // 86400))
-            if st.get('npckey') == 'cyntia':
-                with db.conn_ctx() as c2:
-                    c2.execute('INSERT OR IGNORE INTO achievements (guild_id, user_id, akey, unlocked_at) '
-                               'VALUES (?,?,?,?)',
-                               (str(gid), str(uwin), 'npc_champ', int(_t.time())))
-                line += '\n' + t(gid, 'eco.pk_npc_badge')
+                already = conn.execute('SELECT day FROM pk_npc WHERE guild_id=? AND user_id=? AND npc=?',
+                                       (str(gid), str(uwin), st.get('npckey', ''))).fetchone()
+                # Double-settle guard: prize + badge only if unclaimed today.
+                if not already or (already['day'] or 0) != today:
+                    b = bal(gid, uwin)
+                    set_cash(gid, uwin, b['cash'] + prize)
+                    line += '\n' + t(gid, 'eco.pk_npc_win', prize=cshort(prize))
+                    conn.execute('INSERT OR REPLACE INTO pk_npc (guild_id, user_id, npc, day) VALUES (?,?,?,?)',
+                                 (str(gid), str(uwin), st.get('npckey', ''), today))
+                    if st.get('npckey') == 'cyntia':
+                        with db.conn_ctx() as c2:
+                            c2.execute('INSERT OR IGNORE INTO achievements (guild_id, user_id, akey, unlocked_at) '
+                                       'VALUES (?,?,?,?)',
+                                       (str(gid), str(uwin), 'npc_champ', int(_t.time())))
+                        line += '\n' + t(gid, 'eco.pk_npc_badge')
         wager = st.get('wager', 0)
-        if wager:
+        pot = st.get('pot', 0)
+        if pot:
+            # Escrowed at duel start: winner takes the pot, loser pays nothing
+            # more (old live-balance split created money when spent mid-duel).
+            winner = st['u1'] if won1 else st['u2']
+            w = bal(gid, winner)
+            set_cash(gid, winner, w['cash'] + pot)
+            line += '\n' + t(gid, 'eco.pk_duel_wager', win=cshort(wager))
+        elif wager:
             w1 = bal(gid, st['u1'])
             w2 = bal(gid, st['u2'])
             if won1:
@@ -5640,11 +5777,10 @@ class Pokemon(commands.Cog):
                          'VALUES (?,?,0,0)', (str(gid), str(loser)))
             conn.execute('UPDATE pk_stats SET duels_lost=duels_lost+1 WHERE guild_id=? AND user_id=?',
                          (str(gid), str(loser)))
-        await ix.followup.send(view=self._layout(
+        await self._show_battle(ix, False, st, self._layout(
             gid, t(gid, 'eco.pk_duel_title'),
             '\n'.join(st['log'][-6:] + ev + [line]),
-            'attachment://battle.png'),
-            file=self._duel_final_file(st))
+            'attachment://battle.png'), self._duel_final_file(st))
 
     def _duel_final_file(self, st):
         import io as _bio
@@ -5729,7 +5865,18 @@ class Pokemon(commands.Cog):
                                (str(gid), str(ctx.author.id), npc[0])).fetchone()
             if row and (row['day'] or 0) == today:
                 return await ctx.reply(t(gid, 'eco.pk_npc_cool'), ephemeral=True)
-        await self._npc_start(ctx, gid, ctx.author, npc)
+        bkey = (str(gid), str(ctx.author.id), f'npc:{npc[0]}')
+        if bkey in self._battle and not self._battle[bkey].get('starting'):
+            return await ctx.reply(t(gid, 'eco.pk_busy'), ephemeral=True)
+        # Claim before the slow team/sprite fetches so a spammed `;npc`
+        # can't start (and later double-pay) the same ladder twice.
+        self._battle[bkey] = {'starting': True}
+        try:
+            await self._npc_start(ctx, gid, ctx.author, npc)
+        except Exception:
+            if self._battle.get(bkey, {}).get('starting'):
+                self._battle.pop(bkey, None)
+            return await ctx.reply(t(gid, 'eco.pk_api'), ephemeral=True)
 
     async def _npc_start(self, ctx, gid, user, npc):
         import aiohttp
@@ -5763,6 +5910,9 @@ class Pokemon(commands.Cog):
                 f2.append(f)
                 s2.append(await fetch_sprite(s, pix_url(f['dex'], bool(f['shiny']))))
         if not f2:
+            bkey = (str(gid), str(user.id), f'npc:{key}')
+            if self._battle.get(bkey, {}).get('starting'):
+                self._battle.pop(bkey, None)
             return await ctx.reply(t(gid, 'eco.pk_api'), ephemeral=True)
         bkey = (str(gid), str(user.id), f'npc:{key}')
         self._battle[bkey] = {'duel': True, 'npc': name, 'prize': prize, 'npckey': key,
@@ -5835,37 +5985,57 @@ class Pokemon(commands.Cog):
                                  emoji=_btn_emoji(gid, 'check_cross'))
 
         m1_id, m2_id = mine['id'], want['id']
+        _tclaimed = {'done': False}  # double-ACCEPT guard for the offer below
         async def _ok(ix: discord.Interaction):
             set_ctx_lang(ix.user)
             if ix.user.id != member.id:
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
+            if _tclaimed['done']:
+                return await ix.response.send_message(t(gid, 'eco.pk_gone'), ephemeral=True)
+            _tclaimed['done'] = True
+            # Strip the offer first: a double ACCEPT can't swap twice.
+            try:
+                await ix.message.edit(view=None)
+            except Exception:
+                pass
+            await ix.response.defer()
             with db.conn_ctx() as conn:
-                r1 = conn.execute('SELECT * FROM pk_mons WHERE id=? AND guild_id=?', (m1_id, str(gid))).fetchone()
-                r2 = conn.execute('SELECT * FROM pk_mons WHERE id=? AND guild_id=?', (m2_id, str(gid))).fetchone()
+                r1 = conn.execute('SELECT * FROM pk_mons WHERE id=? AND guild_id=? AND owner_id=?',
+                                  (m1_id, str(gid), str(ctx.author.id))).fetchone()
+                r2 = conn.execute('SELECT * FROM pk_mons WHERE id=? AND guild_id=? AND owner_id=?',
+                                  (m2_id, str(gid), str(member.id))).fetchone()
                 if not r1 or not r2:
-                    return await ix.response.send_message(t(gid, 'eco.pk_gone'), ephemeral=True)
+                    return await ix.followup.send(t(gid, 'eco.pk_gone'), ephemeral=True)
                 m1, m2 = dict(r1), dict(r2)
             if m1.get('locked'):
-                return await ix.response.send_message(t(gid, 'eco.pk_locked', name=mon_name(m1,gid)), ephemeral=True)
+                return await ix.followup.send(t(gid, 'eco.pk_locked', name=mon_name(m1, gid)),
+                                              ephemeral=True)
             with db.conn_ctx() as conn:
-                conn.execute('UPDATE pk_mons SET owner_id=?, active=0 WHERE id=?',
-                             (str(member.id), m1_id))
-                conn.execute('UPDATE pk_mons SET owner_id=?, active=0 WHERE id=?',
-                             (str(ctx.author.id), m2_id))
+                c1 = conn.execute('UPDATE pk_mons SET owner_id=?, active=0 WHERE id=? AND guild_id=? AND owner_id=?',
+                                  (str(member.id), m1_id, str(gid), str(ctx.author.id)))
+                c2 = conn.execute('UPDATE pk_mons SET owner_id=?, active=0 WHERE id=? AND guild_id=? AND owner_id=?',
+                                  (str(ctx.author.id), m2_id, str(gid), str(member.id)))
+                if (c1.rowcount or 0) != 1 or (c2.rowcount or 0) != 1:
+                    return await ix.followup.send(t(gid, 'eco.pk_gone'), ephemeral=True)
                 for uid in (str(ctx.author.id), str(member.id)):
                     r = conn.execute('SELECT id FROM pk_mons WHERE guild_id=? AND owner_id=? '
                                      'ORDER BY id LIMIT 1', (str(gid), uid)).fetchone()
                     if r:
                         conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (r['id'],))
             view, files = self._mini(gid, t(gid, 'eco.pk_traded_title'),
-                                             t(gid, 'eco.pk_traded', m1=mon_name(m1, gid), m2=mon_name(m2, gid)),
-                                             None, 0x57F287)
-            await ix.response.send_message(view=view, files=files or None)
+                                     t(gid, 'eco.pk_traded', m1=mon_name(m1, gid), m2=mon_name(m2, gid)),
+                                     None, 0x57F287)
+            await ix.followup.send(view=view, files=files or None)
 
         async def _no(ix: discord.Interaction):
             set_ctx_lang(ix.user)
             if ix.user.id != member.id:
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
+            _tclaimed['done'] = True
+            try:
+                await ix.message.edit(view=None)
+            except Exception:
+                pass
             await ix.response.send_message(t(gid, 'eco.pk_declined'))
 
         ok_b.callback = _ok

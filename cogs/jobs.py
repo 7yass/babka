@@ -350,7 +350,20 @@ class _JobBoard(discord.ui.LayoutView):
                 return await interaction.response.send_message(
                     _t(self.gid, 'eco.not_yours'), ephemeral=True)
             ok, msg = await self.cog._hire(interaction.guild, interaction.user, key)
-            await interaction.response.send_message(msg, ephemeral=True)
+            # Rebuild the board in place (✓ moves to the new job)...
+            try:
+                fresh = self.cog._board_view(interaction.guild, interaction.user)
+                await interaction.response.edit_message(view=fresh)
+            except Exception:
+                pass
+            # ...and confirm separately (edit already ACKed when it worked).
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(msg, ephemeral=True)
+                else:
+                    await interaction.response.send_message(msg, ephemeral=True)
+            except Exception:
+                pass
         return _cb
 
 
@@ -390,24 +403,29 @@ class Jobs(commands.Cog):
 
     @job.command(name='list', description='Oferty pracy')
     async def job_list(self, ctx):
+        await ctx.reply(view=self._board_view(ctx.guild, ctx.author), ephemeral=True)
+
+    def _board_view(self, guild: discord.Guild, member: discord.Member):
+        """Full board card for (guild, member) — shared by `.job list` and
+        the click-to-join callback so the ✓ moves live on hire."""
         from cogs.levels import get_user
-        gid = ctx.guild.id
-        lv = get_user(gid, ctx.author.id).get('level', 0)
-        cur = get_job(gid, ctx.author.id).get('job')
+        gid = guild.id
+        lv = get_user(gid, member.id).get('level', 0)
+        cur = get_job(gid, member.id).get('job')
         cur = JOB_ALIAS.get(cur, cur)
         lines = []
         for key, j in JOBS.items():
-            if j.get('hidden') and not db.is_house(ctx.author.id):
+            if j.get('hidden') and not db.is_house(member.id):
                 continue
             need = j.get('min_level', 0)
             top = (j.get('track') or [j['label']])[-1]
             mark = ' ✓' if key == cur else (' 🔒' if j.get('hidden') else '')
             lock = f" — {t(gid, 'job.need_level', level=need)}" if lv < need else ''
             lines.append(f"• **{j['label']}**{mark} — {j['base'][0]}–{j['base'][1]} / zmianę → *{top}*{lock}")
-        view = _JobBoard(self, ctx.author.id, gid)
+        view = _JobBoard(self, member.id, gid)
         view.add_board(t(gid, 'job.list_title'), '\n'.join(lines))
-        view.add_jobs(ctx.guild, ctx.author, lv, cur)
-        await ctx.reply(view=view, ephemeral=True)
+        view.add_jobs(guild, member, lv, cur)
+        return view
 
     @job.command(name='show', description="Czyjaś kariera")
     async def job_show(self, ctx, member: discord.Member = None):

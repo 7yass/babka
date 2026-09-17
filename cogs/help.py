@@ -60,6 +60,9 @@ def category_layout(gid, key, prefix):
     desc = L(gid, f'hc.c_{key}_d', CATEGORIES[key][1])
     cmds = sorted(n for n, v in COMMAND_META.items() if v[0] == key)
     lst = ', '.join(n + '/' if len(v) > 5 and v[5] else n for n, v in ((n, COMMAND_META[n]) for n in cmds))
+    # View budget is 4000 chars total: cap a runaway category listing.
+    if len(lst) > 3000:
+        lst = lst[:3000] + f'… +{len(cmds)}'
     body = (f'# {label}\n{desc}\n{t(gid, "hc.cat_hint", p=prefix)}\n'
             f'```{lst}```\n-# {t(gid, "hc.count", n=len(cmds))}')
     return _box(gid, body)

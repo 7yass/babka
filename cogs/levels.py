@@ -790,7 +790,13 @@ class Levels(commands.Cog):
                 _, metric, n = cid.split(':')
                 n = 5 if int(n) >= 10 else 10
             except Exception:
-                return
+                # Stale/foreign board button: answer, don't interaction-fail.
+                from lang import t as _t
+                try:
+                    return await interaction.response.send_message(
+                        _t(interaction.guild_id, 'lb.empty'), ephemeral=True)
+                except Exception:
+                    return
         else:
             return
         from lang import t as _t

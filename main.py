@@ -81,9 +81,15 @@ async def _pre_invoke(ctx):
         g = getattr(getattr(ctx, 'message', None), 'guild', None) or getattr(ctx, 'guild', None)
         au = getattr(ctx, 'author', None)
         # Holder servers only store emojis: commands run on main or for house.
-        # CheckFailure is silent (see on_command_error).
+        # CheckFailure is silent (see on_command_error) — hint first so the
+        # user never sees plain nothing.
         if g is not None and not db.is_main_guild(getattr(g, 'id', 0)) \
                 and not db.is_house(getattr(au, 'id', 0)):
+            try:
+                await ctx.reply('Commands run on the main server.', ephemeral=True,
+                                delete_after=10)
+            except Exception:
+                pass
             raise commands.CheckFailure()
     except commands.CheckFailure:
         raise
@@ -104,6 +110,12 @@ async def _pre_invoke(ctx):
         if cog == 'Shop' and prefix == ';' and (ctx.invoked_with or '').lower() == 'shop':
             is_pk = True
         if prefix == ';' and not is_pk:
+            try:
+                gp = db.get_prefix(getattr(getattr(ctx, 'guild', None), 'id', 0)) or '.'
+                await ctx.reply(f'That lives on `{gp}` — only pokemon after `;`.',
+                                ephemeral=True, delete_after=10)
+            except Exception:
+                pass
             raise commands.CheckFailure()
         if (ctx.prefix or '') != ';' and cog == 'Pokemon':
             try:
@@ -185,7 +197,16 @@ async def on_command_error(ctx, error):
     if isinstance(error, (commands.MissingRequiredArgument,
                           commands.BadArgument,
                           commands.UserInputError)):
-        return  # cogs now reply with usage inline; keep logs clean
+        # Never leave the user with nothing: show invocation usage.
+        # (The command body never ran, so no cog could reply inline.)
+        try:
+            name = getattr(getattr(ctx, 'command', None), 'qualified_name', None) or 'command'
+            sig = f' {getattr(ctx.command, "signature", "")}' if getattr(ctx, 'command', None) else ''
+            await ctx.reply(f'Usage: `{ctx.prefix}{name}{sig}`',
+                            ephemeral=True, delete_after=15)
+        except Exception:
+            pass
+        return  # keep logs clean
     print(f'[!] Command error: {ctx.command} in #{ctx.channel} by {ctx.author}: {error}')
 
 

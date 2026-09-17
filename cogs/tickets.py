@@ -156,6 +156,16 @@ async def open_ticket(interaction: discord.Interaction, type_id=None):
     with db.conn_ctx() as conn:
         conn.execute('''INSERT INTO tickets (channel_id, guild_id, owner_id, type_id, created_at, last_msg_at)
             VALUES (?,?,?,?,?,?)''', (str(ch.id), str(gid), str(interaction.user.id), type_id, now, now))
+        # Double-click race: both passed the pre-check before either INSERTed.
+        again = conn.execute('SELECT COUNT(*) n FROM tickets WHERE guild_id=? AND owner_id=? AND closed=0',
+                             (str(gid), str(interaction.user.id))).fetchone()['n']
+    if again > (c.get('max_open') or 3):
+        try:
+            await ch.delete(reason='ticket over limit (double open)')
+        except Exception:
+            pass
+        return await interaction.response.send_message(
+            t(gid, 'tix.max_open', n=c.get('max_open') or 3), ephemeral=True)
     greet = (c.get('greeting') or t(gid, 'tix.greet')).replace('{user}', interaction.user.mention).replace(
         '{type}', label).replace('{server}', guild.name)
     content = ' '.join(support_mention) if support_mention else None
@@ -317,6 +327,14 @@ class Tickets(commands.Cog):
         if cid.startswith('rate:'):
             _, chid, n = cid.split(':')
             with db.conn_ctx() as conn:
+                cur = conn.execute('SELECT rating FROM tickets WHERE channel_id=?', (chid,)).fetchone()
+                if cur and cur['rating'] is not None:
+                    # Already rated: last click must not flip stats forever.
+                    try:
+                        return await interaction.response.send_message(
+                            t(gid, 'tix.rate_thanks', n=cur['rating']), ephemeral=True)
+                    except Exception:
+                        return
                 conn.execute('UPDATE tickets SET rating=? WHERE channel_id=?', (int(n), chid))
             try:
                 await interaction.response.send_message(t(gid, 'tix.rate_thanks', n=n), ephemeral=True)
@@ -333,6 +351,8 @@ class Tickets(commands.Cog):
         if not tl:
             return await interaction.response.send_message(t(gid, 'tix.not_ticket'), ephemeral=True)
         tl = dict(tl)
+        if tl.get('closed'):
+            return await interaction.response.send_message(t(gid, 'tix.closed'), ephemeral=True)
         member = interaction.user
         if cid == 'tix_claim':
             if not is_support(member):
@@ -347,7 +367,14 @@ class Tickets(commands.Cog):
                               reason=f'claimed by {member}')
             except Exception:
                 pass
-            return await interaction.response.send_message(t(gid, 'tix.claimed', user=member.mention))
+            # Resolve on the card: Claim goes dead so it can't be re-clicked.
+            try:
+                claimed_view = control_view()
+                claimed_view.children[0].disabled = True
+                await interaction.response.edit_message(view=claimed_view)
+            except Exception:
+                pass
+            return await interaction.followup.send(t(gid, 'tix.claimed', user=member.mention))
         if cid == 'tix_close':
             owner = str(tl['owner_id']) == str(member.id)
             if not owner and not is_support(member):
@@ -362,6 +389,10 @@ class Tickets(commands.Cog):
             owner = str(tl['owner_id']) == str(member.id)
             if not owner and not is_support(member):
                 return await interaction.response.send_message(t(gid, 'tix.no_perm'), ephemeral=True)
+            try:
+                await interaction.message.delete()
+            except Exception:
+                pass
             await interaction.response.send_message(t(gid, 'tix.closed'), ephemeral=True)
             await finish_close(interaction.guild, interaction.channel, tl)
             return

@@ -51,9 +51,9 @@ def catalog(gid, uid, *, tagline, coins_line, cash, sections, all_sections,
     icon = em(gid, 'market_stall', '[shop]')
     layout = LayoutView(timeout=180)
     # NOTE: Discord caps a LayoutView at 4000 displayable chars TOTAL
-    # (sum over every TextDisplay), not per Container — so callers must
-    # never dump all sections at once. Split into small containers anyway
-    # so single-section views stay comfortably under the limit.
+    # (sum over every TextDisplay) — splitting into small containers does
+    # NOT raise the budget. Safety comes from callers rendering an overview
+    # or a single section, never a full multi-section dump.
     head_box = Container(accent_color=accent)
     head = (f'{icon} **{tagline}**\n'
             f'**{coins_line}:** {coin_emo} {fmt(cash)}')

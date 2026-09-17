@@ -152,6 +152,20 @@ class Wordle(commands.Cog):
             except Exception:
                 continue
 
+    async def _close_round(self, ch: discord.TextChannel, info: dict, embed: discord.Embed):
+        """Resolve on the prompt card; a fresh message only as fallback."""
+        try:
+            if info and info.get('msg_id'):
+                prompt = await ch.fetch_message(int(info['msg_id']))
+                await prompt.edit(embed=embed)
+                return
+        except Exception:
+            pass
+        try:
+            await ch.send(embed=embed)
+        except Exception:
+            pass
+
     async def _round(self, guild: discord.Guild, cfg):
         ch = guild.get_channel(int(cfg['channel_id']))
         if not ch:
@@ -171,10 +185,7 @@ class Wordle(commands.Cog):
         info = self.active.pop(gid, None)
         if not info or info['winner']:
             return
-        try:
-            await ch.send(embed=ok(t(guild.id, 'wd.timeout', word=word)))
-        except Exception:
-            pass
+        await self._close_round(ch, info, ok(t(guild.id, 'wd.timeout', word=word)))
 
     @commands.Cog.listener()
     @db.main_guild_only
@@ -203,12 +214,9 @@ class Wordle(commands.Cog):
                 conn.execute('''INSERT INTO wordle_wins (guild_id, user_id, wins) VALUES (?,?,1)
                     ON CONFLICT(guild_id, user_id) DO UPDATE SET wins=wins+1''',
                              (gid, str(message.author.id)))
-            try:
-                await message.channel.send(embed=ok(t(
-                    message.guild.id, 'wd.win', user=message.author.mention,
-                    word=info['word'], xp=xp, cash=cash)))
-            except Exception:
-                pass
+            await self._close_round(message.channel, info, ok(t(
+                message.guild.id, 'wd.win', user=message.author.mention,
+                word=info['word'], xp=xp, cash=cash)))
             self.active.pop(gid, None)
 
     @commands.group(name='wordle', description='Zgadywanka babki')

@@ -181,8 +181,7 @@ class Shop(commands.Cog):
                                         owner_name=ctx.author.display_name)
             return await ctx.reply(view=layout, ephemeral=True)
         try:
-            from cogs.pokemon import (Pokemon as _Pk, balls_add, EGG_PRICE,
-                                      EGG_CYCLES, INCENSE_PRICE, INCENSE_SECONDS)
+            from cogs.pokemon import Pokemon as _Pk, balls_add, EGG_CYCLES, INCENSE_SECONDS
         except Exception:
             return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
         pk_by_name = {k.lower(): k for k in _Pk.PK_NAMES}
