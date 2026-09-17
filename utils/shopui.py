@@ -48,12 +48,18 @@ def catalog(gid, uid, *, tagline, coins_line, cash, sections, all_sections,
     coin_emo = em(gid, coin, '$')
     icon = em(gid, 'market_stall', '[shop]')
     layout = LayoutView(timeout=180)
-    box = Container(accent_color=accent)
+    # NOTE: Discord caps a single Container at 4000 displayable chars.
+    # The full ;balls shop (37 items) blows past that, so split the
+    # storefront: header / one Container per section / footer+buttons.
+    # Each stays well under the limit; filtered single-section views
+    # are unchanged (just fewer section containers).
+    head_box = Container(accent_color=accent)
     head = (f'{icon} **{tagline}**\n'
             f'**{coins_line}:** {coin_emo} {fmt(cash)}')
     if extra_head:
         head += f'\n-# {extra_head}'
-    box.add_item(TextDisplay(head))
+    head_box.add_item(TextDisplay(head))
+    layout.add_item(head_box)
     for label, keys in sections:
         lines = []
         for k in keys:
@@ -62,8 +68,11 @@ def catalog(gid, uid, *, tagline, coins_line, cash, sections, all_sections,
             name = e.get('name') or k
             lines.append(f'`[{num_of.get(k, "?")}]` {emo} **{name}**'
                          f' — {fmt(e.get("price", 0))} {coin_emo}')
-        box.add_item(TextDisplay(f'__**{label}**__\n' + '\n'.join(lines)))
-    box.add_item(TextDisplay(
+        sec_box = Container(accent_color=accent)
+        sec_box.add_item(TextDisplay(f'__**{label}**__\n' + '\n'.join(lines)))
+        layout.add_item(sec_box)
+    foot_box = Container(accent_color=accent)
+    foot_box.add_item(TextDisplay(
         f'-# {tip}\n\n'
         f'__**{buy_title}**__\n'
         f'{buy_1}\n'
@@ -78,7 +87,7 @@ def catalog(gid, uid, *, tagline, coins_line, cash, sections, all_sections,
         buttons.append((coin, 'Main shop', -1))
         for emo_name, label, idx in buttons:
             if len(row.children) >= 5:
-                box.add_item(row)
+                foot_box.add_item(row)
                 row = ActionRow()
             b = discord.ui.Button(label=label, style=discord.ButtonStyle.secondary,
                                   custom_id=f'{cmd}sec:{uid}:{idx}',
@@ -86,6 +95,6 @@ def catalog(gid, uid, *, tagline, coins_line, cash, sections, all_sections,
             b.callback = on_section(idx)
             row.add_item(b)
         if row.children:
-            box.add_item(row)
-    layout.add_item(box)
+            foot_box.add_item(row)
+    layout.add_item(foot_box)
     return layout, ids

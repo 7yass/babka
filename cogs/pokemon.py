@@ -2539,7 +2539,7 @@ class Pokemon(commands.Cog):
                                           f'\n-# `[{num_of.get(key, "?")}]` {sec}'), ephemeral=True)
 
     @balls.command(name='buy', description='Kup balle')
-    async def balls_buy(self, ctx, ball: str, n: int = 1):
+    async def balls_buy(self, ctx, ball: str = '', n: int = 1):
         from cogs.gamble import bal, set_cash
         gid = ctx.guild.id
         ball = (ball or '').lower()
@@ -3382,12 +3382,25 @@ class Pokemon(commands.Cog):
         await ctx.reply(view=view, files=files or None, ephemeral=True)
 
     @commands.command(name='buy', description='Kup z targu')
-    async def buy(self, ctx, listing: int):
+    async def buy(self, ctx, listing: str = None):
         from cogs.gamble import bal, set_cash
         gid = ctx.guild.id
+        # NOTE: listing is str (not int) on purpose — `;buy` bare or
+        # `;buy <shop item>` used to 400 BadArgument spam in logs.
+        # Give usage instead: market ids here, shop items via ;balls buy.
+        if listing is None:
+            view, files = self._market_view(gid, ctx.author.id, 1)
+            return await ctx.reply(view=view, files=files or None, ephemeral=True)
+        try:
+            lid = int((listing or '').strip())
+        except (ValueError, AttributeError):
+            return await ctx.reply(
+                t(gid, 'eco.pk_market_page', page=1, total=1)
+                + f' · `;buy <id>` — for items use `;balls buy {listing} 1`',
+                ephemeral=True)
         with db.conn_ctx() as conn:
             r = conn.execute('SELECT * FROM pk_market WHERE id=? AND guild_id=?',
-                             (listing or 0, str(gid))).fetchone()
+                             (lid or 0, str(gid))).fetchone()
             if not r:
                 return await ctx.reply(t(gid, 'eco.pk_market_gone'), ephemeral=True)
             r = dict(r)

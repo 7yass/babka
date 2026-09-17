@@ -165,8 +165,16 @@ async def on_command_error(ctx, error):
         return  # checks.py already replied
     if isinstance(error, commands.CommandOnCooldown):
         return
-    if isinstance(error, discord.HTTPException) and getattr(error, 'code', None) == 50035:
-        return  # invoking message was deleted before the reply landed
+    # Unwrap CommandInvokeError -> original HTTPException (e.g. oversized
+    # components, deleted invoking message). Never log-spam these.
+    orig = getattr(error, 'original', None)
+    for e in (error, orig):
+        if isinstance(e, discord.HTTPException) and getattr(e, 'code', None) == 50035:
+            return
+    if isinstance(error, (commands.MissingRequiredArgument,
+                          commands.BadArgument,
+                          commands.UserInputError)):
+        return  # cogs now reply with usage inline; keep logs clean
     print(f'[!] Command error: {ctx.command} in #{ctx.channel} by {ctx.author}: {error}')
 
 
