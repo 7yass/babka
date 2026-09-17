@@ -122,7 +122,7 @@ class Crime(commands.Cog):
             result = t(guild.id, 'crime.solo', stake=cur['stake'])
         else:
             from cogs.gamble import GOD_IDS
-            chance = 1.0 if any(str(u) in GOD_IDS for u in crew) else 0.30 + 0.07 * len(crew)
+            chance = 0.90 if any(str(u) in GOD_IDS for u in crew) else 0.30 + 0.07 * len(crew)
             pot = int(cur['stake'] * len(crew) * TARGETS[cur['target']]['mult'])
             if random.random() < chance:
                 share = pot // len(crew)

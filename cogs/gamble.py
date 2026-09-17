@@ -388,7 +388,7 @@ def _attach_roulette_again(layout, button):
 def parse_bet(raw, cash: int):
     """Human bet amounts: 1k, 2.5k, 1m, all, half, 1,000. int or None."""
     s = str(raw or '').lower().replace(',', '').replace(' ', '').replace('$', '')
-    if s in ('all', 'max', 'everything'):
+    if s in ('all', 'allin', 'all-in', 'max', 'everything'):
         return max(0, int(cash or 0))
     if s in ('half', '1/2', '50%'):
         return max(0, int(cash or 0) // 2)
@@ -403,6 +403,20 @@ def parse_bet(raw, cash: int):
         return max(0, int(float(s) * mult))
     except Exception:
         return None
+
+
+def split_allin(bet: str, *rest: str):
+    """Fold `all in <choice>` (and `allin <choice>`) so `.roulette all in
+    black` parses. Returns (bet_part, choice_part)."""
+    toks = ' '.join([bet or '', *[r or '' for r in rest]]).split()
+    if len(toks) >= 2 and toks[0].lower() in ('all', 'everything', 'max') \
+            and toks[1].lower() == 'in':
+        return 'all', ' '.join(toks[2:])
+    if toks and toks[0].lower() in ('allin', 'all-in'):
+        return 'all', ' '.join(toks[1:])
+    if not toks:
+        return '', ''
+    return toks[0], ' '.join(toks[1:])
 
 
 def _jailed(gid, uid):
@@ -461,12 +475,13 @@ def god_tick(gid, uid) -> int:
 
 
 def god_forced(gid, uid) -> bool:
-    """Rigged luck: every 3rd game of chance is a forced win for gods."""
-    return god_tick(gid, uid) % 3 == 0
+    """House luck, kept deniable: every 4th game of chance tilts hard."""
+    return god_tick(gid, uid) % 4 == 0
 
 
 def has_highroller(gid, uid) -> bool:
-    """High Roller pass active: no max bet, losing stakes refunded."""
+    """High Roller pass active: no max bet for 10 minutes. Losses stay lost —
+    the old loss-refund is gone on purpose."""
     import time
     with db.conn_ctx() as conn:
         row = conn.execute("SELECT expires FROM inventory WHERE guild_id=? AND user_id=? AND item='highroller'",
@@ -475,12 +490,9 @@ def has_highroller(gid, uid) -> bool:
 
 
 def highroller_refund(gid, uid, bet: int) -> str:
-    """Refund a lost stake under High Roller. Returns note text (or '')."""
-    if str(uid) in GOD_IDS or not has_highroller(gid, uid):
-        return ''
-    b = bal(gid, uid)
-    set_cash(gid, uid, b['cash'] + bet)
-    return t(gid, 'eco.highroller', bet=cshort(bet))
+    """High Roller is limit-removal only now: you lose, you lose.
+    Kept as a no-op so the six call sites don't need touching."""
+    return ''
 
 
 def _wallet_line(gid, uid) -> str:
@@ -760,8 +772,8 @@ class PokerView(discord.ui.LayoutView):
         b = bal(self.gid, self.player_id)
         if mult:
             profit = self.bet * mult
-            if str(self.player_id) not in GOD_IDS:
-                profit = min(profit, POKER_MAX_WIN)
+            profit = min(profit, POKER_MAX_WIN if str(self.player_id) not in GOD_IDS
+                         else POKER_MAX_WIN * 2)
             set_cash(self.gid, self.player_id, b['cash'] + self.bet + profit)
             msg = t(self.gid, 'eco.poker_win', hand=key.replace('_', ' '), win=cshort(profit))
         else:
@@ -1196,12 +1208,13 @@ class Gamble(commands.Cog):
                                           thanks + '\n' + t(gid, 'eco.tribute_total', total=total)))
 
     @commands.hybrid_command(name='blackjack', description='Oczko', aliases=['bj'])
-    async def blackjack(self, ctx, bet: str):
+    async def blackjack(self, ctx, bet: str, extra: str = ''):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
         if jm:
             return await ctx.reply(jm, ephemeral=True)
         god = str(ctx.author.id) in GOD_IDS
+        bet, _ = split_allin(bet, extra)
         bet = parse_bet(bet, bal(gid, ctx.author.id)['cash'])
         if not bet:
             return await ctx.reply(t(gid, 'eco.bet_pos'), ephemeral=True)
@@ -1227,9 +1240,8 @@ class Gamble(commands.Cog):
             phand = [deck.pop(), deck.pop()]
         dhand = [deck.pop(), deck.pop()]
         if hand_value(phand) == 21:
-            win = int(bet * (1.5 if god else 1.2))
-            if not god:
-                win = min(win, BJ_MAX_WIN)
+            win = int(bet * (1.3 if god else 1.2))  # mortals get 6:5
+            win = min(win, BJ_MAX_WIN if not god else BJ_MAX_WIN * 3)
             nb = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, nb['cash'] + bet + win)
             view = BJView(self, ctx.author.id, bet, deck, phand, dhand, gid)
@@ -1256,8 +1268,8 @@ class Gamble(commands.Cog):
         return b, None, bet
 
     def _win_chance(self, gid, user_id, bet: int) -> float:
-        """Rigged casino: gods force every 3rd game, mortal odds otherwise.
-        Mortals hit ~30% with small payouts (pairs mostly, sevens rarely)."""
+        """House-tilted casino: gods catch a forced win every 4th game,
+        mortals hit ~30% with small payouts (pairs mostly, sevens rarely)."""
         if str(user_id) in GOD_IDS and god_forced(gid, user_id):
             return 1.0
         base_chance = 0.30  # ~1 win in 3 (small wins mostly)
@@ -1297,8 +1309,8 @@ class Gamble(commands.Cog):
                 reels, mult = [sym, sym, odd], 1
                 random.shuffle(reels)
             win = bet * mult
-            if str(ctx.author.id) not in GOD_IDS:
-                win = min(win, SLOTS_MAX_WIN)
+            win = min(win, SLOTS_MAX_WIN if str(ctx.author.id) not in GOD_IDS
+                      else SLOTS_MAX_WIN * 2)
             msg = (t(gid, 'eco.slots_jackpot', mult=mult, win=cshort(win)) if mult >= 3
                    else t(gid, 'eco.slots_small', win=cshort(win)))
         else:
@@ -1337,11 +1349,12 @@ class Gamble(commands.Cog):
                             file=discord.File(__import__('io').BytesIO(png), 'slots.png'))
 
     @commands.hybrid_command(name='coinflip', description='Orzeł czy reszka', aliases=['moneta'])
-    async def coinflip(self, ctx, bet: str, side: str):
+    async def coinflip(self, ctx, bet: str, side: str = '', extra: str = ''):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
         if jm:
             return await ctx.reply(jm, ephemeral=True)
+        bet, side = split_allin(bet, side, extra)
         side = (side or '').lower()
         pick = 'O' if side.startswith(('o', 'e', 'h')) else ('R' if side.startswith(('r', 't')) else None)
         if pick is None:
@@ -1389,11 +1402,12 @@ class Gamble(commands.Cog):
                             file=discord.File(__import__('io').BytesIO(png), 'coin.png'))
 
     @commands.hybrid_command(name='roulette', description='Ruletka', aliases=['ruletka'])
-    async def roulette(self, ctx, bet: str, choice: str):
+    async def roulette(self, ctx, bet: str, choice: str = '', extra: str = ''):
         gid = ctx.guild.id
         jm = _jailed(gid, ctx.author.id)
         if jm:
             return await ctx.reply(jm, ephemeral=True)
+        bet, choice = split_allin(bet, choice, extra)
         c = (choice or '').lower().strip()
         kind, num = None, 0
         if c.isdigit() and 0 <= int(c) <= 36:
@@ -1483,8 +1497,8 @@ class Gamble(commands.Cog):
         mult = ROU_PAY.get(kind, 1)
         if _rou_wins(n, kind, num):
             profit = bet * mult
-            if str(uid) not in GOD_IDS:
-                profit = min(profit, ROU_MAX_WIN)
+            profit = min(profit, ROU_MAX_WIN if str(uid) not in GOD_IDS
+                         else ROU_MAX_WIN * 2)
             nb = bal(gid, uid)
             set_cash(gid, uid, nb['cash'] + bet + profit)
             msg = t(gid, 'eco.rou_win', ball=ball, choice=label, win=cshort(profit))
@@ -1583,16 +1597,16 @@ class Gamble(commands.Cog):
             return await ctx.reply(t(gid, 'eco.rob_poor', user=member.display_name), ephemeral=True)
         if db.has_shield(gid, member.id):
             return await ctx.reply(t(gid, 'eco.rob_shield', user=member.display_name), ephemeral=True)
-        win_chance = 1.0 if str(ctx.author.id) in GOD_IDS else 0.20  # house always robs successfully
+        win_chance = 0.75 if str(ctx.author.id) in GOD_IDS else 0.20  # house usually robs successfully
         won = random.random() < win_chance
         if won:
-            loot = max(10, int(vb['cash'] * random.uniform(0.1, 0.3)))
+            loot = min(max(10, int(vb['cash'] * random.uniform(0.08, 0.2))), 25000)
             ab = bal(gid, ctx.author.id)
             set_cash(gid, member.id, vb['cash'] - loot)
             set_cash(gid, ctx.author.id, ab['cash'] + loot)
             msg = t(gid, 'eco.rob_win', user=member.display_name, loot=cshort(loot))
         else:
-            fine = min(bal(gid, ctx.author.id)['cash'], max(100, int(vb['cash'] * 0.2)))
+            fine = min(bal(gid, ctx.author.id)['cash'], 15000, max(100, int(vb['cash'] * 0.2)))
             ab = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, ab['cash'] - fine)
             set_cash(gid, member.id, vb['cash'] + fine)

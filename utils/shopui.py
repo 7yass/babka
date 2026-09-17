@@ -33,7 +33,7 @@ def _pemo(gid, name):
 def catalog(gid, uid, *, tagline, coins_line, cash, sections, all_sections,
             entries, accent, cmd, tip, buy_title, buy_1, buy_2, ex_label,
             ex1, ex2, foot, section_emos=None, on_section=None, coin='coin',
-            extra_head='', overview=''):
+            extra_head='', overview='', prefix=';'):
     """Build the storefront. entries: {key: {'name','price','emo','desc'}}.
     sections / all_sections: [(label, [keys])]. Numbering follows
     all_sections order (stable ids). on_section: factory(idx) -> callback,
@@ -82,8 +82,8 @@ def catalog(gid, uid, *, tagline, coins_line, cash, sections, all_sections,
         f'__**{buy_title}**__\n'
         f'{buy_1}\n'
         f'{buy_2}\n'
-        f'{ex_label} 1) `;{cmd} buy {ex1}`\n'
-        f'{ex_label} 2) `;{cmd} buy {ex2}`\n'
+        f'{ex_label} 1) `{prefix}{cmd} buy {ex1}`\n'
+        f'{ex_label} 2) `{prefix}{cmd} buy {ex2}`\n'
         f'-# {foot}'))
     if on_section is not None:
         row = ActionRow()

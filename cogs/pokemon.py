@@ -2311,7 +2311,12 @@ class Pokemon(commands.Cog):
         key = (str(gid), str(user.id))
         e = self._get_enc(gid, user.id)
         if not e:
-            return await ix.followup.send(t(gid, 'eco.pk_noenc'), ephemeral=True)
+            # NOTE: the button wrapper defers first, so answer via followup
+            # (response.send_message here always raises InteractionResponded).
+            try:
+                return await ix.followup.send(t(gid, 'eco.pk_noenc'), ephemeral=True)
+            except Exception:
+                return
         try:
             clicked = getattr(getattr(ix, 'message', None), 'id', None)
         except Exception:
@@ -2320,7 +2325,10 @@ class Pokemon(commands.Cog):
             # Stale card (superseded encounter, or another channel): never
             # spend the throw — resolving here edits a card nobody watches
             # while eating the CURRENT encounter. Tell, don't touch.
+            # (Wrapper usually deferred already: prefer followup.)
             try:
+                if ix.response.is_done():
+                    return await ix.followup.send(t(gid, 'eco.pk_enc_old'), ephemeral=True)
                 return await ix.response.send_message(t(gid, 'eco.pk_enc_old'), ephemeral=True)
             except Exception:
                 try:
@@ -2330,7 +2338,8 @@ class Pokemon(commands.Cog):
         one_shot = e.get('mode') == 'catch'
         if one_shot:
             self._enc.pop(key, None)
-        await ix.response.defer()
+        # NOTE: no defer here — the button wrapper already deferred. A second
+        # defer raises InteractionResponded and eats the throw (bug 26ab922).
         try:
             ok, msg, gif, disp = await self._do_catch(gid, user.id, e, ball, one_shot=one_shot)
         except Exception as ex:

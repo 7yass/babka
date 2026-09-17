@@ -114,20 +114,21 @@ class Shop(commands.Cog):
         secs = self.SHOP_SECTIONS if filt is None else \
             [(s, ks) for s, ks in self.SHOP_SECTIONS if s == filt]
         num_of = {k: i for i, k in self.id_map().items()}
+        p = db.get_prefix(gid) or '.'
         layout, _ids = catalog(
             gid, uid,
             tagline=t(gid, 'shop.tagline'),
             coins_line=t(gid, 'shop.coins', user=owner_name),
             cash=cash,
             sections=secs, all_sections=self.SHOP_SECTIONS, entries=entries,
-            accent=0xFAC43C, cmd='shop',
-            tip=t(gid, 'shop.tip', cmd='shop'),
+            accent=0xFAC43C, cmd='shop', prefix=p,
+            tip=t(gid, 'shop.tip', cmd='shop', p=p),
             buy_title=t(gid, 'shop.buy_title'),
-            buy_1=t(gid, 'shop.buy_1', cmd='shop'),
-            buy_2=t(gid, 'shop.buy_2', cmd='shop'),
+            buy_1=t(gid, 'shop.buy_1', cmd='shop', p=p),
+            buy_2=t(gid, 'shop.buy_2', cmd='shop', p=p),
             ex_label=t(gid, 'shop.ex_label'),
             ex1='nick 1', ex2=f'{num_of.get("nick", 3)} 1',
-            foot=t(gid, 'shop.foot', cmd='shop'),
+            foot=t(gid, 'shop.foot', cmd='shop', p=p),
             section_emos=SECTION_EMOJI,
             on_section=self._section_cb(gid, uid))
         return layout
