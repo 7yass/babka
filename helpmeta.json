@@ -1169,7 +1169,7 @@
     ],
     "inv": [
       "economy",
-      "Your item stash: nick tokens, shields, scrolls, lootboxy. `.inv` to view, `.shop buy` to spend.",
+      "Two bags, one name: `.inv` = babka stash (tokens, shields, scrolls). `;inv` = pokemon bag (same as `;items`).",
       [],
       "",
       "Everyone"

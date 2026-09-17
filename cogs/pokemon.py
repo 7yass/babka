@@ -4147,7 +4147,13 @@ class Pokemon(commands.Cog):
     @commands.command(name='items', description='Twoje itemy')
     async def items(self, ctx):
         gid = ctx.guild.id
-        b = balls_get(gid, uid := ctx.author.id)
+        await ctx.reply(view=self._items_view(gid, ctx.author.id, ctx.author.display_name),
+                        ephemeral=True)
+
+    def _items_view(self, gid, uid, display_name: str = ''):
+        """Pokemon bag card (balls, potions, extras, eggs). Shared by
+        `;items` and `;inv` on the pokemon prefix."""
+        b = balls_get(gid, uid)
         pots = potions_get(gid, uid)
         with db.conn_ctx() as conn:
             extra = {}
@@ -4176,9 +4182,9 @@ class Pokemon(commands.Cog):
             lines.append(t(gid, 'eco.pk_items_incense'))
         if repel_active(gid, uid):
             lines.append(t(gid, 'eco.pk_items_repel'))
-        await ctx.reply(view=self._layout(
-            gid, t(gid, 'eco.pk_items_title', user=ctx.author.display_name),
-            '\n'.join(lines) if lines else t(gid, 'eco.pk_items_empty')), ephemeral=True)
+        return self._layout(
+            gid, t(gid, 'eco.pk_items_title', user=display_name),
+            '\n'.join(lines) if lines else t(gid, 'eco.pk_items_empty'))
 
     @commands.command(name='evs', description='Trening EV (z walk)')
     async def evs(self, ctx, *, arg: str = ''):

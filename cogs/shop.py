@@ -549,6 +549,13 @@ class Shop(commands.Cog):
     @commands.command(name='inv', description='Twoje graty')
     async def inv(self, ctx):
         gid = ctx.guild.id
+        if (ctx.prefix or '') == ';':
+            # Pokemon bag on the pokemon prefix (same as `;items`).
+            pcog = self.bot.get_cog('Pokemon')
+            if pcog is None:
+                return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
+            return await ctx.reply(view=pcog._items_view(
+                gid, ctx.author.id, ctx.author.display_name), ephemeral=True)
         with db.conn_ctx() as conn:
             rows = conn.execute('SELECT item, qty, expires FROM inventory WHERE guild_id=? AND user_id=?',
                                 (str(gid), str(ctx.author.id))).fetchall()
