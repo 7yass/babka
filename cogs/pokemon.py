@@ -2083,9 +2083,16 @@ class Pokemon(commands.Cog):
         old = self._enc.get(key)
         sent = await ctx.reply(view=view, mention_author=False)
         try:
-            if old and old.get('mid') and int(old.get('cid') or 0) == int(ctx.channel.id):
+            if old and old.get('mid'):
+                # Strip wherever the old card lives (possibly another
+                # channel): stale buttons must never outlive their encounter.
                 try:
-                    prev = await ctx.channel.fetch_message(int(old['mid']))
+                    och = None
+                    try:
+                        och = ctx.guild.get_channel(int(old.get('cid') or 0))
+                    except Exception:
+                        och = None
+                    prev = await (och or ctx.channel).fetch_message(int(old['mid']))
                     await prev.edit(view=None)
                 except Exception:
                     pass
@@ -2276,6 +2283,21 @@ class Pokemon(commands.Cog):
         e = self._get_enc(gid, user.id)
         if not e:
             return await ix.followup.send(t(gid, 'eco.pk_noenc'), ephemeral=True)
+        try:
+            clicked = getattr(getattr(ix, 'message', None), 'id', None)
+        except Exception:
+            clicked = None
+        if e.get('mid') and clicked and int(clicked) != int(e['mid']):
+            # Stale card (superseded encounter, or another channel): never
+            # spend the throw — resolving here edits a card nobody watches
+            # while eating the CURRENT encounter. Tell, don't touch.
+            try:
+                return await ix.response.send_message(t(gid, 'eco.pk_enc_old'), ephemeral=True)
+            except Exception:
+                try:
+                    return await ix.followup.send(t(gid, 'eco.pk_enc_old'), ephemeral=True)
+                except Exception:
+                    return
         one_shot = e.get('mode') == 'catch'
         if one_shot:
             self._enc.pop(key, None)
@@ -2306,6 +2328,17 @@ class Pokemon(commands.Cog):
             layout = self._catch_result_layout(
                 gid, user.id, e, ok=ok, msg=msg, gif=gif,
                 user_name=user.display_name, avatar_url=av)
+            # Direct message edit first (no interaction-response machinery
+            # involved), then the deferred-response edit, then a fresh card.
+            # Every failure is printed: silent resolves are unacceptable.
+            try:
+                src = ix.message
+                if src is None:
+                    raise RuntimeError('no source message')
+                await src.edit(view=layout)
+                return
+            except Exception as ex:
+                print(f'[pkthrow] src edit failed ({type(ex).__name__}: {ex})')
             try:
                 return await ix.edit_original_response(view=layout)
             except Exception as ex:
