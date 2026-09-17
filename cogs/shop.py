@@ -241,6 +241,21 @@ class Shop(commands.Cog):
             pass
         await ctx.reply(t(gid, 'shop.bought_n', n=n, item=DISPLAY.get(key, key)), ephemeral=True)
 
+    @shop.command(name='pokemon', aliases=['balls', 'poke', 'pk'],
+                     description='Sklep pokemon')
+    async def shop_pokemon(self, ctx):
+        """Pokemon adventure shop (same as ;balls / ;pokeshop).
+        `;shop` itself is the economy store; `;shop buy` already buys
+        from both stores."""
+        from cogs.gamble import bal
+        gid = ctx.guild.id
+        pcog = self.bot.get_cog('Pokemon')
+        if pcog is None:
+            return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
+        layout = pcog._balls_layout(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'],
+                                    owner_name=ctx.author.display_name)
+        await ctx.reply(view=layout, ephemeral=True)
+
     @shop.command(name='info', description='Opis przedmiotu')
     async def item_info(self, ctx, item: str = ''):
         gid = ctx.guild.id

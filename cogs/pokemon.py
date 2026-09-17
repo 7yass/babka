@@ -2463,7 +2463,8 @@ class Pokemon(commands.Cog):
             return f"{ex['name']} — {ex['price']:,} PokeCoins"
         return ''
 
-    @commands.group(name='balls', description='Balle')
+    @commands.group(name='balls', aliases=['pokeshop', 'pshop', 'pkshop'],
+                       description='Balle')
     async def balls(self, ctx):
         from cogs.gamble import bal
         gid = ctx.guild.id
@@ -2491,13 +2492,13 @@ class Pokemon(commands.Cog):
             cash=cash,
             sections=secs, all_sections=self.BALL_SECTIONS, entries=entries,
             accent=0xFF4655, cmd='balls',
-            tip="`/items info` for item description & usage",
+            tip="`;balls info <name>` for description & usage (`;shop pokemon` shows this here)",
             buy_title="TO BUY AN ITEM",
-            buy_1="`;balls buy {itemname} {amount}` OR",
+            buy_1="`;balls buy {itemname} {amount}` OR `;shop buy {itemname} {amount}`",
             buy_2="`;balls buy {id #} {amount}`  (e.g. `;balls buy questscroll 1` / `;balls buy 6 1`)",
             ex_label="Example",
             ex1='questscroll 1', ex2=f'{num_of.get("questscroll", 6)} 1',
-            foot="View item usage using `;items info`",
+            foot="Also: `;pokeshop` / `;pshop` / `;shop pokemon`. Usage: `;balls info <name>`",
             section_emos=self.BALL_SECTION_EMOJI,
             on_section=self._balls_section_cb(gid, uid),
             extra_head=self._balls_line(gid, uid))

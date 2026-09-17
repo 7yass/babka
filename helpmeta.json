@@ -1155,7 +1155,7 @@
     ],
     "shop": [
       "economy",
-      "Spend money on power: tokens, boosts, shields, boxes, curses, bail, VIP.",
+      "Spend money on power: tokens, boosts, shields, boxes, curses, bail, VIP. `;shop pokemon` shows the pokemon item shop (`;shop buy` buys from both).",
       [],
       "buy",
       "Everyone"
@@ -1446,8 +1446,12 @@
     ],
     "balls": [
       "economy",
-      "Item shop: balls, potions, candy, eggs, lures. Numbered rows — buy by name or ID.",
-      [],
+      "Pokemon item shop: balls, potions, candy, eggs, lures. Numbered rows — buy by name or ID. Also `;pokeshop` / `;shop pokemon`.",
+      [
+        "pokeshop",
+        "pshop",
+        "pkshop"
+      ],
       "buy",
       "Everyone"
     ],
