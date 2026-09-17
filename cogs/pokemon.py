@@ -2163,7 +2163,8 @@ class Pokemon(commands.Cog):
             msg = await ctx.channel.fetch_message(int(mid))
             await msg.edit(view=layout)
             return True
-        except Exception:
+        except Exception as ex:
+            print(f'[pkthrow] edit_enc_message failed: {type(ex).__name__}: {ex}')
             return False
 
     def _congrats_layout(self, gid, display_name: str, avatar_url: str,
@@ -2224,7 +2225,17 @@ class Pokemon(commands.Cog):
             # ;p is one throw: consume up front so a double-tap can't double-spend.
             self._enc.pop((str(gid), str(ctx.author.id)), None)
         await ctx.typing()
-        ok, msg, gif, disp = await self._do_catch(gid, ctx.author.id, e, ball, one_shot=one_shot)
+        try:
+            ok, msg, gif, disp = await self._do_catch(gid, ctx.author.id, e, ball, one_shot=one_shot)
+        except Exception as ex:
+            print(f'[pkthrow] _do_catch failed: {type(ex).__name__}: {ex}')
+            try:
+                balls_add(gid, ctx.author.id, ball, 1)
+            except Exception:
+                pass
+            if one_shot:
+                self._enc[(str(gid), str(ctx.author.id))] = e
+            return await ctx.reply(t(gid, 'eco.pk_turn_broke'), ephemeral=True)
         if ok and not one_shot:
             self._enc.pop((str(gid), str(ctx.author.id)), None)
         if one_shot:
@@ -2235,9 +2246,17 @@ class Pokemon(commands.Cog):
             layout = self._catch_result_layout(
                 gid, ctx.author.id, e, ok=ok, msg=msg, gif=gif,
                 user_name=ctx.author.display_name, avatar_url=av)
-            if await self._edit_enc_message(ctx, gid, e, layout):
+            try:
+                if await self._edit_enc_message(ctx, gid, e, layout):
+                    return
+            except Exception as ex:
+                print(f'[pkthrow] edit failed ({type(ex).__name__}: {ex}) — fresh fallback')
+            # original message gone: fall back to a fresh one (same card, no buttons)
+            try:
+                return await ctx.reply(view=layout, mention_author=False)
+            except Exception as ex:
+                print(f'[pkthrow] fallback send failed: {type(ex).__name__}: {ex}')
                 return
-            # original message gone: fall back to a fresh one (old behavior)
         if ok:
             # spec: Congratulations, y4qs! + pfp + caught line + image + rarity/streak/roll/balls/coins
             rk, re, accent = rarity_of(_dex_row(e['dex']), bool(e['shiny']), gid)
@@ -2253,16 +2272,32 @@ class Pokemon(commands.Cog):
             await ctx.reply(view=view, files=files or None, mention_author=False)
 
     async def _throw(self, ix: discord.Interaction, gid, user, ball: str):
+        key = (str(gid), str(user.id))
         e = self._get_enc(gid, user.id)
         if not e:
             return await ix.followup.send(t(gid, 'eco.pk_noenc'), ephemeral=True)
         one_shot = e.get('mode') == 'catch'
         if one_shot:
-            self._enc.pop((str(gid), str(user.id)), None)
+            self._enc.pop(key, None)
         await ix.response.defer()
-        ok, msg, gif, disp = await self._do_catch(gid, user.id, e, ball, one_shot=one_shot)
+        try:
+            ok, msg, gif, disp = await self._do_catch(gid, user.id, e, ball, one_shot=one_shot)
+        except Exception as ex:
+            # The throw itself blew up: log it, hand the ball back, restore
+            # the encounter — losing all three silently is the worst outcome.
+            print(f'[pkthrow] _do_catch failed: {type(ex).__name__}: {ex}')
+            try:
+                balls_add(gid, user.id, ball, 1)
+            except Exception:
+                pass
+            if one_shot:
+                self._enc[key] = e
+            try:
+                return await ix.followup.send(t(gid, 'eco.pk_turn_broke'), ephemeral=True)
+            except Exception:
+                return
         if ok and not one_shot:
-            self._enc.pop((str(gid), str(user.id)), None)
+            self._enc.pop(key, None)
         if one_shot:
             try:
                 av = str(user.display_avatar.with_size(64).url)
@@ -2273,8 +2308,13 @@ class Pokemon(commands.Cog):
                 user_name=user.display_name, avatar_url=av)
             try:
                 return await ix.edit_original_response(view=layout)
-            except Exception:
-                pass
+            except Exception as ex:
+                print(f'[pkthrow] edit failed ({type(ex).__name__}: {ex}) — fresh fallback')
+            try:
+                return await ix.followup.send(view=layout)
+            except Exception as ex:
+                print(f'[pkthrow] fallback send failed: {type(ex).__name__}: {ex}')
+                return
         if ok:
             rk, re, accent = rarity_of(_dex_row(e['dex']), bool(e['shiny']), gid)
             try:
@@ -2565,7 +2605,7 @@ class Pokemon(commands.Cog):
         return ''
 
     @commands.group(name='balls', aliases=['pokeshop', 'pshop', 'pkshop'],
-                       description='Balle')
+                       description='Balle', invoke_without_command=True)
     async def balls(self, ctx):
         from cogs.gamble import bal
         gid = ctx.guild.id
@@ -4883,6 +4923,12 @@ class Pokemon(commands.Cog):
             set_ctx_lang(ix.user)
             if ix.user.id != int(uid):
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
+            # Picker is single-use: strip it so a second tap can't start
+            # (or re-set) over the choice that is already resolving.
+            try:
+                await ix.message.edit(view=None)
+            except Exception:
+                pass
             await ix.response.defer()
             if mode == 'active':
                 with db.conn_ctx() as conn:
@@ -5031,6 +5077,33 @@ class Pokemon(commands.Cog):
         except Exception:
             return None
 
+    def _arm_battle_timeout(self, st, view):
+        """Idle battles must not strand state (the busy-guard would soft-lock
+        later fights): when a card WITH live buttons times out, pop its battle
+        and strip the dead buttons. Result cards (no buttons) are left alone.
+        Generation-guarded — only the latest render of a battle may clean up."""
+        try:
+            if not view.is_dispatchable():
+                return
+            st['_gen'] = int(st.get('_gen') or 0) + 1
+            gen, msg = st['_gen'], st.get('msg')
+
+            async def _timeout_pop():
+                if st.get('_gen') != gen:
+                    return  # superseded render; a newer card owns this battle
+                for k, v in list(self._battle.items()):
+                    if v is st:
+                        self._battle.pop(k, None)
+                try:
+                    if msg is not None and st.get('msg') is msg:
+                        await msg.edit(view=None)
+                except Exception:
+                    pass
+
+            view.on_timeout = _timeout_pop
+        except Exception:
+            pass
+
     async def _show_battle(self, ix_or_ctx, is_new_ctx: bool, st, view, f):
         """Send the battle message once, edit it on later turns."""
         if st.get('msg') is not None:
@@ -5039,6 +5112,7 @@ class Pokemon(commands.Cog):
                     await st['msg'].edit(view=view, attachments=[f])
                 else:
                     await st['msg'].edit(view=view)
+                self._arm_battle_timeout(st, view)
                 return
             except Exception:
                 pass
@@ -5053,6 +5127,7 @@ class Pokemon(commands.Cog):
                 st['msg'] = await ix_or_ctx.reply(view=view, file=f, mention_author=False)
             else:
                 st['msg'] = await ix_or_ctx.reply(view=view, mention_author=False)
+        self._arm_battle_timeout(st, view)
 
     async def _send_battle(self, ix_or_ctx, is_ix, gid, uid):
         st = self._battle.get((str(gid), str(uid)))

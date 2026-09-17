@@ -149,7 +149,7 @@ class Shop(commands.Cog):
             return _cb
         return factory
 
-    @commands.group(name='shop', description='Sklep')
+    @commands.group(name='shop', description='Sklep', invoke_without_command=True)
     async def shop(self, ctx):
         from cogs.gamble import bal
         gid = ctx.guild.id
