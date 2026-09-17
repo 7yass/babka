@@ -2147,8 +2147,27 @@ class Pokemon(commands.Cog):
             set_ctx_lang(ix.user)
             if ix.user.id != int(uid):
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
-            await ix.response.defer()
-            await self._throw(ix, gid, ix.user, ball)
+            try:
+                await ix.response.defer()
+            except Exception as ex:
+                print(f'[pkthrow] defer failed: {type(ex).__name__}: {ex}')
+                try:
+                    return await ix.response.send_message(
+                        t(gid, 'eco.pk_turn_broke'), ephemeral=True)
+                except Exception:
+                    return
+            try:
+                await self._throw(ix, gid, ix.user, ball)
+            except Exception as ex:
+                # Last-resort net: surfacing THIS is more useful than a
+                # traceback nobody watches. State was already consumed.
+                print(f'[pkthrow] _throw crashed: {type(ex).__name__}: {ex}')
+                try:
+                    await ix.followup.send(
+                        f'{t(gid, "eco.pk_turn_broke")} (`{type(ex).__name__}`)',
+                        ephemeral=True)
+                except Exception:
+                    pass
         return _cb
 
     def _get_enc(self, gid, uid):
@@ -2250,17 +2269,27 @@ class Pokemon(commands.Cog):
                 av = str(ctx.author.display_avatar.with_size(64).url)
             except Exception:
                 av = ''
-            layout = self._catch_result_layout(
-                gid, ctx.author.id, e, ok=ok, msg=msg, gif=gif,
-                user_name=ctx.author.display_name, avatar_url=av)
             try:
-                if await self._edit_enc_message(ctx, gid, e, layout):
-                    return
+                layout = self._catch_result_layout(
+                    gid, ctx.author.id, e, ok=ok, msg=msg, gif=gif,
+                    user_name=ctx.author.display_name, avatar_url=av)
             except Exception as ex:
-                print(f'[pkthrow] edit failed ({type(ex).__name__}: {ex}) — fresh fallback')
-            # original message gone: fall back to a fresh one (same card, no buttons)
+                print(f'[pkthrow] result layout failed: {type(ex).__name__}: {ex}')
+                layout = None
+            if layout is not None:
+                try:
+                    if await self._edit_enc_message(ctx, gid, e, layout):
+                        return
+                except Exception as ex:
+                    print(f'[pkthrow] edit failed ({type(ex).__name__}: {ex}) — fresh fallback')
+            else:
+                print('[pkthrow] result layout failed — text fallback')
+            # original message gone (or card unbuildable): fall back to a
+            # fresh message — text if even that failed to build.
             try:
-                return await ctx.reply(view=layout, mention_author=False)
+                if layout is not None:
+                    return await ctx.reply(view=layout, mention_author=False)
+                return await ctx.reply(msg, mention_author=False)
             except Exception as ex:
                 print(f'[pkthrow] fallback send failed: {type(ex).__name__}: {ex}')
                 return
@@ -2325,9 +2354,20 @@ class Pokemon(commands.Cog):
                 av = str(user.display_avatar.with_size(64).url)
             except Exception:
                 av = ''
-            layout = self._catch_result_layout(
-                gid, user.id, e, ok=ok, msg=msg, gif=gif,
-                user_name=user.display_name, avatar_url=av)
+            try:
+                layout = self._catch_result_layout(
+                    gid, user.id, e, ok=ok, msg=msg, gif=gif,
+                    user_name=user.display_name, avatar_url=av)
+            except Exception as ex:
+                print(f'[pkthrow] result layout failed: {type(ex).__name__}: {ex}')
+                layout = None
+            if layout is None:
+                # Card unbuildable: the text result still beats silence.
+                try:
+                    return await ix.followup.send(msg)
+                except Exception as ex:
+                    print(f'[pkthrow] text fallback failed: {type(ex).__name__}: {ex}')
+                    return
             # Direct message edit first (no interaction-response machinery
             # involved), then the deferred-response edit, then a fresh card.
             # Every failure is printed: silent resolves are unacceptable.
