@@ -13,9 +13,12 @@ from lang import t
 from utils.embeds import ok
 
 TARGETS = {
-    'bank': {'stake': 200, 'mult': 2.5},
-    'kasyno': {'stake': 400, 'mult': 3.0},
-    'muzeum': {'stake': 700, 'mult': 4.0},
+    # Stakes cost real money up front; mults pay the whole crew pot on
+    # success, jail (15 min, no work) on failure. Tuned so full crews on
+    # big targets earn best, but never free money (see chance below).
+    'bank': {'stake': 300, 'mult': 2.0},
+    'kasyno': {'stake': 600, 'mult': 2.4},
+    'muzeum': {'stake': 1000, 'mult': 2.8},
 }
 JOIN_WINDOW = 60
 
@@ -25,9 +28,10 @@ class Crime(commands.Cog):
         self.bot = bot
         self._open_msg = {}  # gid -> (channel_id, message_id) of the join opener
 
-    @commands.group(name='heist', description='Napad ekipÄ…')
+    @commands.group(name='heist', description='Napad ekipą: bank/kasyno/muzeum')
     async def heist(self, ctx):
-        await ctx.reply('.heist start / join', ephemeral=True)
+        await ctx.reply('.heist start <bank|kasyno|muzeum> — crew joins with `.heist join` (2–5 people, 60s window)',
+                        ephemeral=True)
 
     @heist.command(name='start', description='Zacznij napad (bank/kasyno/muzeum)')
     async def heist_start(self, ctx, target: str):
@@ -118,7 +122,7 @@ class Crime(commands.Cog):
             result = t(guild.id, 'crime.solo', stake=cur['stake'])
         else:
             from cogs.gamble import GOD_IDS
-            chance = 1.0 if any(str(u) in GOD_IDS for u in crew) else 0.35 + 0.1 * len(crew)
+            chance = 1.0 if any(str(u) in GOD_IDS for u in crew) else 0.30 + 0.07 * len(crew)
             pot = int(cur['stake'] * len(crew) * TARGETS[cur['target']]['mult'])
             if random.random() < chance:
                 share = pot // len(crew)

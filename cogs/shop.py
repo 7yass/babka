@@ -12,11 +12,11 @@ from utils.embeds import ok
 from utils.emojis import em
 
 ITEMS = {
-    'cookie': {'price': 5000, 'use': 'shop.u_cookie'},
+    'cookie': {'price': 7500, 'use': 'shop.u_cookie'},
     'scratch': {'price': 10000, 'use': 'shop.u_scratch'},
     'lootbox': {'price': 75000, 'use': 'shop.u_lootbox'},
-    'nick': {'price': 100000, 'use': 'shop.u_nick'},
-    'shield': {'price': 150000, 'use': 'shop.u_shield'},
+    'nick': {'price': 125000, 'use': 'shop.u_nick'},
+    'shield': {'price': 175000, 'use': 'shop.u_shield'},
     'xpboost': {'price': 200000, 'use': 'shop.u_xpboost'},
     'pardon': {'price': 300000, 'use': 'shop.u_pardon'},
     'curse': {'price': 400000, 'use': 'shop.u_curse'},

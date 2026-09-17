@@ -411,6 +411,7 @@ class Jobs(commands.Cog):
         from cogs.levels import get_user
         gid = guild.id
         lv = get_user(gid, member.id).get('level', 0)
+        _, _, mult, _ = ladder_of(lv)
         cur = get_job(gid, member.id).get('job')
         cur = JOB_ALIAS.get(cur, cur)
         lines = []
@@ -421,7 +422,9 @@ class Jobs(commands.Cog):
             top = (j.get('track') or [j['label']])[-1]
             mark = ' ✓' if key == cur else (' 🔒' if j.get('hidden') else '')
             lock = f" — {t(gid, 'job.need_level', level=need)}" if lv < need else ''
-            lines.append(f"• **{j['label']}**{mark} — {j['base'][0]}–{j['base'][1]} / zmianę → *{top}*{lock}")
+            # Effective pay at YOUR level (base × fame mult), not just base.
+            elo, ehi = int(j['base'][0] * mult), int(j['base'][1] * mult)
+            lines.append(f"• **{j['label']}**{mark} — ~{elo}–{ehi} / zmianę → *{top}*{lock}")
         view = _JobBoard(self, member.id, gid)
         view.add_board(t(gid, 'job.list_title'), '\n'.join(lines))
         view.add_jobs(guild, member, lv, cur)
@@ -588,10 +591,10 @@ class Jobs(commands.Cog):
             except Exception:
                 pass
             return await ctx.reply(msg)
-        # no job: day labor
+        # no job: day labor — deliberately worse than any starter career
         jobs_txt = t(gid, 'eco.jobs').split('|')
         job = random.choice(jobs_txt).strip()
-        pay = random.randint(100, 300)
+        pay = random.randint(60, 150)
         set_cash(gid, ctx.author.id, b['cash'] + pay)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE eco SET last_work=? WHERE guild_id=? AND user_id=?',

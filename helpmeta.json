@@ -1444,6 +1444,13 @@
       "",
       "Everyone"
     ],
+    "p": [
+      "economy",
+      "Catch-only wild encounter (no FIGHT row). One throw: `;catch <ball>` or tap a ball.",
+      [],
+      "",
+      "Everyone"
+    ],
     "balls": [
       "economy",
       "Pokemon item shop: balls, potions, candy, eggs, lures. Numbered rows — buy by name or ID via `;shop buy`. Also `;pokeshop` / `;shop pokemon`.",

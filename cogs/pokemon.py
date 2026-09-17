@@ -28,8 +28,8 @@ POTIONS = {
     'potion': (1000, 0.5),
     'superpotion': (3000, 1.0),
 }
-CANDY_PRICE = 8000
-EGG_PRICE = 10000
+CANDY_PRICE = 10000
+EGG_PRICE = 12000
 EGG_CYCLES = 20
 CHECKLIST_NEED = {'catches': 5, 'battles': 3, 'duels': 1}
 CHECKLIST_REWARD = 15000
@@ -177,7 +177,7 @@ DEX_MILESTONES = {1: 500, 10: 2000, 50: 10000, 100: 50000}
 
 INCENSE_PRICE = 25000
 INCENSE_SECONDS = 1800
-GRAZZ_PRICE = 3000
+GRAZZ_PRICE = 4000
 REPEL_PRICE = 5000
 REPEL_SECONDS = 1800
 
@@ -590,14 +590,14 @@ HELD_BY_NAME = {v['name'].lower(): k for k, v in HELD_ITEMS.items()}
 # Evolution stones — Eevee branching + generic stone evos
 # price 12k, icon fleet name mirrors key
 EVO_STONES = {
-    'water_stone':   {'name': 'Water Stone',   'price': 12000, 'icon': 'water_stone',   'mons': {133: 134}},
-    'thunder_stone': {'name': 'Thunder Stone', 'price': 12000, 'icon': 'thunder_stone', 'mons': {133: 135}},
-    'fire_stone':    {'name': 'Fire Stone',    'price': 12000, 'icon': 'fire_stone',    'mons': {133: 136}},
-    'sun_stone':     {'name': 'Sun Stone',     'price': 12000, 'icon': 'sun_stone',     'mons': {133: 196}},
-    'moon_stone':    {'name': 'Moon Stone',    'price': 12000, 'icon': 'moon_stone',    'mons': {133: 197}},
-    'leaf_stone':    {'name': 'Leaf Stone',    'price': 12000, 'icon': 'leaf_stone',    'mons': {133: 470}},
-    'ice_stone':     {'name': 'Ice Stone',     'price': 12000, 'icon': 'ice_stone',     'mons': {133: 471}},
-    'shiny_stone':   {'name': 'Shiny Stone',   'price': 12000, 'icon': 'shiny_stone',   'mons': {133: 700}},
+    'water_stone':   {'name': 'Water Stone',   'price': 15000, 'icon': 'water_stone',   'mons': {133: 134}},
+    'thunder_stone': {'name': 'Thunder Stone', 'price': 15000, 'icon': 'thunder_stone', 'mons': {133: 135}},
+    'fire_stone':    {'name': 'Fire Stone',    'price': 15000, 'icon': 'fire_stone',    'mons': {133: 136}},
+    'sun_stone':     {'name': 'Sun Stone',     'price': 15000, 'icon': 'sun_stone',     'mons': {133: 196}},
+    'moon_stone':    {'name': 'Moon Stone',    'price': 15000, 'icon': 'moon_stone',    'mons': {133: 197}},
+    'leaf_stone':    {'name': 'Leaf Stone',    'price': 15000, 'icon': 'leaf_stone',    'mons': {133: 470}},
+    'ice_stone':     {'name': 'Ice Stone',     'price': 15000, 'icon': 'ice_stone',     'mons': {133: 471}},
+    'shiny_stone':   {'name': 'Shiny Stone',   'price': 15000, 'icon': 'shiny_stone',   'mons': {133: 700}},
 }
 EEVEE_STONES = {k: v['mons'][133] for k, v in EVO_STONES.items()}  # stone -> dex
 EVO_STONE_BY_NAME = {v['name'].lower(): k for k, v in EVO_STONES.items()}
@@ -608,15 +608,15 @@ STONE_ORDER = tuple(EVO_STONES.keys())
 
 # Extra shop items as per spec (Balls/Items/Buddy)
 SHOP_EXTRAS = {
-    'amuletcoin':    {'name': 'Amulet Coin',    'price': 150000,  'icon': 'coin'},
-    'questscroll':   {'name': 'Quest Scroll',   'price': 10000,   'icon': 'quest_scroll'},
+    'amuletcoin':    {'name': 'Amulet Coin',    'price': 200000,  'icon': 'coin'},
+    'questscroll':   {'name': 'Quest Scroll',   'price': 15000,   'icon': 'quest_scroll'},
     'repel':         {'name': 'Repel',          'price': 5000,    'icon': 'item_repel'},
-    'shinycharm':    {'name': 'Shiny Charm',    'price': 50000,   'icon': 'star'},
-    'lootbox':       {'name': 'Lootbox',        'price': 10000,   'icon': 'box_box'},
+    'shinycharm':    {'name': 'Shiny Charm',    'price': 75000,   'icon': 'star'},
+    'lootbox':       {'name': 'Lootbox',        'price': 15000,   'icon': 'box_box'},
     'wailmer_pail':  {'name': 'Wailmer Pail',   'price': 1000000, 'icon': 'potion'},
     'expshare':      {'name': 'EXP Share',      'price': 2500000, 'icon': 'candy'},
-    'evolutionstone':{'name': 'Evolution Stone','price': 25000,   'icon': 'evo_burst'},
-    'mega_bracelet': {'name': 'Mega Bracelet',  'price': 125000,  'icon': 'mega_bracelet'},
+    'evolutionstone':{'name': 'Evolution Stone','price': 30000,   'icon': 'evo_burst'},
+    'mega_bracelet': {'name': 'Mega Bracelet',  'price': 150000,  'icon': 'mega_bracelet'},
 }
 SHOP_EXTRA_ORDER = ('amuletcoin','questscroll','repel','shinycharm','lootbox','wailmer_pail')
 SHOP_BUDDY_ORDER = ('expshare','evolutionstone','mega_bracelet')
