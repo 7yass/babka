@@ -33,11 +33,13 @@ def _pemo(gid, name):
 def catalog(gid, uid, *, tagline, coins_line, cash, sections, all_sections,
             entries, accent, cmd, tip, buy_title, buy_1, buy_2, ex_label,
             ex1, ex2, foot, section_emos=None, on_section=None, coin='coin',
-            extra_head=''):
+            extra_head='', overview=''):
     """Build the storefront. entries: {key: {'name','price','emo','desc'}}.
     sections / all_sections: [(label, [keys])]. Numbering follows
     all_sections order (stable ids). on_section: factory(idx) -> callback,
-    idx -1 = full view. Returns (LayoutView, ids) with ids = {n: key}."""
+    idx -1 = overview. overview: short category summary shown instead of
+    item rows when sections == [] (full dumps exceed Discord's 4000-char
+    per-VIEW limit). Returns (LayoutView, ids) with ids = {n: key}."""
     from discord.ui import LayoutView, Container, TextDisplay, ActionRow
     ids, n = {}, 0
     for _label, keys in all_sections:
@@ -48,11 +50,10 @@ def catalog(gid, uid, *, tagline, coins_line, cash, sections, all_sections,
     coin_emo = em(gid, coin, '$')
     icon = em(gid, 'market_stall', '[shop]')
     layout = LayoutView(timeout=180)
-    # NOTE: Discord caps a single Container at 4000 displayable chars.
-    # The full ;balls shop (37 items) blows past that, so split the
-    # storefront: header / one Container per section / footer+buttons.
-    # Each stays well under the limit; filtered single-section views
-    # are unchanged (just fewer section containers).
+    # NOTE: Discord caps a LayoutView at 4000 displayable chars TOTAL
+    # (sum over every TextDisplay), not per Container — so callers must
+    # never dump all sections at once. Split into small containers anyway
+    # so single-section views stay comfortably under the limit.
     head_box = Container(accent_color=accent)
     head = (f'{icon} **{tagline}**\n'
             f'**{coins_line}:** {coin_emo} {fmt(cash)}')
@@ -60,6 +61,10 @@ def catalog(gid, uid, *, tagline, coins_line, cash, sections, all_sections,
         head += f'\n-# {extra_head}'
     head_box.add_item(TextDisplay(head))
     layout.add_item(head_box)
+    if overview:
+        ov_box = Container(accent_color=accent)
+        ov_box.add_item(TextDisplay(overview))
+        layout.add_item(ov_box)
     for label, keys in sections:
         lines = []
         for k in keys:

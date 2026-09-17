@@ -166,10 +166,15 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
         return
     # Unwrap CommandInvokeError -> original HTTPException (e.g. oversized
-    # components, deleted invoking message). Never log-spam these.
+    # components, deleted invoking message). Never log-spam these; tell
+    # the user instead of showing nothing.
     orig = getattr(error, 'original', None)
     for e in (error, orig):
         if isinstance(e, discord.HTTPException) and getattr(e, 'code', None) == 50035:
+            try:
+                await ctx.reply('Too big to display — try a category view.', ephemeral=True)
+            except Exception:
+                pass
             return
     if isinstance(error, (commands.MissingRequiredArgument,
                           commands.BadArgument,

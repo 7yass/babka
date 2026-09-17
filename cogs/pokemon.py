@@ -2473,15 +2473,25 @@ class Pokemon(commands.Cog):
         await ctx.reply(view=layout, ephemeral=True)
 
     def _balls_layout(self, gid, uid, cash: int, filt=None, owner_name: str = ''):
-        """PokeMeow-style storefront: wallet header, numbered sections,
-        buy instructions, category buttons (filtered views) + Main shop."""
+        """PokeMeow-style storefront: wallet header, category overview OR one
+        filtered section, buy instructions, category buttons + Main shop.
+
+        NOTE: Discord caps a LayoutView at 4000 display chars TOTAL
+        (not per Container), so the full 37-item dump is never sent —
+        filt=None renders a 7-line overview, buttons drill into sections."""
         from utils.shopui import catalog
         entries = {k: {'name': self.PK_NAMES.get(k, k), 'price': self._pk_price(k),
                        'emo': self.BALL_EMOJI.get(k, ''), 'desc': self._pk_desc(gid, k)}
                    for k in self.PK_NAMES}
-        secs = self.BALL_SECTIONS if filt is None else \
-            [(s, ks) for s, ks in self.BALL_SECTIONS if s == filt]
         num_of = {k: i for i, k in self.ball_ids().items()}
+        if filt is None:
+            secs, overview = [], '\n'.join(
+                f'`[{min(num_of[k] for k in ks)}-{max(num_of[k] for k in ks)}]`'
+                f' __**{s}**__ — {len(ks)} items'
+                for s, ks in self.BALL_SECTIONS)
+        else:
+            secs = [(s, ks) for s, ks in self.BALL_SECTIONS if s == filt]
+            overview = ''
         poke = em(gid, 'coin') or '🪙'
         tagline = "Buy some items for your adventure!"
         coins_line = f"{owner_name}'s PokeCoins: {poke} {cash:,}"
@@ -2501,11 +2511,12 @@ class Pokemon(commands.Cog):
             foot="Also: `;pokeshop` / `;pshop` / `;shop pokemon`. Usage: `;balls info <name>`",
             section_emos=self.BALL_SECTION_EMOJI,
             on_section=self._balls_section_cb(gid, uid),
-            extra_head=self._balls_line(gid, uid))
+            extra_head=self._balls_line(gid, uid),
+            overview=overview)
         return layout
 
     def _balls_section_cb(self, gid, uid):
-        """Category buttons: re-render filtered (idx) or full (idx -1)."""
+        """Category buttons: re-render filtered (idx) or overview (idx -1)."""
         def factory(idx):
             async def _cb(ix: discord.Interaction):
                 set_ctx_lang(ix.user)
