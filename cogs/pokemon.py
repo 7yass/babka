@@ -2950,7 +2950,10 @@ class Pokemon(commands.Cog):
             except Exception as e:
                 # log and show first page instead of cryptic 2/1 0
                 try:
-                    print(f"[box] page {pg} failed for {viewer}/{owner} filt={filt!r} mode={mode!r}: {e}")
+                    import traceback as _tb
+                    print(f"[box] page {pg} failed for {viewer}/{owner} filt={filt!r} mode={mode!r}: "
+                          f"{type(e).__name__}: {e}")
+                    _tb.print_exc()
                 except Exception:
                     pass
                 try:
