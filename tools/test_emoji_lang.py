@@ -179,7 +179,16 @@ def pure():
                     '_BOX_RANK', 'FORMS', 'FORM_SUFFIX', '_TIER_LETTER', 'ARENAS',
                     '_TACKLE', 'IV_KEYS', 'EV_KEYS', 'EV_MAX_STAT', 'EV_MAX_TOTAL',
                     'EV_LABEL', 'POWER_EV', 'HELD_ITEMS', 'HELD_ORDER'):
-            mod.__dict__[node.targets[0].id] = ast.literal_eval(node.value)
+            try:
+                mod.__dict__[node.targets[0].id] = ast.literal_eval(node.value)
+            except ValueError:
+                # Config-backed catalog (e.g. BALLS reads POKE_SHOP_PRICES):
+                # exec with the real economy module seeded.
+                from utils.economy import POKE_SHOP_PRICES
+                ns = dict(mod.__dict__)
+                ns['POKE_SHOP_PRICES'] = POKE_SHOP_PRICES
+                exec(compile(ast.Module(body=[node], type_ignores=[]), '<pkpure>', 'exec'), ns)
+                mod.__dict__[node.targets[0].id] = ns[node.targets[0].id]
     _PURE = mod
     return mod
 
@@ -960,22 +969,82 @@ def test_forms() -> None:
         tmp.cleanup()
 
 
-def test_master_never_fails() -> None:
-    """Regression: the 0.98 cap applied to master balls too (1-in-50
-    breakouts). Master must bypass pity math with p == 1.0."""
+def _catch_fn():
+    """Exec the real catch_chance + its module constants (BALLS, CATCH_*)
+    with real shop prices seeded. Returns the isolated function."""
     import types
+    from utils.economy import POKE_SHOP_PRICES
     src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
     tree = ast.parse(src)
     mod = types.ModuleType('pkcatch')
+    mod.__dict__['POKE_SHOP_PRICES'] = POKE_SHOP_PRICES
+    wanted = {'BALLS', 'CATCH_RARITY_HIT', 'CATCH_LEVEL_HIT', 'CATCH_HP_BONUS',
+              'CATCH_TRAINER_BONUS', 'CATCH_TRAINER_CAP', 'CATCH_GRAZZ_BONUS',
+              'CATCH_MIN', 'CATCH_MAX'}
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name == 'catch_chance':
             exec(compile(ast.Module(body=[node], type_ignores=[]), '<pkcatch>', 'exec'),
                  mod.__dict__)
-    check(mod.catch_chance(3, 100, 1.0, None) == 1.0, 'master mult returns 1.0')
-    seg = src[src.find('mult = BALLS[ball][1]'):src.find('mult = BALLS[ball][1]') + 600]
-    check('if mult is None:' in seg and 'p = 1.0' in seg,
+        if isinstance(node, ast.Assign) and node.targets:
+            names = []
+            for t in node.targets:
+                if isinstance(t, ast.Tuple):
+                    names += [getattr(e, 'id', '') for e in t.elts]
+                else:
+                    names.append(getattr(t, 'id', ''))
+            if names and all(n in wanted for n in names):
+                exec(compile(ast.Module(body=[node], type_ignores=[]), '<pkcatch>', 'exec'),
+                     mod.__dict__)
+    return mod.catch_chance
+
+
+def test_master_never_fails() -> None:
+    """Regression: the 0.98 cap applied to master balls too (1-in-50
+    breakouts). Master must bypass pity math with p == 1.0."""
+    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    cc = _catch_fn()
+    check(cc('master', 'legendary', 100, 1.0, 0, False) == 1.0,
+          'master ball returns 1.0 in any scenario')
+    seg = src[src.find('async def _do_catch'):src.find('async def _do_catch') + 1200]
+    check('base is None' in seg and 'p = 1.0' in seg,
           'master bypasses the 0.98 cap')
-    check('min(0.98' in seg, 'other balls still capped')
+    check('CATCH_MAX' in seg or 'min(0.98' in seg, 'other balls still capped')
+
+
+def test_catch_odds_table() -> None:
+    """Additive model contract: base - rarity - level + weakness + trainer.
+    poke 60% base; trainer +0.1%/lv capped at 50 (+5pp max)."""
+    cc = _catch_fn()
+    # user example: poke, common lv5, rookie ~ 58%
+    check(abs(cc('poke', 'common', 5, 1.0, 0, False) - 0.58) < 1e-9,
+          'poke/common/lv5 ≈ 58%')
+    # balls strictly improve, all else equal
+    for rarity, lv in (('common', 5), ('rare', 30), ('legendary', 70)):
+        vals = [cc(b, rarity, lv, 1.0, 20, False) for b in ('poke', 'great', 'ultra')]
+        check(vals == sorted(vals) and len(set(vals)) == 3, f'balls order {rarity}/lv{lv}')
+    # rarity strictly penalizes
+    vals = [cc('ultra', r, 30, 1.0, 20, False) for r in ('common', 'uncommon', 'rare', 'legendary')]
+    check(vals == sorted(vals, reverse=True) and len(set(vals)) == 4, 'rarity order')
+    # weakness bonus: same throw at 1 HP beats full HP by 20pp
+    check(abs((cc('poke', 'common', 10, 0.0, 0, False)
+               - cc('poke', 'common', 10, 1.0, 0, False)) - 0.20) < 1e-9,
+          'weakness bonus +20pp')
+    # trainer bonus caps at 50 (+5pp), never exceeds
+    a = cc('poke', 'common', 10, 1.0, 50, False)
+    b = cc('poke', 'common', 10, 1.0, 99, False)
+    check(abs(a - b) < 1e-9 and abs((a - cc('poke', 'common', 10, 1.0, 0, False)) - 0.05) < 1e-9,
+          'trainer bonus caps at +5pp')
+    # grazz is a flat +20pp
+    check(abs((cc('poke', 'common', 10, 1.0, 0, True)
+               - cc('poke', 'common', 10, 1.0, 0, False)) - 0.20) < 1e-9,
+          'grazz +20pp')
+    # bounds hold everywhere, incl. hopeless meme throws
+    for bb in ('poke', 'great', 'ultra'):
+        for rr in ('common', 'uncommon', 'rare', 'legendary'):
+            for lv in (1, 50, 100):
+                for hp in (0.0, 1.0):
+                    p = cc(bb, rr, lv, hp, 50, True)
+                    check(0.05 <= p <= 0.98, f'bounds {bb}/{rr}/lv{lv}')
 
 
 def test_box_card() -> None:
@@ -1303,7 +1372,7 @@ TESTS = (test_rock_mapped, test_missing_file_safe, test_malformed_safe,
          test_box_ids_unique, test_species_buttons,
          test_main_guild_gate, test_buddy_match_evo,
          test_catchmeta_rarity, test_anime_silhouette, test_forms,
-         test_master_never_fails, test_box_card, test_dextypes_list,
+          test_master_never_fails, test_catch_odds_table, test_box_card, test_dextypes_list,
          test_plain_arena, test_turn_armor, test_movesets_ivs,
          test_hunt_modes, test_phelp_hub, test_catch_mode_text,
          test_evs_and_held,

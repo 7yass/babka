@@ -21,11 +21,21 @@ SHINY_ODDS = 256
 XP_NEXT = staticmethod(lambda lv: lv ** 3)
 
 BALLS = {
-    'poke': (POKE_SHOP_PRICES['poke'].amount, 1.0),
-    'great': (POKE_SHOP_PRICES['great'].amount, 1.5),
-    'ultra': (POKE_SHOP_PRICES['ultra'].amount, 2.0),
+    'poke': (POKE_SHOP_PRICES['poke'].amount, 0.60),
+    'great': (POKE_SHOP_PRICES['great'].amount, 0.72),
+    'ultra': (POKE_SHOP_PRICES['ultra'].amount, 0.85),
     'master': (POKE_SHOP_PRICES['master'].amount, None),
 }
+# Additive catch model, in probability points. Real Pokémon scales
+# capture_rate/255 by ball bonus; we use flat, explainable buckets so the
+# shop can print honest odds: base − rarity − level + weakness + trainer.
+CATCH_RARITY_HIT = {'common': 0.0, 'uncommon': 0.05, 'rare': 0.15, 'legendary': 0.35}
+CATCH_LEVEL_HIT = 0.004     # per wild level (lv50 ≈ −20pp)
+CATCH_HP_BONUS = 0.20       # full bonus at 1 HP, none at full HP
+CATCH_TRAINER_BONUS = 0.001  # per trainer level…
+CATCH_TRAINER_CAP = 50       # …capped here (+5pp max)
+CATCH_GRAZZ_BONUS = 0.20
+CATCH_MIN, CATCH_MAX = 0.05, 0.98
 POTIONS = {
     'potion': (POKE_SHOP_PRICES['potion'].amount, 0.5),
     'superpotion': (POKE_SHOP_PRICES['superpotion'].amount, 1.0),
@@ -869,12 +879,21 @@ def _hit_tag(gid, eff: float, crit: bool, dmg: int = 1) -> str:
     return tag
 
 
-def catch_chance(rate: int, level: int, hp_frac: float, ball_mult) -> float:
-    if ball_mult is None:
+def catch_chance(ball: str, rarity: str, level: int, hp_frac: float,
+                 trainer_lv: int = 0, grazz: bool = False) -> float:
+    """Catch odds in probability points. Master balls never fail, even at
+    1% HP legendaries; everything else floors at 5%."""
+    base = BALLS[ball][1]
+    if base is None:
         return 1.0
-    p = (rate / 255) * ball_mult * (1.6 - 1.1 * max(0.0, min(1.0, hp_frac)))
-    p *= max(0.25, 1 - level / 150)
-    return max(0.05, min(0.98, p))
+    hp_frac = max(0.0, min(1.0, hp_frac))
+    p = (base
+         - CATCH_RARITY_HIT.get(rarity or 'common', 0.0)
+         - max(0, level) * CATCH_LEVEL_HIT
+         + (1.0 - hp_frac) * CATCH_HP_BONUS
+         + min(max(0, trainer_lv), CATCH_TRAINER_CAP) * CATCH_TRAINER_BONUS
+         + (CATCH_GRAZZ_BONUS if grazz else 0.0))
+    return max(CATCH_MIN, min(CATCH_MAX, p))
 
 
 # ---------- collection helpers ----------
@@ -2020,12 +2039,18 @@ class Pokemon(commands.Cog):
                                types=types_str(gid, row["types"])) + flags)
             else:
                 rate_emo = em(gid, 'rate_up')
+                try:
+                    from cogs.levels import get_user as _gu
+                    _tlv = _gu(gid, ctx.author.id).get('level', 0) or 0
+                except Exception:
+                    _tlv = 0
                 wild_line = (t(gid, 'eco.pk_wild', name=disp,
                                types=types_str(gid, row["types"]),
                                hint=t(gid, 'eco.pk_wild_hint')) + flags
                              + '\n' + (rate_emo + ' ' if rate_emo else '')
                              + t(gid, 'eco.pk_odds', pct=int(catch_chance(
-                                 row.get('rate', 45), level, 1.0, BALLS['ultra'][1]) * 100)))
+                                 'ultra', rarity_of(row, False)[0], level, 1.0,
+                                 _tlv) * 100)))
         slot_of = {m['id']: i + 1 for i, m in enumerate(mons)}
         act = next((m for m in mons if m.get('active')), mons[0])
         if mode == 'fight':
@@ -2415,13 +2440,18 @@ class Pokemon(commands.Cog):
             return False, t(gid, 'eco.pk_noball', ball=ball), '', ''
         async with aiohttp.ClientSession() as s:
             row = await dex_get(s, e['dex'])
-        mult = BALLS[ball][1]
-        if mult is None:  # master ball: it never fails, skips pity math entirely
+        base = BALLS[ball][1]
+        if base is None:  # master ball: it never fails, skips pity math entirely
             p = 1.0
         else:
-            p = catch_chance(row.get('rate', 45), e['level'], e['hp'] / max(1, e['maxhp']), mult)
-            if e.get('grazz'):
-                p = min(0.98, p * 1.6)
+            try:
+                from cogs.levels import get_user as _gu
+                trainer_lv = _gu(gid, uid).get('level', 0) or 0
+            except Exception:
+                trainer_lv = 0
+            p = catch_chance(ball, rarity_of(row, False)[0], e['level'],
+                             e['hp'] / max(1, e['maxhp']), trainer_lv,
+                             bool(e.get('grazz')))
             p = min(0.98, p + e.get('pity', 0))
         roll = random.random()
         if roll < p:
@@ -2659,8 +2689,9 @@ class Pokemon(commands.Cog):
     @staticmethod
     def _pk_desc(gid, item: str) -> str:
         if item in BALLS:
-            mult = BALLS[item][1]
-            return t(gid, 'eco.pk_shop_ball', mult='∞' if mult is None else f'x{mult:g}')
+            base = BALLS[item][1]
+            return t(gid, 'eco.pk_shop_ball',
+                     pct='∞' if base is None else int(base * 100))
         if item in POTIONS:
             return t(gid, 'eco.pk_shop_potion', pct=int(POTIONS[item][1] * 100))
         if item == 'candy':

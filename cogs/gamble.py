@@ -786,8 +786,8 @@ class PokerView(discord.ui.LayoutView):
         b = bal(self.gid, self.player_id)
         if mult:
             profit = self.bet * mult
-            profit = min(profit, POKER_MAX_WIN if str(self.player_id) not in GOD_IDS
-                         else POKER_MAX_WIN * 2)
+            if str(self.player_id) not in GOD_IDS:
+                profit = min(profit, POKER_MAX_WIN)
             set_cash(self.gid, self.player_id, b['cash'] + self.bet + profit)
             msg = t(self.gid, 'eco.poker_win', hand=key.replace('_', ' '), win=cshort(profit))
         else:
@@ -1258,7 +1258,8 @@ class Gamble(commands.Cog):
         dhand = [deck.pop(), deck.pop()]
         if hand_value(phand) == 21:
             win = int(bet * (CASINO_BJ_GOD_PAYOUT if god else CASINO_BJ_PAYOUT))  # mortals get 6:5
-            win = min(win, BJ_MAX_WIN if not god else BJ_MAX_WIN * 3)
+            if not god:
+                win = min(win, BJ_MAX_WIN)
             nb = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, nb['cash'] + bet + win)
             view = BJView(self, ctx.author.id, bet, deck, phand, dhand, gid)
@@ -1331,8 +1332,8 @@ class Gamble(commands.Cog):
                 reels, mult = [sym, sym, odd], 1
                 random.shuffle(reels)
             win = bet * mult
-            win = min(win, SLOTS_MAX_WIN if str(ctx.author.id) not in GOD_IDS
-                      else SLOTS_MAX_WIN * 2)
+            if str(ctx.author.id) not in GOD_IDS:
+                win = min(win, SLOTS_MAX_WIN)
             msg = (t(gid, 'eco.slots_jackpot', mult=mult, win=cshort(win)) if mult >= 3
                    else t(gid, 'eco.slots_small', win=cshort(win)))
         else:
@@ -1521,8 +1522,8 @@ class Gamble(commands.Cog):
         mult = ROU_PAY.get(kind, 1)
         if _rou_wins(n, kind, num):
             profit = bet * mult
-            profit = min(profit, ROU_MAX_WIN if str(uid) not in GOD_IDS
-                         else ROU_MAX_WIN * 2)
+            if str(uid) not in GOD_IDS:
+                profit = min(profit, ROU_MAX_WIN)
             nb = bal(gid, uid)
             set_cash(gid, uid, nb['cash'] + bet + profit)
             msg = t(gid, 'eco.rou_win', ball=ball, choice=label, win=cshort(profit))
