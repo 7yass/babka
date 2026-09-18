@@ -8,7 +8,8 @@ from discord.ext import commands
 import database as db
 from utils.cards import short as cshort
 from utils.economy import (CASINO_BASE_MAX_BET, CASINO_MAX_BET_PER_LEVEL,
-                           CASINO_MAX_BET_CAP, CASINO_BJ_PAYOUT, CASINO_BJ_GOD_PAYOUT)
+                           CASINO_MAX_BET_CAP, CASINO_BJ_PAYOUT, CASINO_BJ_GOD_PAYOUT,
+                           CRIME_ROB)
 from lang import t, set_ctx_lang
 from utils.embeds import foot
 
@@ -1628,13 +1629,17 @@ class Gamble(commands.Cog):
         win_chance = 0.75 if str(ctx.author.id) in GOD_IDS else 0.20  # house usually robs successfully
         won = random.random() < win_chance
         if won:
-            loot = min(max(10, int(vb['cash'] * random.uniform(0.08, 0.2))), 25000)
+            loot = min(max(CRIME_ROB.loot_min,
+                           int(vb['cash'] * random.uniform(CRIME_ROB.loot_min_pct,
+                                                           CRIME_ROB.loot_max_pct))),
+                       CRIME_ROB.loot_cap)
             ab = bal(gid, ctx.author.id)
             set_cash(gid, member.id, vb['cash'] - loot)
             set_cash(gid, ctx.author.id, ab['cash'] + loot)
             msg = t(gid, 'eco.rob_win', user=member.display_name, loot=cshort(loot))
         else:
-            fine = min(bal(gid, ctx.author.id)['cash'], 15000, max(100, int(vb['cash'] * 0.2)))
+            fine = min(bal(gid, ctx.author.id)['cash'], CRIME_ROB.fine_cap,
+                       max(CRIME_ROB.fine_min, int(vb['cash'] * CRIME_ROB.fine_pct)))
             ab = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, ab['cash'] - fine)
             set_cash(gid, member.id, vb['cash'] + fine)

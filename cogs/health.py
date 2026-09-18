@@ -132,6 +132,66 @@ def _price_literal_hits():
     return hits
 
 
+def _crime_literal_hits():
+    """Stake/mult/amount-floor/random-bound literals in crime.py — every one
+    belongs in utils.economy CRIME_* instead."""
+    import re
+    hits = []
+    try:
+        text = Path(__file__).parent.joinpath('crime.py').read_text(encoding='utf-8')
+    except Exception:
+        return ['crime.py unreadable (manual review)']
+    for i, line in enumerate(text.splitlines(), start=1):
+        s = line.strip()
+        if not s or s.startswith('#'):
+            continue
+        if re.search(r'''['"](stake|mult)['"]\s*:\s*[\d.]''', line):
+            hits.append(f'crime.py:{i}: hardcoded stake/mult')
+        elif re.search(r'\bamount\s*<\s*\d+', line):
+            hits.append(f'crime.py:{i}: hardcoded amount floor')
+        elif re.search(r'uniform\(\s*[\d.]+', line):
+            hits.append(f'crime.py:{i}: hardcoded random bound')
+    return hits
+
+
+# Deliberately NOT money (stays in code, never in utils.economy).
+CRIME_EXCLUDED = ('JOIN_WINDOW', 'ROB_CD', 'jail minutes', 'heist base chance',
+                  'heist god chance', 'rob mortal chance', 'rob god chance')
+
+
+def _crime_status(bot):
+    """(total_values, using, handler_count, hits, formula, notes)."""
+    from utils.economy import CRIME_HEIST_TARGETS, CRIME_ROB
+    total = 2 * len(CRIME_HEIST_TARGETS) + len(_dc_fields(CRIME_ROB)) + 1
+    by_qname = {}
+    for q, c in _walk(bot):
+        by_qname[q] = c
+    handlers = ['heist start', 'heist join', 'bounty', 'rob']
+    using, notes = 0, []
+    for q in handlers:
+        c = by_qname.get(q)
+        if c is None:
+            notes.append(f'{q}: command missing')
+            continue
+        src = _src(c)
+        # join reads the stake stored at start time (which came from config).
+        if 'CRIME_' in src or "cur['stake']" in src:
+            using += 1
+        else:
+            notes.append(f'{q}: not reading shared config')
+    hits = _crime_literal_hits()
+    formula = len(CRIME_HEIST_TARGETS) + len(_dc_fields(CRIME_ROB))
+    return total, using, len(handlers), hits, formula, notes
+
+
+def _dc_fields(obj):
+    import dataclasses as _dc
+    try:
+        return [f.name for f in _dc.fields(obj)]
+    except Exception:
+        return []
+
+
 def audit(bot):
     """Full audit. Returns (summary: dict, details: dict of issue -> [lines])."""
     cmds = _walk(bot)
@@ -290,6 +350,21 @@ def audit(bot):
         'with_cooldowns': n_cooldown,
         'gated': len(gated),
     }
+    try:
+        _ct, _cu, _ch, _chits, _cf, _cnotes = _crime_status(bot)
+    except Exception:
+        _ct, _cu, _ch, _chits, _cf, _cnotes = 0, 0, 0, [], 0, ['crime audit failed']
+    summary.update({
+        'crime_values': _ct,
+        'crime_using': _cu,
+        'crime_handlers': _ch,
+        'crime_hardcoded': len(_chits),
+        'crime_formula': _cf,
+    })
+    for line in _chits:
+        details['crime'].append(f'{line} (manual review)')
+    for note in _cnotes:
+        details['crime'].append(note)
     return summary, details
 
 
@@ -306,9 +381,16 @@ def _report_lines(summary, details, filt_cat=None, filt_issue=None):
                  f"{summary['config_pending']} not yet migrated")
     lines.append(f"Hardcoded shop prices: {summary['price_literals']}")
     lines.append('-# poke_extras.py excluded (unloaded cog): manual review required')
+    lines.append(f"Crime Configuration{chr(10)}--------------------")
+    lines.append(f"Crime monetary values: {summary['crime_values']}")
+    lines.append(f"Using shared config: {summary['crime_using']}/{summary['crime_handlers']}")
+    lines.append(f"Hardcoded crime prices: {summary['crime_hardcoded']}")
+    lines.append(f"Formula parameters: {summary['crime_formula']}")
+    lines.append(f"Chance/duration values excluded: {len(CRIME_EXCLUDED)}")
+    lines.append('Manual review: 1 (bounty escrow has no expiry — documented in code)')
     lines.append(f"With cooldowns: {summary['with_cooldowns']} · gated: {summary['gated']}")
     picked = []
-    if filt_issue in ('registry', 'aliases', 'help', 'currency', 'safety', 'config'):
+    if filt_issue in ('registry', 'aliases', 'help', 'currency', 'safety', 'config', 'crime'):
         picked = [(filt_issue, l) for l in details.get(filt_issue, [])]
     elif filt_cat:
         for issue, ls in details.items():
@@ -340,7 +422,7 @@ class Health(commands.Cog):
     @commands.group(name='health', description='Dev health audits')
     @staff_or('administrator')
     async def health(self, ctx):
-        await ctx.reply('.health commands [category:<mod>] [issue:<help|aliases|registry|currency|safety|config>]',
+        await ctx.reply('.health commands [category:<mod>] [issue:<help|aliases|registry|currency|safety|config|crime>]',
                         ephemeral=True)
 
     @health.command(name='commands', description='Command registry audit')

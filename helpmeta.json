@@ -948,7 +948,7 @@
       "setup",
       "Dev command audits: registry vs help, stale numbers, currency safety. `.health commands [category:X] [issue:Y]`.",
       [],
-      "[category:<mod>] [issue:<help|aliases|registry|currency|safety>]",
+      "[category:<mod>] [issue:<help|aliases|registry|currency|safety|config|crime>]",
       "Administrator",
       false
     ],

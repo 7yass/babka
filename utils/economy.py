@@ -95,3 +95,41 @@ CASINO_MAX_BET_PER_LEVEL = 1500
 CASINO_MAX_BET_CAP = 100000
 CASINO_BJ_PAYOUT = 1.2          # blackjack pays 6:5
 CASINO_BJ_GOD_PAYOUT = 1.3      # house edge, kept deniable
+
+# ---- crime ----
+# Stakes and multipliers per heist target. Chances (base 0.30 + 0.07/crew,
+# god 0.90), JOIN_WINDOW and jail durations are NOT money and live in code.
+
+
+@dataclass(frozen=True)
+class HeistTarget:
+    key: str
+    stake: int
+    payout_mult: float
+
+
+CRIME_HEIST_TARGETS: dict[str, HeistTarget] = {
+    'bank': HeistTarget('bank', stake=300, payout_mult=2.0),
+    'kasyno': HeistTarget('kasyno', stake=600, payout_mult=2.4),
+    'muzeum': HeistTarget('muzeum', stake=1000, payout_mult=2.8),
+}
+
+
+@dataclass(frozen=True)
+class RobTuning:
+    """Robbery formula parameters. The formula itself (loot = cut of victim
+    cash, fine = cut paid back + jail) stays in code; only its monetary
+    bounds live here. Chances stay out (not money)."""
+    loot_min_pct: float
+    loot_max_pct: float
+    loot_min: int
+    loot_cap: int
+    fine_min: int
+    fine_pct: float
+    fine_cap: int
+
+
+CRIME_ROB = RobTuning(loot_min_pct=0.08, loot_max_pct=0.20, loot_min=10,
+                      loot_cap=25000, fine_min=100, fine_pct=0.20, fine_cap=15000)
+
+CRIME_BOUNTY_MIN = 100

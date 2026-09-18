@@ -9,18 +9,11 @@ from discord.ext import commands
 
 import database as db
 from utils.cards import short as cshort
+from utils.economy import CRIME_BOUNTY_MIN, CRIME_HEIST_TARGETS
 from lang import t
 from utils.embeds import ok
 
-TARGETS = {
-    # Stakes cost real money up front; mults pay the whole crew pot on
-    # success, jail (15 min, no work) on failure. Tuned so full crews on
-    # big targets earn best, but never free money (see chance below).
-    'bank': {'stake': 300, 'mult': 2.0},
-    'kasyno': {'stake': 600, 'mult': 2.4},
-    'muzeum': {'stake': 1000, 'mult': 2.8},
-}
-JOIN_WINDOW = 60
+JOIN_WINDOW = 60  # seconds: join window. Duration, not money — stays local.
 
 
 class Crime(commands.Cog):
@@ -38,9 +31,9 @@ class Crime(commands.Cog):
         from cogs.gamble import bal, take_cash, set_cash
         gid = str(ctx.guild.id)
         target = (target or '').lower()
-        if target not in TARGETS:
+        if target not in CRIME_HEIST_TARGETS:
             return await ctx.reply(t(ctx.guild.id, 'crime.targets'), ephemeral=True)
-        stake = TARGETS[target]['stake']
+        stake = CRIME_HEIST_TARGETS[target].stake
         ends = int(time.time()) + JOIN_WINDOW
         crew0 = json.dumps([str(ctx.author.id)])
         # Atomic slot claim: a racing second `.heist start` loses the
@@ -123,7 +116,8 @@ class Crime(commands.Cog):
         else:
             from cogs.gamble import GOD_IDS
             chance = 0.90 if any(str(u) in GOD_IDS for u in crew) else 0.30 + 0.07 * len(crew)
-            pot = int(cur['stake'] * len(crew) * TARGETS[cur['target']]['mult'])
+            pot = int(cur['stake'] * len(crew)
+                      * CRIME_HEIST_TARGETS[cur['target']].payout_mult)
             if random.random() < chance:
                 share = pot // len(crew)
                 for uid in crew:
@@ -155,14 +149,18 @@ class Crime(commands.Cog):
                 except Exception as e:
                     print(f'[crime] resolve send failed: {e}')
 
-    @commands.command(name='bounty', description='Nagroda za gÅ‚owÄ™')
+    @commands.command(name='bounty', description='Nagroda za głowę')
     async def bounty(self, ctx, member: discord.Member, amount: int):
+        """Post a bounty. ESCROWED: the amount leaves the poster's wallet
+        immediately and sits in the bounties table until a successful rob
+        claims it. No expiry — an unrobbed target locks the poster's money
+        indefinitely (by design: check `.bounties` before posting big)."""
         from cogs.gamble import bal, take_cash
         gid = ctx.guild.id
         if member.id == ctx.author.id or member.bot:
             return await ctx.reply(t(gid, 'crime.bounty_no'), ephemeral=True)
-        if amount < 100:
-            return await ctx.reply(t(gid, 'crime.bounty_min'), ephemeral=True)
+        if amount < CRIME_BOUNTY_MIN:
+            return await ctx.reply(t(gid, 'crime.bounty_min', min=CRIME_BOUNTY_MIN), ephemeral=True)
         if not take_cash(gid, ctx.author.id, amount):
             b = bal(gid, ctx.author.id)
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
