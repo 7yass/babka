@@ -1,7 +1,7 @@
 """Command health: read-only audits over the live registry, help coverage,
 stale numbers and runtime safety. Admin-only dev tool — never auto-fixes.
 
-Usage: `.health commands [category:<mod>] [issue:<help|aliases|registry|currency|safety>]`
+Usage: `.health commands [category:<mod>] [issue:<help|aliases|registry|currency|safety|config>]`
 """
 import inspect
 import json
@@ -14,6 +14,7 @@ from discord.ext import commands
 import database as db
 from lang import t, set_ctx_lang
 from utils.checks import staff_or
+from utils.economy import CASINO_BASE_MAX_BET, POKE_GRAZZ_COST, SHOP_NICK_COST
 
 META = json.loads((Path(__file__).parent.parent / 'helpmeta.json').read_text(encoding='utf-8'))
 COMMAND_META = META['meta']
@@ -22,11 +23,29 @@ CATEGORIES = META['cats']
 # Curated stale-number rules: (helpmeta key, forbidden substrings, required substrings).
 # Each is a regression test for a number we already got wrong once.
 STALE_RULES = [
-    ('blackjack', ['max 15000'], []),
-    ('nick', ['100k'], []),
-    ('grazz', ['3k'], ['4k']),
     ('wordle', ['6 tries', '.wordle <guess>'], ['channel']),
 ]
+
+
+def _short(n: int) -> str:
+    """Help-text number format: 125000 -> '125k', 4000 -> '4k'."""
+    try:
+        n = int(n)
+    except Exception:
+        return str(n)
+    if n % 1000 == 0:
+        return f'{n // 1000}k'
+    return f'{n:,}'
+
+
+def _config_text_rules():
+    """(lang key, needles) derived from utils.economy at audit time —
+    displayed help must quote the same values commands charge."""
+    return [
+        ('hc_d_nick', [_short(SHOP_NICK_COST)]),
+        ('hc_d_blackjack', [_short(CASINO_BASE_MAX_BET)]),
+        ('eco.pk_grazz_none', [_short(POKE_GRAZZ_COST)]),
+    ]
 
 # Source patterns marking runtime impact. Findings are SUSPECTED (static
 # scan, not business-logic proof) unless confirmed by review.
@@ -155,7 +174,7 @@ def audit(bot):
         if q in meta_names and f'hc_d_{q}' not in en_keys:
             details['help'].append(f'{q}: no localized help text (hc_d_{q})')
 
-    # ---- stale numbers (curated regression rules) ----
+    # ---- stale numbers: shape rules (explicit text expectations) ----
     try:
         from lang import STR as _STR
         descs = {n: ((_STR.get('en') or {}).get(f'hc_d_{n}') or COMMAND_META[n][1])
@@ -171,6 +190,29 @@ def audit(bot):
             if need not in d:
                 details['help'].append(f'{key}: text missing {need!r}')
 
+
+    # ---- stale numbers: config-driven (help must quote utils.economy) ----
+    # Mirror help rendering: lang key first, helpmeta desc_en fallback.
+    try:
+        from lang import STR as _STR2
+        _en = _STR2.get('en') or {}
+    except Exception:
+        _en = {}
+
+    def _help_text(tkey: str) -> str:
+        if tkey in _en:
+            return _en[tkey]
+        if tkey.startswith('hc_d_'):
+            v = COMMAND_META.get(tkey[5:])
+            if v:
+                return v[1]
+        return ''
+
+    for tkey, needles in _config_text_rules():
+        d = _help_text(tkey)
+        for need in needles:
+            if need.lower() not in d.lower():
+                details['help'].append(f'{tkey}: text missing config value {need!r}')
     # ---- runtime safety (suspected; static scan) ----
     for q, c in cmds:
         src = _src(c)
@@ -192,6 +234,20 @@ def audit(bot):
             touches.append('roles')
         if touches and 'currency' in touches:
             details['currency'].append(f'{q}: touches {", ".join(touches)} (review logging)')
+            # Shared-config coverage: the constant names live in
+            # utils.economy, but most call sites read them via catalogs
+            # built at module import — so a module importing utils.economy
+            # counts its currency commands as migrated.
+            try:
+                import sys as _sys
+                mod_src = inspect.getsource(_sys.modules.get(c.callback.__module__)) \
+                    if getattr(c.callback, '__module__', None) else ''
+            except Exception:
+                mod_src = ''
+            if 'utils.economy' in (mod_src or ''):
+                details['config'].append(f'{q}: uses shared config')
+            else:
+                details['config'].append(f'{q}: hardcoded values (not yet migrated)')
     n_cooldown = sum(1 for _, c in cmds if getattr(c, '_cooldown', None) is not None)
     n_checks = [(q, len(getattr(c, 'checks', None) or [])) for q, c in cmds]
     gated = sorted(q for q, n in n_checks if n > 0)
@@ -205,6 +261,8 @@ def audit(bot):
         'alias_issues': len(details['aliases']),
         'help_issues': len(details['help']),
         'currency_touching': len(details['currency']),
+        'config_using': len([l for l in details['config'] if 'uses shared config' in l]),
+        'config_pending': len([l for l in details['config'] if 'not yet migrated' in l]),
         'safety_flags': len(details['safety']),
         'with_cooldowns': n_cooldown,
         'gated': len(gated),
@@ -221,9 +279,11 @@ def _report_lines(summary, details, filt_cat=None, filt_issue=None):
     lines.append(f"Alias issues: {summary['alias_issues']} · help issues: {summary['help_issues']}")
     lines.append(f"Currency-touching: {summary['currency_touching']} · "
                  f"safety flags: {summary['safety_flags']}")
+    lines.append(f"Economy config: {summary['config_using']} using shared config · "
+                 f"{summary['config_pending']} not yet migrated")
     lines.append(f"With cooldowns: {summary['with_cooldowns']} · gated: {summary['gated']}")
     picked = []
-    if filt_issue in ('registry', 'aliases', 'help', 'currency', 'safety'):
+    if filt_issue in ('registry', 'aliases', 'help', 'currency', 'safety', 'config'):
         picked = [(filt_issue, l) for l in details.get(filt_issue, [])]
     elif filt_cat:
         for issue, ls in details.items():
@@ -239,7 +299,7 @@ def _report_lines(summary, details, filt_cat=None, filt_issue=None):
         lines.append('')
         for issue, l in picked[:30]:
             lines.append(f'[{issue}] {l}')
-        total = sum(len(details.get(i, [])) for i in ('registry', 'aliases', 'help', 'currency', 'safety'))
+        total = sum(len(details.get(i, [])) for i in ('registry', 'aliases', 'help', 'currency', 'safety', 'config'))
         if total > len(picked):
             lines.append(f'… +{total - len(picked)} more (narrow with issue: / category:)')
     else:
@@ -255,7 +315,7 @@ class Health(commands.Cog):
     @commands.group(name='health', description='Dev health audits')
     @staff_or('administrator')
     async def health(self, ctx):
-        await ctx.reply('.health commands [category:<mod>] [issue:<help|aliases|registry|currency|safety>]',
+        await ctx.reply('.health commands [category:<mod>] [issue:<help|aliases|registry|currency|safety|config>]',
                         ephemeral=True)
 
     @health.command(name='commands', description='Command registry audit')

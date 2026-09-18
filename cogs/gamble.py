@@ -7,6 +7,8 @@ from discord.ext import commands
 
 import database as db
 from utils.cards import short as cshort
+from utils.economy import (CASINO_BASE_MAX_BET, CASINO_MAX_BET_PER_LEVEL,
+                           CASINO_MAX_BET_CAP, CASINO_BJ_PAYOUT, CASINO_BJ_GOD_PAYOUT)
 from lang import t, set_ctx_lang
 from utils.embeds import foot
 
@@ -14,10 +16,10 @@ START_CASH, DAILY_CASH, DAILY_CD = 1000, 500, 86400
 # hidden from public leaderboards (progress kept, just not shown)
 HIDDEN_LB = {'1270782781605154922', '558332192531546114'}
 ROB_CD = 3600
-# blackjack anti-abuse: no more 100k wins
-BJ_MAX_BET = 15000   # gods (house) exempt
+# NOTE: betting limits live in utils.economy (CASINO_BASE_MAX_BET and
+# max_bet_for) — do not reintroduce local literals here.
 BJ_MAX_WIN = 15000  # max profit per hand for mortals
-GAMBLES_MAX_BET = 15000  # slots/coinflip/roulette/poker, gods exempt
+# (betting limit lives in utils.economy: CASINO_BASE_MAX_BET)
 SLOTS_MAX_WIN = 25000    # max slots payout for mortals
 ROU_MAX_WIN = 25000      # max roulette profit for mortals
 POKER_MAX_WIN = 50000    # max poker profit for mortals
@@ -420,14 +422,14 @@ def split_allin(bet: str, *rest: str):
     return toks[0], ' '.join(toks[1:])
 
 
-def max_bet_for(level: int, base: int = GAMBLES_MAX_BET) -> int:
-    """Betting limit grows with level: base + 1.5k/level, 100k cap.
+def max_bet_for(level: int, base: int = CASINO_BASE_MAX_BET) -> int:
+    """Betting limit grows with level: base + per-level, capped.
     Lv0 plays at base, lv10 ~30k, lv30 ~60k — high rollers still bypass."""
     try:
         lv = max(0, int(level or 0))
     except Exception:
         lv = 0
-    return min(100000, base + lv * 1500)
+    return min(CASINO_MAX_BET_CAP, base + lv * CASINO_MAX_BET_PER_LEVEL)
 
 
 def _jailed(gid, uid):
@@ -1232,7 +1234,7 @@ class Gamble(commands.Cog):
         if not bet:
             return await ctx.reply(t(gid, 'eco.bet_pos'), ephemeral=True)
         if not god:
-            cap = max_bet_for(get_user(gid, ctx.author.id).get('level', 0), BJ_MAX_BET)
+            cap = max_bet_for(get_user(gid, ctx.author.id).get('level', 0))
             if bet > cap and not has_highroller(gid, ctx.author.id):
                 return await ctx.reply(t(gid, 'eco.bj_maxbet', max=cshort(cap)), ephemeral=True)
             wait = _gamble_gate(gid, ctx.author.id)
@@ -1254,7 +1256,7 @@ class Gamble(commands.Cog):
             phand = [deck.pop(), deck.pop()]
         dhand = [deck.pop(), deck.pop()]
         if hand_value(phand) == 21:
-            win = int(bet * (1.3 if god else 1.2))  # mortals get 6:5
+            win = int(bet * (CASINO_BJ_GOD_PAYOUT if god else CASINO_BJ_PAYOUT))  # mortals get 6:5
             win = min(win, BJ_MAX_WIN if not god else BJ_MAX_WIN * 3)
             nb = bal(gid, ctx.author.id)
             set_cash(gid, ctx.author.id, nb['cash'] + bet + win)

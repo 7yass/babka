@@ -7,6 +7,7 @@ from discord.ext import commands
 
 import database as db
 from utils.cards import short as cshort
+from utils.economy import SHOP_NICK_COST
 from lang import t, set_ctx_lang
 from utils.embeds import ok
 from utils.emojis import em
@@ -15,7 +16,7 @@ ITEMS = {
     'cookie': {'price': 7500, 'use': 'shop.u_cookie'},
     'scratch': {'price': 10000, 'use': 'shop.u_scratch'},
     'lootbox': {'price': 75000, 'use': 'shop.u_lootbox'},
-    'nick': {'price': 125000, 'use': 'shop.u_nick'},
+    'nick': {'price': SHOP_NICK_COST, 'use': 'shop.u_nick'},
     'shield': {'price': 175000, 'use': 'shop.u_shield'},
     'xpboost': {'price': 200000, 'use': 'shop.u_xpboost'},
     'pardon': {'price': 300000, 'use': 'shop.u_pardon'},

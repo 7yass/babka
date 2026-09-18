@@ -10,6 +10,7 @@ from discord.ext import commands
 import database as db
 from lang import t, set_ctx_lang
 from utils.cards import short as cshort
+from utils.economy import POKE_GRAZZ_COST
 from utils.emojis import em, emoji_id
 
 POKEAPI = 'https://pokeapi.co/api/v2'
@@ -177,7 +178,8 @@ DEX_MILESTONES = {1: 500, 10: 2000, 50: 10000, 100: 50000}
 
 INCENSE_PRICE = 25000
 INCENSE_SECONDS = 1800
-GRAZZ_PRICE = 4000
+# NOTE: grazz pricing lives in utils.economy (POKE_GRAZZ_COST) — do not
+# reintroduce a local literal here.
 REPEL_PRICE = 5000
 REPEL_SECONDS = 1800
 
@@ -2644,7 +2646,7 @@ class Pokemon(commands.Cog):
         if item == 'candy':
             return CANDY_PRICE
         if item == 'grazz':
-            return GRAZZ_PRICE
+            return POKE_GRAZZ_COST
         if item == 'egg':
             return EGG_PRICE
         if item == 'incense':
@@ -2793,7 +2795,7 @@ class Pokemon(commands.Cog):
             return await ctx.reply(t(gid, 'eco.pk_incense_on'), ephemeral=True)
         catalog = {**{k: v[0] for k, v in BALLS.items()},
                    **{k: v[0] for k, v in POTIONS.items()},
-                   'candy': CANDY_PRICE, 'egg': EGG_PRICE, 'grazz': GRAZZ_PRICE,
+                   'candy': CANDY_PRICE, 'egg': EGG_PRICE, 'grazz': POKE_GRAZZ_COST,
                    **{k: v['price'] for k, v in HELD_ITEMS.items()}}
         if ball not in catalog:
             return await ctx.reply(t(gid, 'eco.pk_balls', have=self._balls_line(gid, ctx.author.id)),
