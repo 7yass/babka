@@ -265,8 +265,40 @@ class Profile(commands.Cog):
             tier_name, stars, tier_color,
             b['cash'], b.get('bank') or 0, b.get('daily_streak') or 0,
             job_txt, role_txt, is_staff, badges, avatar, banner)
-        await ctx.reply(file=discord.File(__import__('io').BytesIO(png), 'profile.png'),
-                        mention_author=False)
+        # Identity block: computed from verified existing data only. Any
+        # failure here must never break the profile card itself.
+        ident = None
+        try:
+            from lang import t as _t
+            from utils.embeds import ok as _ok
+            from utils.identity import (get_trainer_class, get_top_achievement,
+                                        get_dex_completion, get_duel_record,
+                                        get_activity_title)
+            _cls = get_trainer_class(gid, member.id)
+            _title = get_activity_title(gid, member.id)
+            _tkey = f'pf.title_{_title}'
+            _thead = _t(gid, _tkey) if _title in (
+                'gym_champion', 'master_collector', 'market_maker',
+                'crime_boss', 'job_specialist', 'regional_expert',
+                'newcomer') else _t(gid, f'pf.class_{_title}')
+            _head = f"{_t(gid, f'pf.class_{_cls}') + ' · ' if _cls else ''}{_thead}"
+            _dex = get_dex_completion(gid, member.id)
+            _du = get_duel_record(gid, member.id)
+            _lines = [_head,
+                      _t(gid, 'pf.dex', a=_dex['distinct'], b=_dex['total'], p=_dex['pct']),
+                      _t(gid, 'pf.duels', w=_du['w'], l=_du['l'])]
+            _top = get_top_achievement(gid, member.id)
+            if _top:
+                _lines.append(_t(gid, 'pf.top', name=_top[1]))
+            ident = _ok('\n'.join(_lines), title=_t(gid, 'pf.identity'))
+        except Exception:
+            ident = None
+        if ident is None:
+            await ctx.reply(file=discord.File(__import__('io').BytesIO(png), 'profile.png'),
+                            mention_author=False)
+        else:
+            await ctx.reply(file=discord.File(__import__('io').BytesIO(png), 'profile.png'),
+                            embed=ident, mention_author=False)
 
 
 async def setup(bot):
