@@ -420,6 +420,10 @@ def _report_lines(summary, details, filt_cat=None, filt_issue=None):
     lines.append('Manual review: 1 (bounty escrow has no expiry — documented in code)')
     lines.append(f"With cooldowns: {summary['with_cooldowns']} · gated: {summary['gated']}")
     picked = []
+    if filt_issue and filt_issue not in ('registry', 'aliases', 'help', 'currency', 'safety',
+                                         'config', 'crime'):
+        lines.append(f'\nUnknown issue. Try: registry, aliases, help, currency, safety, config, crime')
+        return '\n'.join(lines)
     if filt_issue in ('registry', 'aliases', 'help', 'currency', 'safety', 'config', 'crime'):
         picked = [(filt_issue, l) for l in details.get(filt_issue, [])]
     elif filt_cat:
@@ -436,9 +440,10 @@ def _report_lines(summary, details, filt_cat=None, filt_issue=None):
         lines.append('')
         for issue, l in picked[:30]:
             lines.append(f'[{issue}] {l}')
-        total = sum(len(details.get(i, [])) for i in ('registry', 'aliases', 'help', 'currency', 'safety', 'config'))
-        if total > len(picked):
-            lines.append(f'… +{total - len(picked)} more (narrow with issue: / category:)')
+        if len(picked) > 30:
+            lines.append(f'… +{len(picked) - 30} more in this view')
+    elif filt_issue or filt_cat:
+        lines.append('\nStatus: clean for this filter')
     else:
         n_open = sum(len(details.get(i, [])) for i in ('registry', 'aliases', 'help', 'currency', 'safety'))
         lines.append(f'\nStatus: {n_open} issues require review' if n_open else '\nStatus: clean')
