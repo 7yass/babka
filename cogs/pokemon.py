@@ -6,6 +6,7 @@ import time
 
 import discord
 from discord.ext import commands
+from discord.utils import MISSING
 
 import database as db
 from lang import t, set_ctx_lang
@@ -2944,9 +2945,9 @@ class Pokemon(commands.Cog):
                 view, files = self._box_view(gid, viewer, int(owner), name, filt, pg,
                                              avatar=avatar)
                 if ix.response.is_done():
-                    await ix.edit_original_response(view=view, attachments=files or None)
+                    await ix.edit_original_response(view=view, attachments=files or MISSING)
                 else:
-                    await ix.response.edit_message(view=view, attachments=files or None)
+                    await ix.response.edit_message(view=view, attachments=files or MISSING)
             except Exception as e:
                 # log and show first page instead of cryptic 2/1 0
                 try:
@@ -2964,9 +2965,9 @@ class Pokemon(commands.Cog):
                     view, files = self._box_view(gid, viewer, int(owner), name, filt, 1,
                                                  avatar=avatar)
                     if ix.response.is_done():
-                        await ix.edit_original_response(view=view, attachments=files or None)
+                        await ix.edit_original_response(view=view, attachments=files or MISSING)
                     else:
-                        await ix.response.edit_message(view=view, attachments=files or None)
+                        await ix.response.edit_message(view=view, attachments=files or MISSING)
                 except Exception:
                     try:
                         if ix.response.is_done():
@@ -3306,7 +3307,7 @@ class Pokemon(commands.Cog):
             except Exception:
                 pg = 1
             view, files = self._dex_view(gid, viewer, owner, pg)
-            await ix.response.edit_message(view=view, attachments=files or None)
+            await ix.response.edit_message(view=view, attachments=files or MISSING)
         return _cb
 
     @commands.command(name='dex', description='Pokedex')
@@ -3626,7 +3627,7 @@ class Pokemon(commands.Cog):
             except Exception:
                 pg = 1
             view, files = self._market_view(gid, viewer, pg)
-            await ix.response.edit_message(view=view, attachments=files or None)
+            await ix.response.edit_message(view=view, attachments=files or MISSING)
         return _cb
 
     @commands.command(name='market', description='Targ pokemonów')
