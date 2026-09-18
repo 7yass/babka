@@ -112,6 +112,16 @@ def _required_params(cmd) -> list:
     return req
 
 
+# Reviewed once, by hand: currency-touching commands whose money already
+# flows from a single domain table, so there is nothing to migrate.
+# Kept explicit so the pending count stays meaningful instead of nagging.
+REVIEWED_LOCAL = {
+    'work': 'pay bands single-sourced in JOBS (display + calc read one table)',
+    'stockbuy': 'market-driven prices; seeds single-sourced in STOCKS',
+    'stocksell': 'market-driven prices; seeds single-sourced in STOCKS',
+}
+
+
 def _price_literal_hits():
     """`'price': <digits>` literals in loaded cogs — every one is a shop
     price that must come from utils.economy instead. poke_extras.py is
@@ -326,6 +336,8 @@ def audit(bot):
                 mod_src = ''
             if 'utils.economy' in (mod_src or ''):
                 details['config'].append(f'{q}: uses shared config')
+            elif q in REVIEWED_LOCAL:
+                details['config'].append(f'{q}: reviewed local — {REVIEWED_LOCAL[q]}')
             else:
                 details['config'].append(f'{q}: hardcoded values (not yet migrated)')
     for hit in _price_literal_hits():
