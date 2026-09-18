@@ -10,7 +10,7 @@ from discord.ext import commands
 import database as db
 from lang import t, set_ctx_lang
 from utils.cards import short as cshort
-from utils.economy import POKE_GRAZZ_COST
+from utils.economy import POKE_SHOP_PRICES
 from utils.emojis import em, emoji_id
 
 POKEAPI = 'https://pokeapi.co/api/v2'
@@ -20,18 +20,16 @@ SHINY_ODDS = 256
 XP_NEXT = staticmethod(lambda lv: lv ** 3)
 
 BALLS = {
-    'poke': (500, 1.0),
-    'great': (1500, 1.5),
-    'ultra': (4000, 2.0),
-    'master': (50000, None),
+    'poke': (POKE_SHOP_PRICES['poke'].amount, 1.0),
+    'great': (POKE_SHOP_PRICES['great'].amount, 1.5),
+    'ultra': (POKE_SHOP_PRICES['ultra'].amount, 2.0),
+    'master': (POKE_SHOP_PRICES['master'].amount, None),
 }
 POTIONS = {
-    'potion': (1000, 0.5),
-    'superpotion': (3000, 1.0),
+    'potion': (POKE_SHOP_PRICES['potion'].amount, 0.5),
+    'superpotion': (POKE_SHOP_PRICES['superpotion'].amount, 1.0),
 }
-CANDY_PRICE = 10000
-EGG_PRICE = 12000
-EGG_CYCLES = 20
+EGG_CYCLES = 20  # hatch cycles: quantity, not money — stays local
 CHECKLIST_NEED = {'catches': 5, 'battles': 3, 'duels': 1}
 CHECKLIST_REWARD = 15000
 DAILY_TARGET_REWARD = 7500
@@ -176,11 +174,9 @@ REGION_BADGE = {'kanto': 'region_kanto', 'johto': 'region_johto',
 # dex milestones: count -> cash
 DEX_MILESTONES = {1: 500, 10: 2000, 50: 10000, 100: 50000}
 
-INCENSE_PRICE = 25000
 INCENSE_SECONDS = 1800
-# NOTE: grazz pricing lives in utils.economy (POKE_GRAZZ_COST) — do not
-# reintroduce a local literal here.
-REPEL_PRICE = 5000
+# NOTE: candy/egg/incense/repel pricing lives in utils.economy
+# (POKE_SHOP_PRICES) — do not reintroduce local literals here.
 REPEL_SECONDS = 1800
 
 
@@ -568,21 +564,21 @@ POWER_EV = 4        # bonus EVs a power item adds per won battle
 #   heal (Leftovers) / dmg (Life Orb) / survive (Focus Band) / xp (Lucky Egg)
 #   / ev (power item: +POWER_EV into record['stat'] per won battle).
 HELD_ITEMS = {
-    'leftovers': {'name': 'Leftovers', 'price': 15000, 'icon': 'potion', 'effect': 'heal'},
-    'lifeorb': {'name': 'Life Orb', 'price': 20000, 'icon': 'rate_up', 'effect': 'dmg'},
-    'focusband': {'name': 'Focus Band', 'price': 18000, 'icon': 'shield', 'effect': 'survive'},
-    'luckyegg': {'name': 'Lucky Egg', 'price': 22000, 'icon': 'egg', 'effect': 'xp'},
-    'pow_hp': {'name': 'Power Weight', 'price': 12000, 'icon': 'stat_hp',
+    'leftovers': {'name': 'Leftovers', 'price': POKE_SHOP_PRICES['leftovers'].amount, 'icon': 'potion', 'effect': 'heal'},
+    'lifeorb': {'name': 'Life Orb', 'price': POKE_SHOP_PRICES['lifeorb'].amount, 'icon': 'rate_up', 'effect': 'dmg'},
+    'focusband': {'name': 'Focus Band', 'price': POKE_SHOP_PRICES['focusband'].amount, 'icon': 'shield', 'effect': 'survive'},
+    'luckyegg': {'name': 'Lucky Egg', 'price': POKE_SHOP_PRICES['luckyegg'].amount, 'icon': 'egg', 'effect': 'xp'},
+    'pow_hp': {'name': 'Power Weight', 'price': POKE_SHOP_PRICES['pow_hp'].amount, 'icon': 'stat_hp',
                'effect': 'ev', 'stat': 'hp'},
-    'pow_atk': {'name': 'Power Bracer', 'price': 12000, 'icon': 'stat_atk',
+    'pow_atk': {'name': 'Power Bracer', 'price': POKE_SHOP_PRICES['pow_atk'].amount, 'icon': 'stat_atk',
                 'effect': 'ev', 'stat': 'atk'},
-    'pow_dfn': {'name': 'Power Belt', 'price': 12000, 'icon': 'stat_def',
+    'pow_dfn': {'name': 'Power Belt', 'price': POKE_SHOP_PRICES['pow_dfn'].amount, 'icon': 'stat_def',
                 'effect': 'ev', 'stat': 'dfn'},
-    'pow_spa': {'name': 'Power Lens', 'price': 12000, 'icon': 'stat_spa',
+    'pow_spa': {'name': 'Power Lens', 'price': POKE_SHOP_PRICES['pow_spa'].amount, 'icon': 'stat_spa',
                 'effect': 'ev', 'stat': 'spa'},
-    'pow_spd': {'name': 'Power Band', 'price': 12000, 'icon': 'stat_spdef',
+    'pow_spd': {'name': 'Power Band', 'price': POKE_SHOP_PRICES['pow_spd'].amount, 'icon': 'stat_spdef',
                 'effect': 'ev', 'stat': 'spd'},
-    'pow_spe': {'name': 'Power Anklet', 'price': 12000, 'icon': 'stat_speed',
+    'pow_spe': {'name': 'Power Anklet', 'price': POKE_SHOP_PRICES['pow_spe'].amount, 'icon': 'stat_speed',
                 'effect': 'ev', 'stat': 'spe'},
 }
 HELD_ORDER = ('leftovers', 'lifeorb', 'focusband', 'luckyegg',
@@ -592,14 +588,14 @@ HELD_BY_NAME = {v['name'].lower(): k for k, v in HELD_ITEMS.items()}
 # Evolution stones — Eevee branching + generic stone evos
 # price 12k, icon fleet name mirrors key
 EVO_STONES = {
-    'water_stone':   {'name': 'Water Stone',   'price': 15000, 'icon': 'water_stone',   'mons': {133: 134}},
-    'thunder_stone': {'name': 'Thunder Stone', 'price': 15000, 'icon': 'thunder_stone', 'mons': {133: 135}},
-    'fire_stone':    {'name': 'Fire Stone',    'price': 15000, 'icon': 'fire_stone',    'mons': {133: 136}},
-    'sun_stone':     {'name': 'Sun Stone',     'price': 15000, 'icon': 'sun_stone',     'mons': {133: 196}},
-    'moon_stone':    {'name': 'Moon Stone',    'price': 15000, 'icon': 'moon_stone',    'mons': {133: 197}},
-    'leaf_stone':    {'name': 'Leaf Stone',    'price': 15000, 'icon': 'leaf_stone',    'mons': {133: 470}},
-    'ice_stone':     {'name': 'Ice Stone',     'price': 15000, 'icon': 'ice_stone',     'mons': {133: 471}},
-    'shiny_stone':   {'name': 'Shiny Stone',   'price': 15000, 'icon': 'shiny_stone',   'mons': {133: 700}},
+    'water_stone':   {'name': 'Water Stone',   'price': POKE_SHOP_PRICES['water_stone'].amount, 'icon': 'water_stone',   'mons': {133: 134}},
+    'thunder_stone': {'name': 'Thunder Stone', 'price': POKE_SHOP_PRICES['thunder_stone'].amount, 'icon': 'thunder_stone', 'mons': {133: 135}},
+    'fire_stone':    {'name': 'Fire Stone',    'price': POKE_SHOP_PRICES['fire_stone'].amount, 'icon': 'fire_stone',    'mons': {133: 136}},
+    'sun_stone':     {'name': 'Sun Stone',     'price': POKE_SHOP_PRICES['sun_stone'].amount, 'icon': 'sun_stone',     'mons': {133: 196}},
+    'moon_stone':    {'name': 'Moon Stone',    'price': POKE_SHOP_PRICES['moon_stone'].amount, 'icon': 'moon_stone',    'mons': {133: 197}},
+    'leaf_stone':    {'name': 'Leaf Stone',    'price': POKE_SHOP_PRICES['leaf_stone'].amount, 'icon': 'leaf_stone',    'mons': {133: 470}},
+    'ice_stone':     {'name': 'Ice Stone',     'price': POKE_SHOP_PRICES['ice_stone'].amount, 'icon': 'ice_stone',     'mons': {133: 471}},
+    'shiny_stone':   {'name': 'Shiny Stone',   'price': POKE_SHOP_PRICES['shiny_stone'].amount, 'icon': 'shiny_stone',   'mons': {133: 700}},
 }
 EEVEE_STONES = {k: v['mons'][133] for k, v in EVO_STONES.items()}  # stone -> dex
 EVO_STONE_BY_NAME = {v['name'].lower(): k for k, v in EVO_STONES.items()}
@@ -610,15 +606,15 @@ STONE_ORDER = tuple(EVO_STONES.keys())
 
 # Extra shop items as per spec (Balls/Items/Buddy)
 SHOP_EXTRAS = {
-    'amuletcoin':    {'name': 'Amulet Coin',    'price': 200000,  'icon': 'coin'},
-    'questscroll':   {'name': 'Quest Scroll',   'price': 15000,   'icon': 'quest_scroll'},
-    'repel':         {'name': 'Repel',          'price': 5000,    'icon': 'item_repel'},
-    'shinycharm':    {'name': 'Shiny Charm',    'price': 75000,   'icon': 'star'},
-    'lootbox':       {'name': 'Lootbox',        'price': 15000,   'icon': 'box_box'},
-    'wailmer_pail':  {'name': 'Wailmer Pail',   'price': 1000000, 'icon': 'potion'},
-    'expshare':      {'name': 'EXP Share',      'price': 2500000, 'icon': 'candy'},
-    'evolutionstone':{'name': 'Evolution Stone','price': 30000,   'icon': 'evo_burst'},
-    'mega_bracelet': {'name': 'Mega Bracelet',  'price': 150000,  'icon': 'mega_bracelet'},
+    'amuletcoin':    {'name': 'Amulet Coin',    'price': POKE_SHOP_PRICES['amuletcoin'].amount, 'icon': 'coin'},
+    'questscroll':   {'name': 'Quest Scroll',   'price': POKE_SHOP_PRICES['questscroll'].amount, 'icon': 'quest_scroll'},
+    'repel':         {'name': 'Repel',          'price': POKE_SHOP_PRICES['repel'].amount, 'icon': 'item_repel'},
+    'shinycharm':    {'name': 'Shiny Charm',    'price': POKE_SHOP_PRICES['shinycharm'].amount, 'icon': 'star'},
+    'lootbox':       {'name': 'Lootbox',        'price': POKE_SHOP_PRICES['lootbox'].amount, 'icon': 'box_box'},
+    'wailmer_pail':  {'name': 'Wailmer Pail',   'price': POKE_SHOP_PRICES['wailmer_pail'].amount, 'icon': 'potion'},
+    'expshare':      {'name': 'EXP Share',      'price': POKE_SHOP_PRICES['expshare'].amount, 'icon': 'candy'},
+    'evolutionstone':{'name': 'Evolution Stone','price': POKE_SHOP_PRICES['evolutionstone'].amount, 'icon': 'evo_burst'},
+    'mega_bracelet': {'name': 'Mega Bracelet',  'price': POKE_SHOP_PRICES['mega_bracelet'].amount, 'icon': 'mega_bracelet'},
 }
 SHOP_EXTRA_ORDER = ('amuletcoin','questscroll','repel','shinycharm','lootbox','wailmer_pail')
 SHOP_BUDDY_ORDER = ('expshare','evolutionstone','mega_bracelet')
@@ -2595,7 +2591,7 @@ class Pokemon(commands.Cog):
                                (str(gid), str(uid))).fetchone()
             iq = (row['qty'] if row else 0) or 0
         if iq:
-            parts.append(f"incense x{iq} ({INCENSE_PRICE}$)")
+            parts.append(f"incense x{iq} ({POKE_SHOP_PRICES['incense'].amount}$)")
         elif incense_active(gid, uid):
             parts.append('incense ON')
         return ' · '.join(parts)
@@ -2644,13 +2640,13 @@ class Pokemon(commands.Cog):
         if item in POTIONS:
             return POTIONS[item][0]
         if item == 'candy':
-            return CANDY_PRICE
+            return POKE_SHOP_PRICES['candy'].amount
         if item == 'grazz':
-            return POKE_GRAZZ_COST
+            return POKE_SHOP_PRICES['grazz'].amount
         if item == 'egg':
-            return EGG_PRICE
+            return POKE_SHOP_PRICES['egg'].amount
         if item == 'incense':
-            return INCENSE_PRICE
+            return POKE_SHOP_PRICES['incense'].amount
         if item in HELD_ITEMS:
             return HELD_ITEMS[item]['price']
         if item in EVO_STONES:
@@ -2784,9 +2780,9 @@ class Pokemon(commands.Cog):
             ball = self.ball_ids().get(int(ball), '')
         if ball == 'incense':
             b = bal(gid, ctx.author.id)
-            if INCENSE_PRICE > b['cash']:
+            if POKE_SHOP_PRICES['incense'].amount > b['cash']:
                 return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-            set_cash(gid, ctx.author.id, b['cash'] - INCENSE_PRICE)
+            set_cash(gid, ctx.author.id, b['cash'] - POKE_SHOP_PRICES['incense'].amount)
             balls_add(gid, ctx.author.id, 'incense', 1)
             with db.conn_ctx() as conn:
                 conn.execute('UPDATE pk_balls SET expires=? WHERE guild_id=? AND user_id=? AND ball=?',
@@ -2795,7 +2791,9 @@ class Pokemon(commands.Cog):
             return await ctx.reply(t(gid, 'eco.pk_incense_on'), ephemeral=True)
         catalog = {**{k: v[0] for k, v in BALLS.items()},
                    **{k: v[0] for k, v in POTIONS.items()},
-                   'candy': CANDY_PRICE, 'egg': EGG_PRICE, 'grazz': POKE_GRAZZ_COST,
+                   'candy': POKE_SHOP_PRICES['candy'].amount,
+                   'egg': POKE_SHOP_PRICES['egg'].amount,
+                   'grazz': POKE_SHOP_PRICES['grazz'].amount,
                    **{k: v['price'] for k, v in HELD_ITEMS.items()}}
         if ball not in catalog:
             return await ctx.reply(t(gid, 'eco.pk_balls', have=self._balls_line(gid, ctx.author.id)),
@@ -4408,9 +4406,9 @@ class Pokemon(commands.Cog):
         from cogs.gamble import bal, set_cash
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
-        if REPEL_PRICE > b['cash']:
+        if POKE_SHOP_PRICES['repel'].amount > b['cash']:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - REPEL_PRICE)
+        set_cash(gid, ctx.author.id, b['cash'] - POKE_SHOP_PRICES['repel'].amount)
         balls_add(gid, ctx.author.id, 'repel', 1)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE pk_balls SET expires=? WHERE guild_id=? AND user_id=? AND ball=?',

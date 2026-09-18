@@ -14,7 +14,7 @@ from discord.ext import commands
 import database as db
 from lang import t, set_ctx_lang
 from utils.checks import staff_or
-from utils.economy import CASINO_BASE_MAX_BET, POKE_GRAZZ_COST, SHOP_NICK_COST
+from utils.economy import CASINO_BASE_MAX_BET, POKE_SHOP_PRICES, SHOP_PRICES
 
 META = json.loads((Path(__file__).parent.parent / 'helpmeta.json').read_text(encoding='utf-8'))
 COMMAND_META = META['meta']
@@ -42,9 +42,9 @@ def _config_text_rules():
     """(lang key, needles) derived from utils.economy at audit time —
     displayed help must quote the same values commands charge."""
     return [
-        ('hc_d_nick', [_short(SHOP_NICK_COST)]),
+        ('hc_d_nick', [_short(SHOP_PRICES['nick'].amount)]),
         ('hc_d_blackjack', [_short(CASINO_BASE_MAX_BET)]),
-        ('eco.pk_grazz_none', [_short(POKE_GRAZZ_COST)]),
+        ('eco.pk_grazz_none', [_short(POKE_SHOP_PRICES['grazz'].amount)]),
     ]
 
 # Source patterns marking runtime impact. Findings are SUSPECTED (static
@@ -110,6 +110,26 @@ def _required_params(cmd) -> list:
            and p.kind in (_insp.Parameter.POSITIONAL_ONLY,
                           _insp.Parameter.POSITIONAL_OR_KEYWORD)]
     return req
+
+
+def _price_literal_hits():
+    """`'price': <digits>` literals in loaded cogs — every one is a shop
+    price that must come from utils.economy instead. poke_extras.py is
+    skipped (not loaded; manual review)."""
+    import re
+    hits = []
+    cogdir = Path(__file__).parent
+    for f in sorted(cogdir.glob('*.py')):
+        if f.name == 'poke_extras.py':
+            continue
+        try:
+            text = f.read_text(encoding='utf-8')
+        except Exception:
+            continue
+        for i, line in enumerate(text.splitlines(), start=1):
+            if re.search(r"'price':\s*\d+", line):
+                hits.append(f'{f.name}:{i}: hardcoded price field')
+    return hits
 
 
 def audit(bot):
@@ -248,6 +268,8 @@ def audit(bot):
                 details['config'].append(f'{q}: uses shared config')
             else:
                 details['config'].append(f'{q}: hardcoded values (not yet migrated)')
+    for hit in _price_literal_hits():
+        details['config'].append(f'{hit} (manual review)')
     n_cooldown = sum(1 for _, c in cmds if getattr(c, '_cooldown', None) is not None)
     n_checks = [(q, len(getattr(c, 'checks', None) or [])) for q, c in cmds]
     gated = sorted(q for q, n in n_checks if n > 0)
@@ -263,6 +285,7 @@ def audit(bot):
         'currency_touching': len(details['currency']),
         'config_using': len([l for l in details['config'] if 'uses shared config' in l]),
         'config_pending': len([l for l in details['config'] if 'not yet migrated' in l]),
+        'price_literals': len(_price_literal_hits()),
         'safety_flags': len(details['safety']),
         'with_cooldowns': n_cooldown,
         'gated': len(gated),
@@ -281,6 +304,8 @@ def _report_lines(summary, details, filt_cat=None, filt_issue=None):
                  f"safety flags: {summary['safety_flags']}")
     lines.append(f"Economy config: {summary['config_using']} using shared config · "
                  f"{summary['config_pending']} not yet migrated")
+    lines.append(f"Hardcoded shop prices: {summary['price_literals']}")
+    lines.append('-# poke_extras.py excluded (unloaded cog): manual review required')
     lines.append(f"With cooldowns: {summary['with_cooldowns']} · gated: {summary['gated']}")
     picked = []
     if filt_issue in ('registry', 'aliases', 'help', 'currency', 'safety', 'config'):

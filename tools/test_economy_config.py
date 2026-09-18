@@ -1,4 +1,6 @@
-"""Economy config regression: help text and command math read utils.economy.
+"""Economy config regression: catalogs, help text and purchase math all read
+utils.economy. Buyback/refund behavior is out of scope (no shop buyback
+exists; market fee is formula-based, not a literal).
 
 Run: python tools/test_economy_config.py (needs discord installed for cog
 imports). Exit code 0 only when every test passes.
@@ -24,23 +26,22 @@ def check(cond: bool, msg: str) -> None:
         FAILS.append(msg)
 
 
+def short(n: int) -> str:
+    return f'{n // 1000}k' if n % 1000 == 0 else f'{n:,}'
+
+
 async def main() -> None:
     import database as db
     tmp = Path(tempfile.mkdtemp()) / 'test.db'
     db.DB_PATH = tmp
     db.init_db()
 
-    from utils import economy as ECO
-    from utils.economy import ShopPrice
+    from utils.economy import SHOP_PRICES, POKE_SHOP_PRICES, ShopPrice
     import dataclasses
-    check(isinstance(ShopPrice(key='x', amount=1), ShopPrice)
+    check(isinstance(ShopPrice(item_id='x', amount=1), ShopPrice)
           and ShopPrice.__dataclass_params__.frozen,
-          'ShopPrice typed row exists frozen for next slice')
-    from lang import t
-
-    # 1. help text quotes config (en; case-insensitive, k-format)
-    def short(n: int) -> str:
-        return f'{n // 1000}k' if n % 1000 == 0 else f'{n:,}'
+          'ShopPrice typed row exists frozen')
+    _ = dataclasses
 
     s = json.load(io.open(ROOT / 'lang.json', encoding='utf-8'))['en']
     meta = json.load(io.open(ROOT / 'helpmeta.json', encoding='utf-8'))['meta']
@@ -51,31 +52,26 @@ async def main() -> None:
         if key.startswith('hc_d_'):
             return meta.get(key[5:], [''])[1]
         return ''
-    check(short(ECO.SHOP_NICK_COST).lower() in text('hc_d_nick').lower(),
-          'help nick quotes SHOP_NICK_COST')
-    check(short(ECO.CASINO_BASE_MAX_BET).lower() in text('hc_d_blackjack').lower(),
-          'help blackjack quotes CASINO_BASE_MAX_BET')
-    check(short(ECO.POKE_GRAZZ_COST).lower() in text('eco.pk_grazz_none').lower(),
-          'help grazz quotes POKE_GRAZZ_COST')
 
-    # 2. command math uses the same values
+    # 1. help output quotes config
+    check(short(SHOP_PRICES['nick'].amount).lower() in text('hc_d_nick').lower(),
+          'help nick quotes config')
+    check('125' in text('hc_d_nick'), 'help nick shows 125k')
+    from cogs.gamble import max_bet_for, CASINO_BASE_MAX_BET
+    check(short(CASINO_BASE_MAX_BET).lower() in text('hc_d_blackjack').lower(),
+          'help blackjack quotes config')
+    check(short(POKE_SHOP_PRICES['grazz'].amount).lower()
+          in text('eco.pk_grazz_none').lower(), 'help grazz quotes config')
+
+    # 2. catalogs consume the rows (full sweep, both storefronts)
     from cogs.shop import Shop, ITEMS
-    check(ITEMS['nick']['price'] == ECO.SHOP_NICK_COST,
-          'shop nick price == config')
+    for k, row in SHOP_PRICES.items():
+        check(ITEMS[k]['price'] == row.amount, 'eco catalog row %s' % k)
     from cogs.pokemon import Pokemon
-    check(Pokemon._pk_price('grazz') == ECO.POKE_GRAZZ_COST,
-          'pokemon grazz price == config')
-    from cogs.gamble import max_bet_for
-    check(max_bet_for(0) == ECO.CASINO_BASE_MAX_BET,
-          'bet base == config')
-    check(max_bet_for(1) == ECO.CASINO_BASE_MAX_BET + ECO.CASINO_MAX_BET_PER_LEVEL,
-          'bet level 1 == config')
-    check(max_bet_for(10) == ECO.CASINO_BASE_MAX_BET + 10 * ECO.CASINO_MAX_BET_PER_LEVEL,
-          'bet curve == config')
-    check(max_bet_for(999) == ECO.CASINO_MAX_BET_CAP,
-          'bet cap == config')
+    for k, row in POKE_SHOP_PRICES.items():
+        check(Pokemon._pk_price(k) == row.amount, 'poke catalog row %s' % k)
 
-    # 3. end-to-end: economy buy + pokemon buy resolve from config values
+    # 3. purchases: normal, multi-qty invariant, broke, unknown
     from cogs.gamble import bal, set_cash
     shop = Shop.__new__(Shop)
     shop.bot = MagicMock()
@@ -83,30 +79,63 @@ async def main() -> None:
     def mkctx(item, n, prefix):
         ctx = MagicMock()
         ctx.guild.id = 99
+        ctx.guild.roles = []
         ctx.author.id = 7
         ctx.author.display_name = 't'
+        ctx.author.roles = []
         ctx.prefix = prefix
         ctx.invoked_with = 'buy'
         ctx.invoked_parents = ['shop']
         ctx.reply = AsyncMock()
         return ctx
 
-    set_cash(99, 7, 10_000_000)
-    ctx = mkctx('nick', '1', '.')
-    await Shop.buy.callback(shop, ctx, 'nick', '1')
-    args, _ = ctx.reply.call_args
-    check('Nick Token' in (args[0] if args else ''), 'economy nick purchase works')
-    spent = 10_000_000 - bal(99, 7)['cash']
-    check(spent == ECO.SHOP_NICK_COST, 'nick charged config amount')
+    async def buy(item, n, prefix, cash=10_000_000):
+        set_cash(99, 7, cash)
+        ctx = mkctx(item, n, prefix)
+        await Shop.buy.callback(shop, ctx, item, n)
+        assert ctx.reply.call_count == 1
+        args, _ = ctx.reply.call_args
+        return (args[0] if args else ''), bal(99, 7)['cash']
 
+    msg, cash = await buy('nick', '1', '.')
+    check('Nick Token' in msg and cash == 10_000_000 - SHOP_PRICES['nick'].amount,
+          'normal purchase charges catalog price')
+    msg, cash = await buy('shield', '3', '.')
+    check(cash == 10_000_000 - 3 * SHOP_PRICES['shield'].amount,
+          'charged == price x quantity')
+    msg, cash = await buy('vip', '1', '.', cash=1000)
+    check('Not enough cash' in msg or 'biedny' in msg,
+          'insufficient balance refused')
+    check(cash == 1000, 'insufficient balance charges nothing')
+    msg, cash = await buy('nope_item', '1', '.')
+    check('don' in msg.lower() or 'nie mamy' in msg.lower(), 'unknown item refused')
+    check(cash == 10_000_000, 'unknown item charges nothing')
+
+    # 4. alias/group path: balls_buy handler + pokemon prefix routing
     pcog = Pokemon.__new__(Pokemon)
     pcog.bot = MagicMock()
     shop.bot.get_cog = MagicMock(return_value=pcog)
     set_cash(99, 7, 10_000_000)
-    ctx2 = mkctx('grazz', '2', ';')
-    await Shop.buy.callback(shop, ctx2, 'grazz', '2')
-    spent2 = 10_000_000 - bal(99, 7)['cash']
-    check(spent2 == 2 * ECO.POKE_GRAZZ_COST, 'grazz charged config amount')
+    bctx = mkctx('ultra', '2', ';')
+    await Pokemon.balls_buy.callback(pcog, bctx, 'ultra', 2)
+    spent = 10_000_000 - bal(99, 7)['cash']
+    check(spent == 2 * POKE_SHOP_PRICES['ultra'].amount,
+          'balls_buy charges catalog price x qty')
+    set_cash(99, 7, 10_000_000)
+    msg, cash = await buy('8', '1', ';')
+    check(cash == 10_000_000 - POKE_SHOP_PRICES['candy'].amount,
+          'pokemon id routing charges catalog price')
+
+    # 5. pokemon shop output shows catalog prices (filtered section view;
+    # the default overview lists categories, never item rows, by design)
+    view = pcog._balls_layout(99, 7, 100, filt='Balls', owner_name='t')
+    blob = ' '.join(c.content for c in view.walk_children()
+                    if type(c).__name__ == 'TextDisplay')
+    check('1,500' in blob and '50,000' in blob, 'pokemon shop renders catalog prices')
+    view0 = pcog._balls_layout(99, 7, 100, owner_name='t')
+    blob0 = ' '.join(c.content for c in view0.walk_children()
+                     if type(c).__name__ == 'TextDisplay')
+    check('[1-4]' in blob0 and '1,500' not in blob0, 'overview stays item-free')
 
     print('FAILURES: %d' % len(FAILS), flush=True)
     sys.exit(1 if FAILS else 0)

@@ -7,25 +7,25 @@ from discord.ext import commands
 
 import database as db
 from utils.cards import short as cshort
-from utils.economy import SHOP_NICK_COST
+from utils.economy import SHOP_PRICES
 from lang import t, set_ctx_lang
 from utils.embeds import ok
 from utils.emojis import em
 
 ITEMS = {
-    'cookie': {'price': 7500, 'use': 'shop.u_cookie'},
-    'scratch': {'price': 10000, 'use': 'shop.u_scratch'},
-    'lootbox': {'price': 75000, 'use': 'shop.u_lootbox'},
-    'nick': {'price': SHOP_NICK_COST, 'use': 'shop.u_nick'},
-    'shield': {'price': 175000, 'use': 'shop.u_shield'},
-    'xpboost': {'price': 200000, 'use': 'shop.u_xpboost'},
-    'pardon': {'price': 300000, 'use': 'shop.u_pardon'},
-    'curse': {'price': 400000, 'use': 'shop.u_curse'},
-    'megabox': {'price': 400000, 'use': 'shop.u_megabox'},
-    'force': {'price': 500000, 'use': 'shop.u_force'},
-    'highroller': {'price': 2000000, 'use': 'shop.u_highroller'},
-    'bail': {'price': 40000, 'use': 'shop.u_bail'},
-    'vip': {'price': 5000000, 'use': 'shop.u_vip'},
+    'cookie': {'price': SHOP_PRICES['cookie'].amount, 'use': 'shop.u_cookie'},
+    'scratch': {'price': SHOP_PRICES['scratch'].amount, 'use': 'shop.u_scratch'},
+    'lootbox': {'price': SHOP_PRICES['lootbox'].amount, 'use': 'shop.u_lootbox'},
+    'nick': {'price': SHOP_PRICES['nick'].amount, 'use': 'shop.u_nick'},
+    'shield': {'price': SHOP_PRICES['shield'].amount, 'use': 'shop.u_shield'},
+    'xpboost': {'price': SHOP_PRICES['xpboost'].amount, 'use': 'shop.u_xpboost'},
+    'pardon': {'price': SHOP_PRICES['pardon'].amount, 'use': 'shop.u_pardon'},
+    'curse': {'price': SHOP_PRICES['curse'].amount, 'use': 'shop.u_curse'},
+    'megabox': {'price': SHOP_PRICES['megabox'].amount, 'use': 'shop.u_megabox'},
+    'force': {'price': SHOP_PRICES['force'].amount, 'use': 'shop.u_force'},
+    'highroller': {'price': SHOP_PRICES['highroller'].amount, 'use': 'shop.u_highroller'},
+    'bail': {'price': SHOP_PRICES['bail'].amount, 'use': 'shop.u_bail'},
+    'vip': {'price': SHOP_PRICES['vip'].amount, 'use': 'shop.u_vip'},
 }
 # buy -> (inventory item, duration seconds) for stashable goods.
 BUY_MAP = {
@@ -36,7 +36,7 @@ BUY_MAP = {
     'curse': ('curse', 0),
     'highroller': ('highroller', 10 * 60),
 }
-BAIL_COST = 40000
+BAIL_COST = SHOP_PRICES['bail'].amount
 VIP_ROLE = 'Babka VIP'
 
 
