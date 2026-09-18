@@ -952,6 +952,14 @@
       "Administrator",
       false
     ],
+    "start": [
+      "info",
+      "New here? Onboarding page: first commands and where to go next.",
+      [],
+      "",
+      "Everyone",
+      false
+    ],
     "tickets": [
       "setup",
       "Ticket system: typed panels, claim, transcripts, ratings, auto-close. `.tickets setup` starts the wizard.",

@@ -303,6 +303,24 @@ def audit(bot):
         for need in needles:
             if need.lower() not in d.lower():
                 details['help'].append(f'{tkey}: text missing config value {need!r}')
+
+    # ---- navigation targets (must resolve to canonical commands) ----
+    try:
+        from cogs.help import HELP_GROUPS, resolve_command
+    except Exception:
+        HELP_GROUPS, resolve_command = {}, None
+    if resolve_command is not None:
+        for key, grp in HELP_GROUPS.items():
+            # resolve_command only matches canonical .name entries, so a
+            # resolved primary is canonical by construction — aliases in
+            # metadata fail here instead of pointing users at shadows.
+            for dotted in grp.get('primary', ()):
+                if resolve_command(bot, dotted) is None:
+                    details['help'].append(f'nav: {key!r} primary {dotted!r} does not resolve')
+            for rel in grp.get('related', ()):
+                if rel not in HELP_GROUPS:
+                    details['help'].append(f'nav: {key!r} related {rel!r} is not a group')
+    # ---- runtime safety (suspected; static scan) ----
     # ---- runtime safety (suspected; static scan) ----
     for q, c in cmds:
         src = _src(c)

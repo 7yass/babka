@@ -34,6 +34,59 @@ EXAMPLE_FILL = {'<member>': '@{me}', '<amount>': '50', '<duration>': '10m', '<re
                 '<user_id>': '123456789012345678', '<subcommand>': 'status', '<command>': 'ban'}
 
 
+# Navigation systems: the front door. Primary entries MUST be canonical
+# command paths ("levels add-xp", never "addxp"); aliases stay functional
+# for users but are never navigation targets. Verified by `.health commands`
+# and tools/test_help_nav.py — a primary that stops resolving fails loudly
+# instead of pointing at a missing command.
+HELP_GROUPS = {
+    'economy': {
+        'primary': ('daily', 'work', 'shop', 'bank', 'pay', 'deposit'),
+        'related': ('market', 'casino', 'crime'),
+    },
+    'pokemon': {
+        'primary': ('p', 'hunt', 'catch', 'box', 'team', 'battle', 'quests', 'trade'),
+        'related': ('market',),
+    },
+    'market': {
+        'primary': ('market', 'buy', 'sell', 'unlist'),
+        'related': ('pokemon', 'economy'),
+    },
+    'casino': {
+        'primary': ('blackjack', 'slots', 'roulette', 'coinflip', 'poker'),
+        'related': ('crime', 'economy'),
+    },
+    'crime': {
+        'primary': ('heist', 'rob', 'bounty', 'bail'),
+        'related': ('casino', 'economy'),
+    },
+    'profile': {
+        'primary': ('profile', 'rank', 'achievements', 'trainer'),
+        'related': ('pokemon', 'economy'),
+    },
+    'server': {
+        'primary': ('setup', 'tickets', 'verify', 'welcome'),
+        'related': (),
+    },
+}
+
+
+def resolve_command(bot, dotted: str):
+    """Find a command by canonical dotted path ('levels add-xp').
+    Aliases never match: only .name at each level. Returns the command or None."""
+    parts = (dotted or '').split()
+    if not parts:
+        return None
+    level = {c.name: c for c in bot.commands}
+    node = None
+    for p in parts:
+        node = level.get(p)
+        if node is None:
+            return None
+        level = {c.name: c for c in getattr(node, 'commands', [])}
+    return node
+
+
 def _box(gid, *blocks):
     from discord.ui import LayoutView, Container, TextDisplay, Separator
     layout = LayoutView(timeout=HELP_DELETE)
@@ -44,6 +97,60 @@ def _box(gid, *blocks):
         box.add_item(TextDisplay(b))
     layout.add_item(box)
     return layout
+
+
+def _cmd_prefix(bot, gid, guild_prefix, dotted: str) -> str:
+    """Display prefix for a nav entry: ';' for Pokemon-cog commands
+    (the prefix gate blocks them on '.'), guild prefix otherwise."""
+    try:
+        cmd = resolve_command(bot, dotted)
+        cog = getattr(getattr(cmd, 'cog', None), 'qualified_name', '')
+        if cog == 'Pokemon':
+            return ';'
+    except Exception:
+        pass
+    return guild_prefix
+
+
+def _cmd_ref(bot, gid, guild_prefix, dotted: str) -> str:
+    return f'`{_cmd_prefix(bot, gid, guild_prefix, dotted)}{dotted}`'
+
+
+def nav_layout(bot, gid, key, guild_prefix):
+    """One system page: purpose, primary commands, related pages, next hint.
+    Unresolvable primaries are omitted (health flags them)."""
+    meta = HELP_GROUPS[key]
+    title = L(gid, f'hc.nav_{key}_t', key.title())
+    desc = L(gid, f'hc.nav_{key}_d', '')
+    primaries = [d for d in meta['primary'] if resolve_command(bot, d) is not None]
+    body = f'# {title}\n{desc}\n\n**{t(gid, "hc.nav_start")}**\n'
+    body += '\n'.join(_cmd_ref(bot, gid, guild_prefix, d) for d in primaries)
+    if meta['related']:
+        body += (f'\n\n**{t(gid, "hc.nav_related")}**\n'
+                 + '  '.join(f'`{guild_prefix}help {r}`' for r in meta['related']
+                             if r in HELP_GROUPS))
+    if primaries:
+        body += f'\n\n**{t(gid, "hc.nav_next")}** {_cmd_ref(bot, gid, guild_prefix, primaries[0])}'
+    return _box(gid, body)
+
+
+def nav_front_layout(bot, gid, guild_prefix):
+    """Front door: every system + its first actions."""
+    blocks = [f'# {t(gid, "hc.nav_head")}']
+    for key in HELP_GROUPS:
+        title = L(gid, f'hc.nav_{key}_t', key.title())
+        firsts = [d for d in HELP_GROUPS[key]['primary'][:3]
+                  if resolve_command(bot, d) is not None]
+        line = f'**{title}**  `{guild_prefix}help {key}`'
+        if firsts:
+            line += '\n' + ' · '.join(_cmd_ref(bot, gid, guild_prefix, d) for d in firsts)
+        blocks.append(line)
+    return _box(gid, *blocks)
+
+
+def start_layout(gid, bot_name: str):
+    return _box(gid, f'# {t(gid, "hc.start_title", name=bot_name)}\n'
+                     f'{t(gid, "hc.start_body", bot=bot_name)}')
 
 
 def home_layout(gid, author, bot_user, prefix):
@@ -168,13 +275,20 @@ class Help(commands.Cog):
         gid = ctx.guild.id if ctx.guild else None
         prefix = db.get_prefix(gid) if gid else '.'
         if not query:
-            layout = home_layout(gid, ctx.author, self.bot.user, prefix)
+            layout = nav_front_layout(self.bot, gid, prefix)
             layout.invoker_id = ctx.author.id
             _attach_select(layout, HelpSelect(gid))
             msg = await ctx.reply(view=layout, mention_author=False)
             asyncio.create_task(autodelete_view(msg, HELP_DELETE))
             return
         q = query.lower().strip()
+        if q in HELP_GROUPS:
+            layout = nav_layout(self.bot, gid, q, prefix)
+            layout.invoker_id = ctx.author.id
+            _attach_select(layout, HelpSelect(gid))
+            msg = await ctx.reply(view=layout, mention_author=False)
+            asyncio.create_task(autodelete_view(msg, HELP_DELETE))
+            return
         if q in CATEGORIES:
             layout = category_layout(gid, q, prefix)
             layout.invoker_id = ctx.author.id
@@ -192,6 +306,13 @@ class Help(commands.Cog):
         msg = await ctx.reply(embed=discord.Embed(
             description=t(gid, 'hc.nope', q=query, p=prefix), color=RED), mention_author=False)
         asyncio.create_task(autodelete(msg, CMD_DELETE))
+
+    @commands.command(name='start', description='Od czego zacząć')
+    async def start_cmd(self, ctx):
+        gid = ctx.guild.id if ctx.guild else None
+        name = self.bot.user.name if self.bot.user else 'Babka'
+        msg = await ctx.reply(view=start_layout(gid, name), mention_author=False)
+        asyncio.create_task(autodelete(msg, HELP_DELETE))
 
 
 async def setup(bot):
