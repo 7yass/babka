@@ -82,6 +82,24 @@ def _hits(src: str, patterns) -> bool:
     return any(p in src for p in patterns)
 
 
+def _racy_write(src: str) -> bool:
+    """True when a real yield point sits between a balance read and a
+    direct set_cash write. Reply/edit/defer lines don't count: in this
+    codebase those always sit on early-return branches or after the write,
+    never between read and write on the taken path."""
+    import re
+    code = '\n'.join(l for l in src.splitlines()
+                     if not re.search(r'await\s+(ctx|interaction|ix)\.', l))
+    for m in re.finditer(r'set_cash\s*\(', code):
+        before = code[:m.start()]
+        reads = [mm.start() for mm in re.finditer(r'\bbal\s*\(', before)]
+        if not reads:
+            continue
+        if 'await' in before[max(reads):]:
+            return True
+    return False
+
+
 def _suggest(name: str, actual_qnames) -> list:
     """Likely current names for a stale help entry ('age' -> 'antiraid set-age')."""
     flat = name.replace('-', '').replace('_', '')
@@ -231,17 +249,26 @@ def audit(bot):
         and not getattr(c, 'hidden', False))
     for q in impl_no_help:
         details['registry'].append(f'{q}: implemented, no help entry')
+    top_names = {c.name for _, c in top}
     for al, owners in sorted(alias_owners.items()):
         if len(owners) > 1:
             details['aliases'].append(f"'{al}' claimed by: {', '.join(sorted(owners))}")
+    # Real shadowing is same-depth only: a TOP-LEVEL alias on command O
+    # while a DIFFERENT top-level canonical owns the name — dispatch then
+    # depends on cog load order. Subcommand aliases (e.g. `shop pokemon`)
+    # can never collide with top-level names; those are harmless.
     for al, owners in sorted(alias_owners.items()):
-        if al in actual_names and al not in {o.split(' ')[0] for o in owners}:
-            details['aliases'].append(f"'{al}' shadowed: also a canonical command")
-    # helpmeta aliases pointing at another canonical name (unreachable via help lookup)
+        rivals = {o for o in owners if ' ' not in o and o != al}
+        if al in top_names and rivals:
+            details['aliases'].append(
+                f"'{al}' on {', '.join(sorted(rivals))} shadows canonical '{al}'")
+    # helpmeta aliases: dead if no top-level command implements them
+    # (help lookup can never reach through them).
     for n, v in COMMAND_META.items():
         for a in (v[2] or []):
-            if str(a).lower() in actual_names and str(a).lower() != n.lower():
-                details['aliases'].append(f"help alias '{a}' of '{n}' shadows canonical '{a}'")
+            alive = any(' ' not in o for o in alias_owners.get(str(a).lower(), set()))
+            if not alive:
+                details['help'].append(f"help alias '{a}' of '{n}' matches nothing implemented")
 
     # ---- help coverage (top-level only; subcommands ride on the parent entry) ----
     for q, c in top:
@@ -329,10 +356,9 @@ def audit(bot):
         touches = []
         if _hits(src, MONEY_PATTERNS):
             touches.append('currency')
-            # Direct assignment is only racy with an await between read and
-            # write (separate events can interleave); atomic take_cash is
-            # always safe. Anything else here is suspected, not proven.
-            if 'set_cash(' in src and 'take_cash(' not in src and 'await' in src:
+            # take_cash is atomic by construction. A direct set_cash is only
+            # racy with an await between the balance read and the write.
+            if 'take_cash(' not in src and _racy_write(src):
                 details['safety'].append(f'{q}: suspected non-atomic balance write')
         if _hits(src, ITEM_PATTERNS):
             touches.append('items')
@@ -395,7 +421,101 @@ def audit(bot):
         details['crime'].append(f'{line} (manual review)')
     for note in _cnotes:
         details['crime'].append(note)
+    board = _systems_board(cmds, details, summary)
+    summary['systems'] = board
     return summary, details
+
+
+SYSTEM_ORDER = ('moderation', 'protection', 'levels', 'voice', 'info', 'setup',
+                'fun', 'economy', 'pokemon')
+# Human annotations shown instead of counts. Edit deliberately, rarely.
+SYSTEM_NOTES = {'pokemon': 'still working on'}
+# Nav help-group -> board row for nav-target failures.
+NAV_ROW = {'economy': 'economy', 'pokemon': 'pokemon', 'market': 'economy',
+           'casino': 'economy', 'crime': 'economy', 'profile': 'levels',
+           'server': 'setup'}
+# Loaded-cog filename -> board row for price-literal hits.
+PRICE_ROW = {'shop': 'economy', 'pokemon': 'pokemon'}
+
+
+def _board_top(line: str) -> str:
+    """Owning top-level command name for a detail line."""
+    import re
+    m = re.match(r"help alias '[^']+' of '([^']+)'", line)
+    if m:
+        return m.group(1)
+    m = re.match(r"'([^']+)'", line)
+    if m:
+        return m.group(1)
+    return line.split(':')[0].strip().split(' ')[0]
+
+
+def _system_for(top: str, by_qname: dict):
+    cmd = by_qname.get(top)
+    if cmd is not None and getattr(getattr(cmd, 'cog', None), 'qualified_name', '') == 'Pokemon':
+        return 'pokemon'
+    v = COMMAND_META.get(top)
+    if v and v[0] in CATEGORIES:
+        return v[0]
+    if cmd is not None:
+        low = (getattr(getattr(cmd, 'cog', None), 'qualified_name', '') or '').lower()
+        if low in CATEGORIES:
+            return low
+    return None
+
+
+def _systems_board(cmds, details, summary):
+    """Per-system (red, yellow) finding counts. Red = proven-broken or
+    dispatch-affecting (real alias collisions, hardcoded prices, dead nav
+    targets). Yellow = backlog and suspicion (renames, help gaps, safety
+    shapes, pending migrations). Informational lines (shared-config usage,
+    reviewed-local, currency inventory) never affect dots."""
+    import re
+    by_qname = {}
+    for q, c in cmds:
+        by_qname.setdefault(q, c)
+        by_qname.setdefault(q.split(' ')[0], c)
+    red = {s: 0 for s in SYSTEM_ORDER}
+    yellow = {s: 0 for s in SYSTEM_ORDER}
+
+    def bump(sys, is_red):
+        if sys in red:
+            if is_red:
+                red[sys] += 1
+            else:
+                yellow[sys] += 1
+
+    for line in details.get('aliases', []):
+        bump(_system_for(_board_top(line), by_qname), True)
+    for line in details.get('safety', []):
+        bump(_system_for(_board_top(line), by_qname), False)
+    for line in details.get('registry', []):
+        bump(_system_for(_board_top(line), by_qname), False)
+    for line in details.get('help', []):
+        m = re.match(r"nav: '(\w+)'", line)
+        if m:
+            bump(NAV_ROW.get(m.group(1)), True)
+        else:
+            bump(_system_for(_board_top(line), by_qname), False)
+    for line in details.get('config', []):
+        if 'not yet migrated' in line:
+            bump(_system_for(_board_top(line), by_qname), False)
+        elif 'manual review' in line and '.py:' in line:
+            m = re.search(r'(\w+)\.py:', line)
+            if m:
+                bump(PRICE_ROW.get(m.group(1)), True)
+    for line in details.get('crime', []):
+        bump(_system_for(_board_top(line), by_qname), False)
+    if summary.get('crime_hardcoded'):
+        bump('economy', True)
+    out = []
+    for s in SYSTEM_ORDER:
+        n = red[s] + yellow[s]
+        dot = '🔴' if red[s] else ('🟡' if yellow[s] else '🟢')
+        note = SYSTEM_NOTES.get(s)
+        tail = f' ({note})' if note else (f' ({n} open)' if n else '')
+        out.append((s, dot, tail))
+    return out
 
 
 def _report_lines(summary, details, filt_cat=None, filt_issue=None):
@@ -419,6 +539,11 @@ def _report_lines(summary, details, filt_cat=None, filt_issue=None):
     lines.append(f"Chance/duration values excluded: {len(CRIME_EXCLUDED)}")
     lines.append('Manual review: 1 (bounty escrow has no expiry — documented in code)')
     lines.append(f"With cooldowns: {summary['with_cooldowns']} · gated: {summary['gated']}")
+    if filt_cat is None and filt_issue is None:
+        lines.append('Systems')
+        lines.append('-------')
+        for s, dot, tail in summary.get('systems', []):
+            lines.append(f'{s} {dot}{tail}')
     picked = []
     if filt_issue and filt_issue not in ('registry', 'aliases', 'help', 'currency', 'safety',
                                          'config', 'crime'):
