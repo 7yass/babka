@@ -182,9 +182,142 @@ def profile_card(name: str, level: int, xp: int, need: int, rank: int,
     return buf.getvalue()
 
 
+def identity_card(title_label: str, head: str, rows: list,
+                  buddy_name: str = None, buddy_bytes: bytes = None,
+                  no_buddy_label: str = 'No buddy') -> bytes:
+    """Second profile card: identity info left, buddy art big right.
+    Same Direction A voice as profile_card. rows = [(label, value)]."""
+    import io as _io
+    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
+    from pathlib import Path as _P
+    W, H = 900, 380
+    GOLD = (250, 200, 60)
+    INK = (255, 255, 255)
+    FAINT = (96, 96, 104)
+    DIM = (150, 150, 158)
+    HAIR = (54, 54, 60)
+    img = _Img.new('RGB', (W, H), (16, 16, 19))
+    d = _Dr.Draw(img)
+    try:
+        _a = _P(__file__).parent.parent / 'assets'
+        f_head = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 30)
+        f_lab = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 15)
+        f_row = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 22)
+        f_cap = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 20)
+    except Exception:
+        f_head = f_lab = f_row = f_cap = _F.load_default()
+
+    def tracked(xy, text, font, fill, tracking=3):
+        x, y = xy
+        for ch in text:
+            d.text((x, y), ch, font=font, fill=fill)
+            try:
+                x += d.textlength(ch, font=font) + tracking
+            except Exception:
+                x += 12 + tracking
+
+    def fit(text, font, max_w):
+        text = text or '—'
+        try:
+            while text and d.textlength(text, font=font) > max_w:
+                text = text[:-1]
+            if text != (text or '—'):
+                text = text.rstrip() + '…'
+        except Exception:
+            text = text[:24]
+        return text
+
+    # corner brackets + top gold edge
+    cb = (64, 64, 72)
+    d.line([(14, 14), (34, 14)], fill=cb, width=2)
+    d.line([(14, 14), (14, 34)], fill=cb, width=2)
+    d.line([(W - 34, 14), (W - 16, 14)], fill=cb, width=2)
+    d.line([(W - 16, 14), (W - 16, 32)], fill=cb, width=2)
+    d.line([(14, H - 14), (34, H - 14)], fill=cb, width=2)
+    d.line([(14, H - 14), (14, H - 34)], fill=cb, width=2)
+    d.line([(W - 34, H - 14), (W - 16, H - 14)], fill=cb, width=2)
+    d.line([(W - 16, H - 30), (W - 16, H - 14)], fill=cb, width=2)
+    d.line([(42, 14), (W - 42, 14)], fill=(250, 200, 60), width=2)
+
+    # left: identity info
+    tracked((42, 28), (title_label or 'IDENTITY').upper(), f_lab, FAINT)
+    d.text((42, 54), fit(head, f_head, 460), font=f_head, fill=INK)
+    d.line([(42, 100), (508, 100)], fill=HAIR, width=1)
+    y = 114
+    for lab, val in (rows or [])[:6]:
+        tracked((42, y), str(lab or '').upper(), f_lab, FAINT)
+        try:
+            lx = 42 + max(d.textlength(str(lab or '').upper(), font=f_lab)
+                          + 3 * len(str(lab or '')) + 14, 150)
+        except Exception:
+            lx = 192
+        d.text((lx, y - 4), fit(val, f_row, 508 - lx), font=f_row, fill=INK)
+        y += 40
+
+    # divider
+    d.line([(534, 28), (534, H - 28)], fill=HAIR, width=1)
+
+    # right: buddy art, big
+    cx0, cx1, cy0, cy1 = 560, 858, 28, 300
+    pasted = False
+    if buddy_bytes:
+        try:
+            sp = _Img.open(_io.BytesIO(buddy_bytes)).convert('RGBA')
+            sp.thumbnail((cx1 - cx0, cy1 - cy0), _Img.LANCZOS)
+            ox = cx0 + (cx1 - cx0 - sp.width) // 2
+            oy = cy0 + (cy1 - cy0 - sp.height) // 2
+            img.paste(sp, (ox, oy), sp)
+            pasted = True
+        except Exception:
+            pass
+    if not pasted:
+        try:
+            d.ellipse([cx0 + 69, cy0 + 51, cx0 + 229, cy0 + 211], fill=(42, 42, 46))
+            _fl = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 96)
+        except Exception:
+            _fl = f_head
+        try:
+            d.text(((cx0 + cx1) / 2, (cy0 + cy1) / 2), '?', font=_fl,
+                   fill=(220, 220, 225), anchor='mm')
+        except Exception:
+            pass
+    try:
+        cap = fit(buddy_name or no_buddy_label, f_cap, cx1 - cx0)
+        tw = d.textlength(cap, font=f_cap)
+        d.text(((cx0 + cx1 - tw) / 2, 312), cap, font=f_cap,
+               fill=GOLD if buddy_name else DIM)
+    except Exception:
+        pass
+
+    buf = _io.BytesIO()
+    img.save(buf, 'PNG')
+    return buf.getvalue()
+
+
 class Profile(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    def _buddy_art_url(self, gid, uid):
+        """Official artwork for the buddy (form-aware), pixel fallback."""
+        try:
+            from cogs.pokemon import form_sprite, _dex_row, pix_url
+            from utils.identity import get_buddy_mon
+            mon = get_buddy_mon(gid, uid)
+            if not mon:
+                return None
+            shiny = bool(mon.get('shiny'))
+            art = form_sprite(mon, shiny)
+            if art:
+                return art
+            spr = ((_dex_row(mon.get('dex', 0)).get('sprite')) or '').split('|')
+            if shiny and len(spr) > 1 and spr[1]:
+                return spr[1]
+            if spr and spr[0]:
+                return spr[0]
+            return pix_url(mon.get('dex', 0), shiny)
+        except Exception:
+            return None
 
     @commands.hybrid_command(name='profile', description='Profil gracza', aliases=['profil'])
     async def profile(self, ctx, member: discord.Member = None):
@@ -240,19 +373,24 @@ class Profile(commands.Cog):
             async with aiohttp.ClientSession() as session:
                 avatar_task = _aio.ensure_future(
                     grab(session, str(member.display_avatar.with_size(256).url)))
+                buddy_task = _aio.ensure_future(
+                    grab(session, self._buddy_art_url(gid, member.id)))
                 try:
                     u = await _aio.wait_for(self.bot.fetch_user(member.id), timeout=3)
                     banner_url = str(u.banner.with_size(1024).url) if u and u.banner else None
                 except Exception:
                     banner_url = None
                 if banner_url:
-                    return await _aio.gather(grab(session, banner_url), avatar_task)
-                return None, await avatar_task
+                    _banner, _avatar, _buddy = await _aio.gather(
+                        grab(session, banner_url), avatar_task, buddy_task)
+                    return _banner, _avatar, _buddy
+                _avatar, _buddy = await _aio.gather(avatar_task, buddy_task)
+                return None, _avatar, _buddy
 
         try:
-            banner, avatar = await _aio.wait_for(_fetch_all(), timeout=7)
+            banner, avatar, buddy_art = await _aio.wait_for(_fetch_all(), timeout=9)
         except Exception:
-            banner, avatar = None, None
+            banner, avatar, buddy_art = None, None, None
         if avatar is None:
             try:
                 avatar = await _aio.wait_for(member.display_avatar.read(), timeout=4)
@@ -265,12 +403,12 @@ class Profile(commands.Cog):
             tier_name, stars, tier_color,
             b['cash'], b.get('bank') or 0, b.get('daily_streak') or 0,
             job_txt, role_txt, is_staff, badges, avatar, banner)
-        # Identity block: computed from verified existing data only. Any
-        # failure here must never break the profile card itself.
-        ident = None
+        # Identity card: same data as before, rendered as a second image
+        # card (buddy art right, info left). Any failure falls back to the
+        # main card alone — never break .profile.
+        files = [discord.File(__import__('io').BytesIO(png), 'profile.png')]
         try:
             from lang import t as _t
-            from utils.embeds import ok as _ok
             from utils.identity import (get_trainer_class, get_top_achievement,
                                         get_dex_completion, get_duel_record,
                                         get_activity_title, get_buddy_name,
@@ -285,29 +423,24 @@ class Profile(commands.Cog):
             _head = f"{_t(gid, f'pf.class_{_cls}') + ' · ' if _cls else ''}{_thead}"
             _dex = get_dex_completion(gid, member.id)
             _du = get_duel_record(gid, member.id)
-            _lines = [_head,
-                      _t(gid, 'pf.dex', a=_dex['distinct'], b=_dex['total'], p=_dex['pct']),
-                      _t(gid, 'pf.duels', w=_du['w'], l=_du['l'])]
+            _rows = [(_t(gid, 'pf.l_dex'), f"{_dex['distinct']}/{_dex['total']} · {_dex['pct']}%"),
+                     (_t(gid, 'pf.l_duels'), f"{_du['w']}W–{_du['l']}L")]
             _top = get_top_achievement(gid, member.id)
             if _top:
-                _lines.append(_t(gid, 'pf.top', name=_top[1]))
-            _buddy = get_buddy_name(gid, member.id)
-            if _buddy:
-                _lines.append(_t(gid, 'pf.buddy', name=_buddy))
+                _rows.append((_t(gid, 'pf.l_top'), _top[1]))
             _rg = get_regions(gid, member.id)
-            _lines.append(_t(gid, 'pf.regions', a=_rg['have'], b=_rg['total']))
+            _rows.append((_t(gid, 'pf.l_regions'), f"{_rg['have']}/{_rg['total']}"))
             _streak = get_best_streak(gid, member.id)
             if _streak:
-                _lines.append(_t(gid, 'pf.streak', n=_streak))
-            ident = _ok('\n'.join(_lines), title=_t(gid, 'pf.identity'))
+                _rows.append((_t(gid, 'pf.l_streak'), str(_streak)))
+            _buddy = get_buddy_name(gid, member.id)
+            _ipng = await self.bot.loop.run_in_executor(
+                None, identity_card, _t(gid, 'pf.identity'), _head, _rows,
+                _buddy, buddy_art, _t(gid, 'pf.no_buddy'))
+            files.append(discord.File(__import__('io').BytesIO(_ipng), 'identity.png'))
         except Exception:
-            ident = None
-        if ident is None:
-            await ctx.reply(file=discord.File(__import__('io').BytesIO(png), 'profile.png'),
-                            mention_author=False)
-        else:
-            await ctx.reply(file=discord.File(__import__('io').BytesIO(png), 'profile.png'),
-                            embed=ident, mention_author=False)
+            pass
+        await ctx.reply(files=files, mention_author=False)
 
 
 async def setup(bot):

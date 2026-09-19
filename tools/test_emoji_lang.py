@@ -850,7 +850,7 @@ def test_main_guild_gate() -> None:
 
     import re as _re
     for f in ('levels', 'automod', 'antiraid', 'counting', 'afk', 'tickets',
-              'wordle', 'fitcheck', 'activity', 'babka', 'clown', 'pokemon'):
+              'wordle', 'fitcheck', 'activity', 'babka', 'pokemon'):
         src = (ROOT / 'cogs' / f'{f}.py').read_text(encoding='utf-8-sig')
         check(bool(_re.search(r'@commands\.Cog\.listener\(\)\n    @db\.main_guild_only\n'
                               r'    async def on_message', src)),

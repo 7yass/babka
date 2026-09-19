@@ -184,21 +184,24 @@ REGION_BADGES = ('region_kanto', 'region_johto', 'region_hoenn', 'region_sinnoh'
 
 def get_buddy_name(gid, uid):
     """Current buddy's display name, or None when unset/gone."""
+    mon = get_buddy_mon(gid, uid)
+    if not mon:
+        return None
     try:
         from cogs.pokemon import mon_name
+        return mon_name(mon, gid)
     except Exception:
         return None
+
+
+def get_buddy_mon(gid, uid):
+    """Current buddy's mon row, or None."""
     b = _one('SELECT mid FROM pk_buddy WHERE guild_id=? AND user_id=?',
              (str(gid), str(uid)))
     if not b.get('mid'):
         return None
     m = _one('SELECT * FROM pk_mons WHERE id=?', (b['mid'],))
-    if not m:
-        return None
-    try:
-        return mon_name(m, gid)
-    except Exception:
-        return None
+    return m or None
 
 
 def get_regions(gid, uid) -> dict:
