@@ -986,7 +986,7 @@
     ],
     "slots": [
       "economy",
-      "HOW TO: `.slots <bet>` — three animated reels. Triple 7 = JACKPOT 12x, triple gem 5x, other triples 4x, any pair = 1.5x back. Anything else = bet lost. 10 plays/hour shared. Bets accept 1k / 2.5k / 1m / all.",
+      "HOW TO: `.slots <bet>` — three animated reels. Triple 7 = JACKPOT 8x, other triples 3x, any pair = 1x back. Anything else = bet lost. 10 plays/hour shared. Bets accept 1k / 2.5k / 1m / all.",
       [],
       "100",
       "Everyone"

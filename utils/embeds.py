@@ -35,6 +35,23 @@ def ok(description: str = '', *, title: str = '') -> discord.Embed:
     return build(description, title=title, color=WHITE)
 
 
+def card(title: str = '', desc: str = '', accent: int = WHITE):
+    """Modern Components-V2 card replacing legacy ok() embeds on new and
+    refactored surfaces. Same monochrome voice, no emojis."""
+    from discord.ui import LayoutView, Container, TextDisplay
+    layout = LayoutView(timeout=120)
+    box = Container(accent_color=accent)
+    if title:
+        box.add_item(TextDisplay(f'## {title}'))
+    box.add_item(TextDisplay(desc or '—'))
+    try:
+        box.add_item(TextDisplay(f'-# {foot()}'))
+    except Exception:
+        pass
+    layout.add_item(box)
+    return layout
+
+
 async def say(target, description: str = '', *, title: str = '', delete_after: int = None, **kw):
     """Send a styled embed to a channel or as a ctx reply. Returns the message."""
     em = ok(description, title=title)

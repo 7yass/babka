@@ -11,7 +11,7 @@ import database as db
 from utils.cards import short as cshort
 from utils.economy import CRIME_BOUNTY_MIN, CRIME_HEIST_TARGETS
 from lang import t
-from utils.embeds import ok
+from utils.embeds import card
 
 JOIN_WINDOW = 60  # seconds: join window. Duration, not money — stays local.
 
@@ -137,7 +137,7 @@ class Crime(commands.Cog):
                 ch0 = guild.get_channel(int(cid)) if cid else None
                 if ch0:
                     opener = await ch0.fetch_message(int(mid))
-                    await opener.edit(embed=ok(result))
+                    await opener.edit(view=card(t(guild.id, 'crime.done_title'), result))
                     edited = True
         except Exception as e:
             print(f'[crime] opener edit failed: {e}')
@@ -145,7 +145,7 @@ class Crime(commands.Cog):
             ch = guild.get_channel(int(cur['channel_id'])) if cur['channel_id'] else None
             if ch:
                 try:
-                    await ch.send(embed=ok(result))
+                    await ch.send(view=card(t(guild.id, 'crime.done_title'), result))
                 except Exception as e:
                     print(f'[crime] resolve send failed: {e}')
 
@@ -181,7 +181,8 @@ class Crime(commands.Cog):
         for r in rows:
             m = ctx.guild.get_member(int(r['target_id']))
             lines.append(f"• {(m.display_name if m else '?')} — **{r['a']}**")
-        await ctx.reply(embed=ok('\n'.join(lines)), ephemeral=True)
+        await ctx.reply(view=card(t(gid, 'crime.bounties_title'), '\n'.join(lines)),
+                        ephemeral=True)
 
 
 async def setup(bot):

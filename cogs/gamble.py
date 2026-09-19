@@ -31,8 +31,9 @@ RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 SLOTS = ['7', '★', '♦', '♣', '●']
 # European roulette reds; 0 is green, rest black
 ROU_REDS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
-# mortals keep ~35% of the spins they'd fairly win; gods tilt every 4th round
-ROU_RIG = 0.65
+# mortals keep 70% of the spins they'd fairly win (~68% RTP uniform
+# across bet kinds); gods tilt every 4th round instead
+ROU_RIG = 0.30
 # single-zero wheel order (clockwise)
 WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30,
                8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7,

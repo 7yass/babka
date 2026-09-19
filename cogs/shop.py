@@ -9,7 +9,7 @@ import database as db
 from utils.cards import short as cshort
 from utils.economy import SHOP_PRICES
 from lang import t, set_ctx_lang
-from utils.embeds import ok
+from utils.embeds import card
 from utils.emojis import em
 
 ITEMS = {
@@ -368,22 +368,24 @@ class Shop(commands.Cog):
                 return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
             num_of = {k: i for i, k in _Pk.ball_ids().items()}
             item_emo = em(gid, _Pk.BALL_EMOJI.get(key, ''))
-            head = (f'{item_emo + " " if item_emo else ""}'
-                    f'**{_Pk.PK_NAMES[key]}** — {_Pk._pk_price(key):,} {em(gid, "coin", "$")}')
             sec = next((s for s, ks in _Pk.BALL_SECTIONS if key in ks), '?')
-            return await ctx.reply(embed=ok(f'{head}\n{_Pk._pk_desc(gid, key)}\n'
-                                            f'-# `[{num_of.get(key, "?")}]` {sec}'), ephemeral=True)
+            return await ctx.reply(view=card(
+                f'{item_emo + " " if item_emo else ""}**{_Pk.PK_NAMES[key]}**',
+                f'{_Pk._pk_price(key):,} {em(gid, "coin", "$")}\n'
+                f'{_Pk._pk_desc(gid, key)}\n'
+                f'-# `[{num_of.get(key, "?")}]` {sec}'), ephemeral=True)
         if key.isdigit():
             key = self.id_map().get(int(key), '')
         if key not in ITEMS:
             return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
         num_of = {k: i for i, k in self.id_map().items()}
         item_emo = em(gid, ITEM_EMOJI.get(key, ''))
-        head = (f'{item_emo + " " if item_emo else ""}'
-                f'**{DISPLAY[key]}** — {ITEMS[key]["price"]:,} {em(gid, "coin", "$")}')
         sec = next((s for s, ks in self.SHOP_SECTIONS if key in ks), '?')
-        await ctx.reply(embed=ok(f'{head}\n{t(gid, ITEMS[key]["use"])}\n'
-                                 f'-# `[{num_of.get(key, "?")}]` {sec}'), ephemeral=True)
+        await ctx.reply(view=card(
+            f'{item_emo + " " if item_emo else ""}**{DISPLAY[key]}**',
+            f'{ITEMS[key]["price"]:,} {em(gid, "coin", "$")}\n'
+            f'{t(gid, ITEMS[key]["use"])}\n'
+            f'-# `[{num_of.get(key, "?")}]` {sec}'), ephemeral=True)
 
     # (cash_lo, cash_hi, weight) normal prizes per box; then item/jackpot rolls.
     # Tuned so expected value stays well under the price (house edge).
@@ -571,7 +573,9 @@ class Shop(commands.Cog):
                 left = max(0, int(r['expires']) - int(time.time()))
                 tail = f" ({left // 3600}h left)" if left else ' (expired)'
             lines.append(f"• **{r['item']}** x{r['qty']}{tail}")
-        await ctx.reply(embed=ok('\n'.join(lines)), ephemeral=True)
+        await ctx.reply(view=card(
+            t(gid, 'shop.inv_title', user=ctx.author.display_name),
+            '\n'.join(lines)), ephemeral=True)
 
     @commands.command(name='nick', description='Użyj token zmiany nicku')
     async def nick(self, ctx, *, newname: str):
