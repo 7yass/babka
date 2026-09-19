@@ -52,8 +52,6 @@ COGS = [
     'cogs.whitelist',
     'cogs.babka',
     'cogs.fitcheck',
-    'cogs.clown',
-    'cogs.ship',
     'cogs.counting',
     'cogs.wordle',
     'cogs.langroles',

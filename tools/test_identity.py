@@ -150,6 +150,24 @@ async def main() -> None:
     check(top and len(card(G, 'long', 'x').description or '') < 1000,
           'long achievement name fits')
 
+    # 12. buddy / regions / streak from existing data only
+    from utils.identity import get_buddy_name, get_regions, get_best_streak
+    check(get_buddy_name(G, 'nobody') is None, 'no buddy -> None, not fabricated')
+    check(get_regions(G, 'nobody') == {'have': 0, 'total': 4}, 'no regions -> 0/4')
+    check(get_best_streak(G, 'nobody') == 0, 'no streak -> 0')
+    seed("INSERT INTO pk_mons (guild_id,owner_id,dex,level,xp,shiny,nick,active,ivs,evs) "
+         "VALUES ('99','b1',25,5,0,0,'Sparky',1,'','')")
+    mid = None
+    with db.conn_ctx() as conn:
+        mid = conn.execute("SELECT id FROM pk_mons WHERE owner_id='b1'").fetchone()['id']
+        conn.execute('INSERT OR REPLACE INTO pk_buddy VALUES (?,?,?,?)', ('99', 'b1', mid, 0))
+    check(get_buddy_name(G, 'b1') == 'Sparky', 'buddy nickname resolves')
+    seed("INSERT INTO achievements VALUES ('99','b1','region_kanto',10)")
+    seed("INSERT INTO achievements VALUES ('99','b1','region_hoenn',20)")
+    check(get_regions(G, 'b1') == {'have': 2, 'total': 4}, 'regions 2/4')
+    seed("INSERT INTO pk_stats VALUES ('99','b1',0,0,0,0,7)")
+    check(get_best_streak(G, 'b1') == 7, 'best streak reads')
+
     print('FAILURES: %d' % len(FAILS), flush=True)
     raise SystemExit(1 if FAILS else 0)
 

@@ -177,3 +177,41 @@ def get_heist_record(gid, uid):
 def get_biggest_trade(gid, uid):
     """Always None: no completed-trade history exists. Explicit, not missing."""
     return None
+
+
+REGION_BADGES = ('region_kanto', 'region_johto', 'region_hoenn', 'region_sinnoh')
+
+
+def get_buddy_name(gid, uid):
+    """Current buddy's display name, or None when unset/gone."""
+    try:
+        from cogs.pokemon import mon_name
+    except Exception:
+        return None
+    b = _one('SELECT mid FROM pk_buddy WHERE guild_id=? AND user_id=?',
+             (str(gid), str(uid)))
+    if not b.get('mid'):
+        return None
+    m = _one('SELECT * FROM pk_mons WHERE id=?', (b['mid'],))
+    if not m:
+        return None
+    try:
+        return mon_name(m, gid)
+    except Exception:
+        return None
+
+
+def get_regions(gid, uid) -> dict:
+    """Region badges earned of the 4 available. Factual, possibly 0/4."""
+    with db.conn_ctx() as conn:
+        rows = conn.execute(
+            'SELECT akey FROM achievements WHERE guild_id=? AND user_id=?',
+            (str(gid), str(uid))).fetchall()
+    have = len({r['akey'] for r in rows} & set(REGION_BADGES))
+    return {'have': have, 'total': len(REGION_BADGES)}
+
+
+def get_best_streak(gid, uid) -> int:
+    """Best catch streak ever (0 when never caught)."""
+    return _one('SELECT best_streak FROM pk_stats WHERE guild_id=? AND user_id=?',
+                (str(gid), str(uid))).get('best_streak') or 0

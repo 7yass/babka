@@ -1039,44 +1039,12 @@
       "",
       "Everyone"
     ],
-    "ship": [
-      "fun",
-      "Love compatibility % between two users, stored forever: `.ship @a [@b]` (no second user = you + them). `.shiplb` ranks couples.",
-      [],
-      "@a @b",
-      "Everyone"
-    ],
-    "shiplb": [
-      "fun",
-      "Top couples ranking — highest shipped pairs on the server.",
-      [
-        "ships"
-      ],
-      "",
-      "Everyone"
-    ],
     "fitleader": [
       "fun",
       "Hardest fits leaderboard — top rated outfits of the server.",
       [],
       "",
       "Everyone"
-    ],
-    "clownleader": [
-      "fun",
-      "Hall of shame: members with the most clown moments. `.clownleader` shows the top.",
-      [
-        "clowns"
-      ],
-      "",
-      "Everyone"
-    ],
-    "clownwall": [
-      "fun",
-      "Clown wall setup: `.clownwall set #channel` to collect marked moments, `.clownwall off` to disable.",
-      [],
-      "set / off",
-      "Manage Server"
     ],
     "babka": [
       "fun",
@@ -2187,7 +2155,7 @@
     ],
     "fun": [
       "Fun",
-      "Ships, walls of shame, games and chaos."
+      "Games and chaos."
     ]
   }
 }

@@ -273,7 +273,8 @@ class Profile(commands.Cog):
             from utils.embeds import ok as _ok
             from utils.identity import (get_trainer_class, get_top_achievement,
                                         get_dex_completion, get_duel_record,
-                                        get_activity_title)
+                                        get_activity_title, get_buddy_name,
+                                        get_regions, get_best_streak)
             _cls = get_trainer_class(gid, member.id)
             _title = get_activity_title(gid, member.id)
             _tkey = f'pf.title_{_title}'
@@ -290,6 +291,14 @@ class Profile(commands.Cog):
             _top = get_top_achievement(gid, member.id)
             if _top:
                 _lines.append(_t(gid, 'pf.top', name=_top[1]))
+            _buddy = get_buddy_name(gid, member.id)
+            if _buddy:
+                _lines.append(_t(gid, 'pf.buddy', name=_buddy))
+            _rg = get_regions(gid, member.id)
+            _lines.append(_t(gid, 'pf.regions', a=_rg['have'], b=_rg['total']))
+            _streak = get_best_streak(gid, member.id)
+            if _streak:
+                _lines.append(_t(gid, 'pf.streak', n=_streak))
             ident = _ok('\n'.join(_lines), title=_t(gid, 'pf.identity'))
         except Exception:
             ident = None
