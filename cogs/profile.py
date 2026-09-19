@@ -294,6 +294,23 @@ def identity_card(title_label: str, head: str, rows: list,
     return buf.getvalue()
 
 
+def stack_cards(top_png: bytes, bottom_png: bytes, gap: int = 12) -> bytes:
+    """Stack two cards vertically into one image. Discord grids multiple
+    attachments side-by-side (clipped); one tall file always renders
+    top-over-bottom."""
+    import io as _io
+    from PIL import Image as _Img
+    t = _Img.open(_io.BytesIO(top_png)).convert('RGB')
+    b = _Img.open(_io.BytesIO(bottom_png)).convert('RGB')
+    w = max(t.width, b.width)
+    img = _Img.new('RGB', (w, t.height + gap + b.height), (16, 16, 19))
+    img.paste(t, ((w - t.width) // 2, 0))
+    img.paste(b, ((w - b.width) // 2, t.height + gap))
+    buf = _io.BytesIO()
+    img.save(buf, 'PNG')
+    return buf.getvalue()
+
+
 class Profile(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -404,9 +421,10 @@ class Profile(commands.Cog):
             b['cash'], b.get('bank') or 0, b.get('daily_streak') or 0,
             job_txt, role_txt, is_staff, badges, avatar, banner)
         # Identity card: same data as before, rendered as a second image
-        # card (buddy art right, info left). Any failure falls back to the
-        # main card alone — never break .profile.
-        files = [discord.File(__import__('io').BytesIO(png), 'profile.png')]
+        # card (buddy art right, info left) stacked UNDER the main card
+        # into one file — Discord grids separate attachments side-by-side.
+        # Any failure falls back to the main card alone: never break .profile.
+        out_png = png
         try:
             from lang import t as _t
             from utils.identity import (get_trainer_class, get_top_achievement,
@@ -437,10 +455,11 @@ class Profile(commands.Cog):
             _ipng = await self.bot.loop.run_in_executor(
                 None, identity_card, _t(gid, 'pf.identity'), _head, _rows,
                 _buddy, buddy_art, _t(gid, 'pf.no_buddy'))
-            files.append(discord.File(__import__('io').BytesIO(_ipng), 'identity.png'))
+            out_png = await self.bot.loop.run_in_executor(None, stack_cards, png, _ipng)
         except Exception:
             pass
-        await ctx.reply(files=files, mention_author=False)
+        await ctx.reply(file=discord.File(__import__('io').BytesIO(out_png), 'profile.png'),
+                        mention_author=False)
 
 
 async def setup(bot):
