@@ -1,11 +1,20 @@
 import asyncio
 import os
+import sys
 
 import discord
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 import database as db
+
+# Hosted panels pipe stdout, and block-buffered pipes get flushed in bursts:
+# the panel then stamps every line with the flush time, so minutes of output
+# look like they happened in one second. Line-buffer so timestamps are real.
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -205,18 +214,25 @@ async def on_ready():
 
 @tasks.loop(seconds=15)
 async def _loop_lag():
-    """Event-loop watchdog. PIL card renders and synchronous sqlite calls share
-    the thread that answers gateway heartbeats, so a stall surfaces as
-    'Server disconnected' or 'Unknown interaction' instead of an error of its
-    own. Prints at most one line a minute, only when something really stalls."""
+    """Process-freeze watchdog. Every PIL render already runs in an executor and
+    sqlite calls are sub-millisecond, so when the loop misses its schedule by
+    seconds it means no code ran at all: the process lost CPU. That's when
+    heartbeats die (session invalidated -> reconnect storm) and interactions
+    expire (10062). One line per minute at most."""
     import time as _t
     expected = _t.monotonic() + 15
     await asyncio.sleep(15)
     lag = _t.monotonic() - expected
     if lag > 1.5 and _t.time() - _LAG['last_warn'] > 60:
         _LAG['last_warn'] = _t.time()
-        print(f'[!] event loop stalled {lag:.1f}s — blocking work (PIL/sqlite) is '
-              f'sitting on the gateway thread; heartbeats and interactions expire.')
+        # PIL renders already run in executors and sqlite calls are sub-ms, so
+        # a multi-second stall means the PROCESS got no CPU — host throttling/
+        # freeze, or the machine sleeping if this runs locally. While frozen,
+        # gateway heartbeats die (session invalidated -> reconnect storm) and
+        # every interaction expires (404 code 10062).
+        print(f'[!] no code ran for {lag:.1f}s — the process was frozen. On a '
+              f'shared host that is CPU throttling; locally it is the PC '
+              f'sleeping. Reconnect storms and "Unknown interaction" follow.')
 
 
 @bot.event
