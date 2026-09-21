@@ -799,11 +799,16 @@ class Levels(commands.Cog):
                     return
         else:
             return
+        # Acknowledge first: a bigger board fetches 10 avatars + renders an
+        # image before it has anything to show.
+        from utils.interactions import ack, finish
+        mode = await ack(interaction)
         from lang import t as _t
         embeds, files, view = await self._lb_render(interaction.guild, metric, n)
         if not embeds:
-            return await interaction.response.send_message(_t(interaction.guild_id, 'lb.empty'), ephemeral=True)
-        await interaction.response.edit_message(embeds=embeds, attachments=files, view=view)
+            return await finish(interaction, mode, content=_t(interaction.guild_id, 'lb.empty'),
+                                ephemeral=True)
+        await finish(interaction, mode, embeds=embeds, attachments=files, view=view)
 
     @commands.group(name='levels', description='Levele (admin)')
     async def levels_grp(self, ctx):

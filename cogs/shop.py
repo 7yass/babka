@@ -137,17 +137,20 @@ class Shop(commands.Cog):
     def _section_cb(self, gid, uid):
         """Category buttons: re-render filtered (idx) or full (idx -1)."""
         def factory(idx):
+            from utils.interactions import ack, finish
+
             async def _cb(ix: discord.Interaction):
                 set_ctx_lang(ix.user)
                 if ix.user.id != int(uid):
                     return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
+                mode = await ack(ix)
                 from cogs.gamble import bal
                 member = ix.guild.get_member(int(uid)) if ix.guild else None
                 name = member.display_name if member else f'User {uid}'
                 filt = None if idx < 0 else self.SHOP_SECTIONS[idx][0]
                 layout = self._shop_layout(gid, int(uid), bal(gid, int(uid))['cash'],
                                            filt=filt, owner_name=name)
-                await ix.response.edit_message(view=layout)
+                await finish(ix, mode, view=layout)
             return _cb
         return factory
 

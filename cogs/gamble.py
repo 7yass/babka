@@ -772,24 +772,26 @@ class PokerView(discord.ui.LayoutView):
         self.add_item(box)
 
     def _mk_hold(self, i: int):
+        from utils.interactions import ack, finish
+
         async def _cb(interaction: discord.Interaction):
             set_ctx_lang(interaction.user)
             if interaction.user.id != self.player_id:
                 return await interaction.response.send_message(
                     t(self.gid, 'eco.not_yours'), ephemeral=True)
+            mode = await ack(interaction)
             if self.done:
-                try:
-                    return await interaction.response.send_message(
-                        t(self.gid, 'eco.round_over'), ephemeral=True)
-                except Exception:
-                    return
+                # Round already settled: answer with the closed card instead of
+                # raw text (LayoutView messages can't take plain content).
+                self._build(t(self.gid, 'eco.round_over'))
+                return await finish(interaction, mode, view=self)
             if i in self.held:
                 self.held.discard(i)
             else:
                 self.held.add(i)
             self._build()
-            await interaction.response.edit_message(
-                view=self, attachments=[await self._img()])
+            await finish(interaction, mode, view=self,
+                         attachments=[await self._img()])
         return _cb
 
     async def _img(self):
@@ -799,16 +801,15 @@ class PokerView(discord.ui.LayoutView):
         return discord.File(__import__('io').BytesIO(png), 'poker.png')
 
     async def _cb_draw(self, interaction: discord.Interaction):
+        from utils.interactions import ack, finish
         set_ctx_lang(interaction.user)
         if interaction.user.id != self.player_id:
             return await interaction.response.send_message(
                 t(self.gid, 'eco.not_yours'), ephemeral=True)
+        mode = await ack(interaction)
         if self.done:
-            try:
-                return await interaction.response.send_message(
-                    t(self.gid, 'eco.round_over'), ephemeral=True)
-            except Exception:
-                return
+            self._build(t(self.gid, 'eco.round_over'))
+            return await finish(interaction, mode, view=self)
         self.done = True
         for i in range(5):
             if i not in self.held:
@@ -828,8 +829,8 @@ class PokerView(discord.ui.LayoutView):
                 msg += '\n' + hr
         msg += _wallet_line(self.gid, self.player_id)
         self._build(msg)
-        await interaction.response.edit_message(
-            view=self, attachments=[await self._img()])
+        await finish(interaction, mode, view=self,
+                     attachments=[await self._img()])
         self.stop()
 
     async def on_timeout(self):
@@ -894,7 +895,8 @@ class BJView(discord.ui.LayoutView):
             return False
         return True
 
-    async def finish(self, interaction: discord.Interaction):
+    async def finish(self, interaction: discord.Interaction, mode: str = 'edit'):
+        from utils.interactions import finish as _late
         self.done = True
         god = str(self.player_id) in GOD_IDS
         pv = hand_value(self.phand)
@@ -925,64 +927,62 @@ class BJView(discord.ui.LayoutView):
             if hr:
                 msg += '\n' + hr
         self._build(hide=False, extra=msg)
-        await interaction.response.edit_message(view=self, attachments=[await self._table_file(False)])
+        await _late(interaction, mode, view=self,
+                    attachments=[await self._table_file(False)])
         self.stop()
 
     async def _cb_hit(self, interaction: discord.Interaction):
+        from utils.interactions import ack, finish
         set_ctx_lang(interaction.user)
         if not await self._guard(interaction):
             return
+        mode = await ack(interaction)
         if self.done:
-            try:
-                return await interaction.response.send_message(
-                    t(self.gid, 'eco.round_over'), ephemeral=True)
-            except Exception:
-                return
+            self._build(hide=False, extra=t(self.gid, 'eco.round_over'))
+            return await finish(interaction, mode, view=self,
+                                attachments=[await self._table_file(False)])
         self.phand.append(self.deck.pop())
         if hand_value(self.phand) >= 21:
-            return await self.finish(interaction)
+            return await self.finish(interaction, mode)
         self._build(True)
-        await interaction.response.edit_message(view=self, attachments=[await self._table_file(True)])
+        await finish(interaction, mode, view=self,
+                     attachments=[await self._table_file(True)])
 
     async def _cb_stand(self, interaction: discord.Interaction):
+        from utils.interactions import ack, finish
         set_ctx_lang(interaction.user)
         if not await self._guard(interaction):
             return
+        mode = await ack(interaction)
         if self.done:
-            try:
-                return await interaction.response.send_message(
-                    t(self.gid, 'eco.round_over'), ephemeral=True)
-            except Exception:
-                return
-        await self.finish(interaction)
+            self._build(hide=False, extra=t(self.gid, 'eco.round_over'))
+            return await finish(interaction, mode, view=self,
+                                attachments=[await self._table_file(False)])
+        await self.finish(interaction, mode)
 
     async def _cb_double(self, interaction: discord.Interaction):
+        from utils.interactions import ack, finish
         set_ctx_lang(interaction.user)
         if not await self._guard(interaction):
             return
+        mode = await ack(interaction)
         if self.done or len(self.phand) != 2:
             # Nothing changed: re-render the table instead of defer-and-vanish.
             self._build(True)
-            try:
-                return await interaction.response.edit_message(
-                    view=self, attachments=[await self._table_file(True)])
-            except Exception:
-                return
+            return await finish(interaction, mode, view=self,
+                                attachments=[await self._table_file(True)])
         b = bal(self.gid, self.player_id)
         if b['cash'] < self.bet:
             msg = t(self.gid, 'eco.broke', cash=cshort(b['cash']))
             try:
-                if interaction.response.is_done():
-                    await interaction.followup.send(msg, ephemeral=True)
-                else:
-                    await interaction.response.send_message(msg, ephemeral=True)
+                await interaction.followup.send(msg, ephemeral=True)
             except Exception:
                 pass
             return
         add_cash(self.gid, self.player_id, -self.bet)
         self.bet *= 2
         self.phand.append(self.deck.pop())
-        await self.finish(interaction)
+        await self.finish(interaction, mode)
 
     async def on_timeout(self):
         if not self.done:
@@ -1572,21 +1572,25 @@ class Gamble(commands.Cog):
         cog = self
 
         async def _cb(interaction: discord.Interaction):
+            from utils.interactions import ack, finish
             set_ctx_lang(interaction.user)
             if interaction.user.id != int(uid):
                 return await interaction.response.send_message(
                     t(gid, 'eco.not_yours'), ephemeral=True)
+            # Acknowledge FIRST: the spin does DB reads, a settle and possibly
+            # a wheel render — past Discord's 3s click window otherwise.
+            mode = await ack(interaction)
             wait = _gamble_gate(gid, uid)
             if wait is not None:
-                return await interaction.response.send_message(
+                return await interaction.followup.send(
                     t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
             b = bal(gid, uid)
             if bet <= 0 or bet > b['cash']:
-                return await interaction.response.send_message(
+                return await interaction.followup.send(
                     t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
             if not take_cash(gid, uid, bet):
                 b = bal(gid, uid)
-                return await interaction.response.send_message(
+                return await interaction.followup.send(
                     t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
             _gamble_use(gid, uid)
             n, msg = cog._roulette_round(gid, uid, bet, kind, num)
@@ -1600,15 +1604,8 @@ class Gamble(commands.Cog):
             _attach_roulette_again(
                 layout, cog._roulette_again_button(gid, uid, bet, kind, num))
             # Resolve in place: the old card is replaced, never duplicated.
-            try:
-                return await interaction.response.edit_message(
-                    view=layout,
-                    attachments=[discord.File(__import__('io').BytesIO(png), 'rou2.png')])
-            except Exception:
-                pass
-            await interaction.followup.send(
-                view=layout,
-                file=discord.File(__import__('io').BytesIO(png), 'rou2.png'))
+            await finish(interaction, mode, view=layout,
+                         attachments=[discord.File(__import__('io').BytesIO(png), 'rou2.png')])
 
         b = discord.ui.Button(label='SPIN AGAIN', style=discord.ButtonStyle.success,
                               custom_id=f'roulette_again:{uid}:{bet}:{kind}:{num}')

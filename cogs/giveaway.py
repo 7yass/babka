@@ -118,10 +118,14 @@ class Giveaway(commands.Cog):
             return
         gid = interaction.guild_id
         mid = cid.split(':')[1]
+        # Acknowledge first: even fast DB work can outlive the 3s window on a
+        # throttled host, and this click is the one users spam the most.
+        from utils.interactions import ack
+        mode = await ack(interaction)
         with db.conn_ctx() as conn:
             g = conn.execute('SELECT * FROM giveaways WHERE message_id=? AND closed=0', (mid,)).fetchone()
             if not g:
-                return await interaction.response.send_message(t(gid, 'gw.nope'), ephemeral=True)
+                return await interaction.followup.send(t(gid, 'gw.nope'), ephemeral=True)
             has = conn.execute('SELECT 1 FROM gentries WHERE message_id=? AND user_id=?',
                                (mid, str(interaction.user.id))).fetchone()
             if has:
@@ -132,7 +136,7 @@ class Giveaway(commands.Cog):
                 conn.execute('INSERT OR IGNORE INTO gentries (message_id, user_id) VALUES (?,?)',
                              (mid, str(interaction.user.id)))
                 msg = t(gid, 'gw.joined')
-        await interaction.response.send_message(msg, ephemeral=True)
+        await interaction.followup.send(msg, ephemeral=True)
         # refresh entry count on the card
         try:
             n = await entry_count(mid)
