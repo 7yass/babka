@@ -28,7 +28,7 @@ class Crime(commands.Cog):
 
     @heist.command(name='start', description='Zacznij napad (bank/kasyno/muzeum)')
     async def heist_start(self, ctx, target: str):
-        from cogs.gamble import bal, take_cash, set_cash
+        from cogs.gamble import bal, take_cash, set_cash, add_cash
         gid = str(ctx.guild.id)
         target = (target or '').lower()
         if target not in CRIME_HEIST_TARGETS:
@@ -101,7 +101,7 @@ class Crime(commands.Cog):
         return await ctx.reply(t(gid, 'crime.none'), ephemeral=True)
 
     async def _resolve(self, guild: discord.Guild, gid: str):
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         with db.conn_ctx() as conn:
             cur = conn.execute('SELECT * FROM heists WHERE guild_id=?', (gid,)).fetchone()
             if not cur:
@@ -111,7 +111,7 @@ class Crime(commands.Cog):
         if len(crew) < 2:
             for uid in crew:
                 b = bal(gid, uid)
-                set_cash(gid, uid, b['cash'] + cur['stake'])
+                add_cash(gid, uid, cur['stake'])
             result = t(guild.id, 'crime.solo', stake=cur['stake'])
         else:
             from cogs.gamble import GOD_IDS
@@ -122,7 +122,7 @@ class Crime(commands.Cog):
                 share = pot // len(crew)
                 for uid in crew:
                     b = bal(gid, uid)
-                    set_cash(gid, uid, b['cash'] + share)
+                    add_cash(gid, uid, share)
                 result = t(guild.id, 'crime.win', pot=pot, share=share,
                            crew=', '.join(f'<@{u}>' for u in crew))
             else:

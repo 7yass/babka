@@ -5,11 +5,13 @@ Exit code 0 only when every test passes. tmp DB for the Polish pass.
 """
 import asyncio
 import re
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT))  # tools/ is sys.path[0] when run as a script
 
 FAILS: list = []
 

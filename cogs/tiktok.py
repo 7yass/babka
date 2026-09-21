@@ -78,7 +78,13 @@ def render(tpl: str, video: dict) -> str:
 class TikTok(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self._quota_pause_until = 0
+        # Persisted, not in-memory: the host restarts the process and an
+        # in-memory pause reset every time, so a spent RapidAPI key got hammered
+        # again on every boot (201 identical log lines in one 80-minute window).
+        try:
+            self._quota_pause_until = int(db.meta_get('tiktok_pause_until', 0) or 0)
+        except Exception:
+            self._quota_pause_until = 0
         self.check.start()
 
     def cog_unload(self):
@@ -103,6 +109,10 @@ class TikTok(commands.Cog):
                 if 'quota' in str(e).lower():
                     import time as _t2
                     self._quota_pause_until = _t2.time() + 6 * 3600
+                    try:
+                        db.meta_set('tiktok_pause_until', self._quota_pause_until)
+                    except Exception:
+                        pass
                     print('[tiktok] quota spent — pausing checks for 6h')
                     return
                 print(f'[tiktok] {username}: {e}')

@@ -5,3 +5,12 @@ __pycache__/
 .bin/
 *.log
 *.zip
+.venv/
+venv/
+.ruff_cache/
+backups/
+logs/
+preview_*.png
+.kilo/
+.kilocode/
+

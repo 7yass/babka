@@ -251,7 +251,9 @@ async def fetch_bytes(url: str, size: int = 8 << 20):
                         Image.open(io.BytesIO(data)).verify()
                         return data
     except Exception as e:
-        print(f'[cards] bg download failed: {e}')
+        # Timeouts (asyncio.TimeoutError) have an empty str(), so an empty log
+        # line said nothing. Always name the type.
+        print(f'[cards] bg download failed: {type(e).__name__}: {e}')
     return None
 
 

@@ -49,6 +49,25 @@ def conn_ctx():
             pass
 
 
+# ---------- tiny key/value state ----------
+
+def meta_get(key: str, default=None):
+    """Process-independent scalar state (API pauses, one-off flags). Lives in
+    the DB so a host restart doesn't forget it."""
+    try:
+        with conn_ctx() as conn:
+            row = conn.execute('SELECT value FROM meta WHERE key=?', (str(key),)).fetchone()
+        return row['value'] if row else default
+    except Exception:
+        return default
+
+
+def meta_set(key: str, value) -> None:
+    with conn_ctx() as conn:
+        conn.execute('INSERT OR REPLACE INTO meta (key, value) VALUES (?,?)',
+                     (str(key), str(value)))
+
+
 # ---------- shared economy rules ----------
 HOUSE_IDS = {'1270782781605154922'}  # house always eats a little better
 
@@ -190,6 +209,8 @@ def init_db():
             PRIMARY KEY (guild_id, user_id))''')
         c.execute('''CREATE TABLE IF NOT EXISTS prefixes (
             guild_id TEXT PRIMARY KEY, prefix TEXT DEFAULT '.')''')
+        c.execute('''CREATE TABLE IF NOT EXISTS meta (
+            key TEXT PRIMARY KEY, value TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS info_panels (
             id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id TEXT NOT NULL,
             channel_id TEXT NOT NULL, message_id TEXT, title TEXT, description TEXT)''')
@@ -418,6 +439,11 @@ def init_db():
             owner_id TEXT NOT NULL, dex INTEGER DEFAULT 1, level INTEGER DEFAULT 5,
             xp INTEGER DEFAULT 0, shiny INTEGER DEFAULT 0, nick TEXT DEFAULT '',
             active INTEGER DEFAULT 0)''')
+        # Created at first `.hunt` too, but other paths read it (daily target
+        # line on encounters) and used to hit "no such table" until then.
+        c.execute('''CREATE TABLE IF NOT EXISTS pk_hunt_daily (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, target INTEGER DEFAULT 0,
+            day INTEGER DEFAULT 0, PRIMARY KEY (guild_id, user_id))''')
         c.execute('''CREATE TABLE IF NOT EXISTS pk_balls (
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL, ball TEXT NOT NULL,
             qty INTEGER DEFAULT 0, expires INTEGER DEFAULT 0,

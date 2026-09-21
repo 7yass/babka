@@ -63,10 +63,10 @@ class Counting(commands.Cog):
                 pass
             if num % 100 == 0:
                 from cogs.levels import add_xp
-                from cogs.gamble import bal, set_cash
+                from cogs.gamble import bal, set_cash, add_cash
                 add_xp(gid, message.author.id, 250)
                 b = bal(gid, message.author.id)
-                set_cash(gid, message.author.id, b['cash'] + 500)
+                add_cash(gid, message.author.id, 500)
                 try:
                     await message.channel.send(
                         embed=ok(t(gid, 'ct.milestone', n=num, user=message.author.mention)))

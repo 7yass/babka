@@ -124,6 +124,36 @@ def take_cash(gid, uid, amount: int) -> bool:
         return (cur.rowcount or 0) > 0
 
 
+def take_cash_upto(gid, uid, amount: int) -> int:
+    """Atomic debit that floors at zero (mirrors the old max(0, cash - n)).
+
+    For penalties where the wallet may not cover the amount: one UPDATE, so a
+    concurrent credit can't bring back the balance it just wrote."""
+    bal(gid, uid)  # ensure the row exists
+    with db.conn_ctx() as conn:
+        conn.execute('UPDATE eco SET cash=MAX(0, cash-?) WHERE guild_id=? AND user_id=?',
+                     (int(amount), str(gid), str(uid)))
+        row = conn.execute('SELECT cash FROM eco WHERE guild_id=? AND user_id=?',
+                           (str(gid), str(uid))).fetchone()
+    return int(row['cash']) if row else 0
+
+
+def add_cash(gid, uid, delta: int) -> int:
+    """Atomic credit/debit: one UPDATE, nothing read first.
+
+    The old shape (`b = bal(...)` … await … `set_cash(b['cash'] + pay)`) writes
+    back a balance computed from a possibly stale read, so anything that
+    credited the same wallet in between gets clobbered (lost or duplicated
+    money). Returns the resulting balance."""
+    bal(gid, uid)  # ensure the row exists
+    with db.conn_ctx() as conn:
+        conn.execute('UPDATE eco SET cash=cash+? WHERE guild_id=? AND user_id=?',
+                     (int(delta), str(gid), str(uid)))
+        row = conn.execute('SELECT cash FROM eco WHERE guild_id=? AND user_id=?',
+                           (str(gid), str(uid))).fetchone()
+    return int(row['cash']) if row else 0
+
+
 def hand_value(cards) -> int:
     total, aces = 0, 0
     for r, _ in cards:
@@ -789,7 +819,7 @@ class PokerView(discord.ui.LayoutView):
             profit = self.bet * mult
             if str(self.player_id) not in GOD_IDS:
                 profit = min(profit, POKER_MAX_WIN)
-            set_cash(self.gid, self.player_id, b['cash'] + self.bet + profit)
+            add_cash(self.gid, self.player_id, self.bet + profit)
             msg = t(self.gid, 'eco.poker_win', hand=key.replace('_', ' '), win=cshort(profit))
         else:
             msg = t(self.gid, 'eco.poker_lose', bet=cshort(self.bet))
@@ -806,7 +836,7 @@ class PokerView(discord.ui.LayoutView):
         if not self.done:
             self.done = True
             b = bal(self.gid, self.player_id)
-            set_cash(self.gid, self.player_id, b['cash'] + self.bet)  # refund
+            add_cash(self.gid, self.player_id, self.bet)  # refund
             # Close the card: dead buttons must not look live.
             try:
                 self._build(t(self.gid, 'eco.stake_back'))
@@ -884,10 +914,10 @@ class BJView(discord.ui.LayoutView):
                 profit = self.bet
             if not god:
                 profit = min(profit, BJ_MAX_WIN)
-            set_cash(self.gid, self.player_id, b['cash'] + self.bet + profit)
+            add_cash(self.gid, self.player_id, self.bet + profit)
             msg = t(self.gid, 'eco.bj_win', pv=pv, dv=dv, win=cshort(profit))
         elif pv == dv:
-            set_cash(self.gid, self.player_id, b['cash'] + self.bet)  # push refunds stake
+            add_cash(self.gid, self.player_id, self.bet)  # push refunds stake
             msg = t(self.gid, 'eco.bj_push', pv=pv)
         else:
             msg = t(self.gid, 'eco.bj_lose', pv=pv, dv=dv, bet=cshort(self.bet))
@@ -949,7 +979,7 @@ class BJView(discord.ui.LayoutView):
             except Exception:
                 pass
             return
-        set_cash(self.gid, self.player_id, b['cash'] - self.bet)
+        add_cash(self.gid, self.player_id, -self.bet)
         self.bet *= 2
         self.phand.append(self.deck.pop())
         await self.finish(interaction)
@@ -958,7 +988,7 @@ class BJView(discord.ui.LayoutView):
         if not self.done:
             self.done = True
             b = bal(self.gid, self.player_id)
-            set_cash(self.gid, self.player_id, b['cash'] + self.bet)  # refund
+            add_cash(self.gid, self.player_id, self.bet)  # refund
             # Close the card: dead buttons must not look live.
             try:
                 self._build(hide=False, extra=t(self.gid, 'eco.stake_back'))
@@ -1064,7 +1094,7 @@ class Gamble(commands.Cog):
             return await ctx.reply(t(gid, 'eco.daily_wait', h=h, m=m), ephemeral=True)
         streak = (b.get('daily_streak') or 0) + 1
         bonus = min((streak - 1) * 50, 500)
-        set_cash(gid, ctx.author.id, b['cash'] + DAILY_CASH + bonus)
+        add_cash(gid, ctx.author.id, DAILY_CASH + bonus)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE eco SET last_daily=?, daily_streak=? WHERE guild_id=? AND user_id=?',
                          (now, streak, str(gid), str(ctx.author.id)))
@@ -1082,8 +1112,8 @@ class Gamble(commands.Cog):
         if amount > b['cash']:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
         vb = bal(gid, member.id)
-        set_cash(gid, ctx.author.id, b['cash'] - amount)
-        set_cash(gid, member.id, vb['cash'] + amount)
+        add_cash(gid, ctx.author.id, -amount)
+        add_cash(gid, member.id, amount)
         await ctx.reply(t(gid, 'eco.pay_ok', user=member.display_name, amount=cshort(amount))
                         + _wallet_line(gid, ctx.author.id))
 
@@ -1211,7 +1241,7 @@ class Gamble(commands.Cog):
         b = bal(gid, ctx.author.id)
         if amount > b['cash']:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - amount)
+        add_cash(gid, ctx.author.id, -amount)
         with db.conn_ctx() as conn:
             conn.execute('''INSERT INTO tributes (guild_id, user_id, total) VALUES (?,?,?)
                 ON CONFLICT(guild_id, user_id) DO UPDATE SET total=total+excluded.total''',
@@ -1245,7 +1275,7 @@ class Gamble(commands.Cog):
         b = bal(gid, ctx.author.id)
         if bet > b['cash']:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - bet)
+        add_cash(gid, ctx.author.id, -bet)
         _gamble_use(gid, ctx.author.id)
         deck = [(r, s) for s in SUITS for r in RANKS]
         random.shuffle(deck)
@@ -1262,7 +1292,7 @@ class Gamble(commands.Cog):
             if not god:
                 win = min(win, BJ_MAX_WIN)
             nb = bal(gid, ctx.author.id)
-            set_cash(gid, ctx.author.id, nb['cash'] + bet + win)
+            add_cash(gid, ctx.author.id, bet + win)
             view = BJView(self, ctx.author.id, bet, deck, phand, dhand, gid)
             view.done = True
             view._build(hide=False, extra=t(gid, 'eco.bj_natural', win=cshort(win)))
@@ -1346,7 +1376,7 @@ class Gamble(commands.Cog):
                 msg += '\n' + hr
         if win:
             nb = bal(gid, ctx.author.id)
-            set_cash(gid, ctx.author.id, nb['cash'] + bet + win)
+            add_cash(gid, ctx.author.id, bet + win)
         msg += _wallet_line(gid, ctx.author.id)
         import asyncio as _aio
         spin = await ctx.reply(view=_game_layout(t(gid, 'eco.slots_title', bet=cshort(bet)),
@@ -1396,7 +1426,7 @@ class Gamble(commands.Cog):
         result = pick if won else ('R' if pick == 'O' else 'O')
         if won:
             nb = bal(gid, ctx.author.id)
-            set_cash(gid, ctx.author.id, nb['cash'] + bet * 2)
+            add_cash(gid, ctx.author.id, bet * 2)
             msg = t(gid, 'eco.cf_win', win=cshort(bet))
         else:
             msg = t(gid, 'eco.cf_lose', bet=cshort(bet))
@@ -1526,7 +1556,7 @@ class Gamble(commands.Cog):
             if str(uid) not in GOD_IDS:
                 profit = min(profit, ROU_MAX_WIN)
             nb = bal(gid, uid)
-            set_cash(gid, uid, nb['cash'] + bet + profit)
+            add_cash(gid, uid, bet + profit)
             msg = t(gid, 'eco.rou_win', ball=ball, choice=label, win=cshort(profit))
         else:
             msg = t(gid, 'eco.rou_lose', ball=ball, choice=label, bet=cshort(bet))
@@ -1636,15 +1666,15 @@ class Gamble(commands.Cog):
                                                            CRIME_ROB.loot_max_pct))),
                        CRIME_ROB.loot_cap)
             ab = bal(gid, ctx.author.id)
-            set_cash(gid, member.id, vb['cash'] - loot)
-            set_cash(gid, ctx.author.id, ab['cash'] + loot)
+            add_cash(gid, member.id, -loot)
+            add_cash(gid, ctx.author.id, loot)
             msg = t(gid, 'eco.rob_win', user=member.display_name, loot=cshort(loot))
         else:
             fine = min(bal(gid, ctx.author.id)['cash'], CRIME_ROB.fine_cap,
                        max(CRIME_ROB.fine_min, int(vb['cash'] * CRIME_ROB.fine_pct)))
             ab = bal(gid, ctx.author.id)
-            set_cash(gid, ctx.author.id, ab['cash'] - fine)
-            set_cash(gid, member.id, vb['cash'] + fine)
+            add_cash(gid, ctx.author.id, -fine)
+            add_cash(gid, member.id, fine)
             db.jail(gid, ctx.author.id, 15)
             msg = t(gid, 'eco.rob_fail_jail', user=member.display_name, fine=cshort(fine))
         with db.conn_ctx() as conn:
@@ -1657,7 +1687,7 @@ class Gamble(commands.Cog):
                 if bounty:
                     conn.execute('DELETE FROM bounties WHERE id=?', (bounty['id'],))
                     ab2 = bal(gid, ctx.author.id)
-                    set_cash(gid, ctx.author.id, ab2['cash'] + bounty['amount'])
+                    add_cash(gid, ctx.author.id, bounty['amount'])
                     msg += '\n' + t(gid, 'eco.bounty_claim', amount=cshort(bounty['amount']))
         msg += _wallet_line(gid, ctx.author.id)
         await ctx.reply(view=_game_layout(t(gid, 'eco.rob_title'), msg))

@@ -87,11 +87,15 @@ async def _safe_open(interaction: discord.Interaction, type_id=None):
     try:
         return await open_ticket(interaction, type_id)
     except Exception as e:
-        print(f'[tickets] open failed: {e}')
+        print(f'[tickets] open failed: {type(e).__name__}: {e}')
         try:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    t(interaction.guild_id, 'tix.open_fail'), ephemeral=True)
+            msg = t(interaction.guild_id, 'tix.open_fail')
+            if interaction.response.is_done():
+                # open_ticket defers immediately, so the failure has to go out
+                # as a followup or the user is left on a stuck "thinking…".
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
         except Exception:
             pass
 
@@ -99,17 +103,32 @@ async def _safe_open(interaction: discord.Interaction, type_id=None):
 async def open_ticket(interaction: discord.Interaction, type_id=None):
     set_ctx_lang(interaction.user)
     gid = interaction.guild_id
+    # Opening a ticket does DB reads, a channel create and a greeting send —
+    # easily past Discord's 3s interaction window, and the old code only
+    # answered at the very end (the log is full of 404/10062 Unknown
+    # interaction because of it). Acknowledge first, answer with followups.
+    deferred = False
+    try:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        deferred = True
+    except Exception:
+        pass  # already acked or expired — followups still work
+
+    async def _say(text: str, **kw):
+        if deferred:
+            return await interaction.followup.send(text, ephemeral=True, **kw)
+        return await interaction.response.send_message(text, ephemeral=True, **kw)
+
     c = cfg(gid)
     if not c.get('category_id'):
-        return await interaction.response.send_message(t(gid, 'tix.no_panel'), ephemeral=True)
+        return await _say(t(gid, 'tix.no_panel'))
     with db.conn_ctx() as conn:
         n_open = conn.execute('SELECT COUNT(*) n FROM tickets WHERE guild_id=? AND owner_id=? AND closed=0',
                               (str(gid), str(interaction.user.id))).fetchone()['n']
         total = conn.execute('SELECT COUNT(*) n FROM tickets WHERE guild_id=? AND owner_id=?',
                              (str(gid), str(interaction.user.id))).fetchone()['n']
     if n_open >= (c.get('max_open') or 3):
-        return await interaction.response.send_message(
-            t(gid, 'tix.max_open', n=c.get('max_open') or 3), ephemeral=True)
+        return await _say(t(gid, 'tix.max_open', n=c.get('max_open') or 3))
     label = t(gid, 'tix.general')
     support_mention = []
     if type_id:
@@ -129,7 +148,7 @@ async def open_ticket(interaction: discord.Interaction, type_id=None):
     guild = interaction.guild
     category = guild.get_channel(int(c['category_id']))
     if not category:
-        return await interaction.response.send_message(t(gid, 'tix.no_panel'), ephemeral=True)
+        return await _say(t(gid, 'tix.no_panel'))
     overwrites = {guild.default_role: discord.PermissionOverwrite(view_channel=False),
                   interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True,
                                                                 read_message_history=True)}
@@ -151,7 +170,7 @@ async def open_ticket(interaction: discord.Interaction, type_id=None):
                                              overwrites=overwrites,
                                              topic=f'ticket {interaction.user.id} | {label}', reason='ticket open')
     except Exception:
-        return await interaction.response.send_message(t(gid, 'info.post_fail'), ephemeral=True)
+        return await _say(t(gid, 'info.post_fail'))
     now = int(time.time())
     with db.conn_ctx() as conn:
         conn.execute('''INSERT INTO tickets (channel_id, guild_id, owner_id, type_id, created_at, last_msg_at)
@@ -164,8 +183,7 @@ async def open_ticket(interaction: discord.Interaction, type_id=None):
             await ch.delete(reason='ticket over limit (double open)')
         except Exception:
             pass
-        return await interaction.response.send_message(
-            t(gid, 'tix.max_open', n=c.get('max_open') or 3), ephemeral=True)
+        return await _say(t(gid, 'tix.max_open', n=c.get('max_open') or 3))
     greet = (c.get('greeting') or t(gid, 'tix.greet')).replace('{user}', interaction.user.mention).replace(
         '{type}', label).replace('{server}', guild.name)
     content = ' '.join(support_mention) if support_mention else None
@@ -177,7 +195,7 @@ async def open_ticket(interaction: discord.Interaction, type_id=None):
                       view=control_view(), allowed_mentions=discord.AllowedMentions.all())
     except Exception:
         pass
-    await interaction.response.send_message(t(gid, 'tix.created', ch=ch.mention), ephemeral=True)
+    await _say(t(gid, 'tix.created', ch=ch.mention))
 
 
 async def build_transcript(channel: discord.TextChannel):

@@ -493,8 +493,15 @@ class Jobs(commands.Cog):
     @commands.hybrid_command(name='work', description='Idź do roboty')
     async def work(self, ctx):
         from cogs.levels import get_user
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, add_cash
         gid = ctx.guild.id
+        # Hybrid command on a 3s interaction window: this does several sqlite
+        # round-trips and a role sync before it answers, so acknowledge up front
+        # (a no-op for prefix invocations; don't abort if the token already died).
+        try:
+            await ctx.defer()
+        except Exception:
+            pass
         jl = db.jail_left(gid, ctx.author.id)
         if jl:
             return await ctx.reply(t(gid, 'eco.jailed', m=max(1, jl // 60)), ephemeral=True)
@@ -563,7 +570,10 @@ class Jobs(commands.Cog):
                     conn.execute('UPDATE jobs SET tier=? WHERE guild_id=? AND user_id=?',
                                  (idx, str(gid), str(ctx.author.id)))
                 extra += '\n' + t(gid, 'job.promo', fame=title)
-            set_cash(gid, ctx.author.id, b['cash'] + pay)
+            # Atomic credit: the old set_cash(b['cash'] + pay) wrote back a
+            # balance read before the awaits above, clobbering anything that
+            # credited the same wallet in between.
+            add_cash(gid, ctx.author.id, pay)
             with db.conn_ctx() as conn:
                 conn.execute('UPDATE eco SET last_work=? WHERE guild_id=? AND user_id=?',
                              (now, str(gid), str(ctx.author.id)))
@@ -595,7 +605,7 @@ class Jobs(commands.Cog):
         jobs_txt = t(gid, 'eco.jobs').split('|')
         job = random.choice(jobs_txt).strip()
         pay = random.randint(60, 150)
-        set_cash(gid, ctx.author.id, b['cash'] + pay)
+        add_cash(gid, ctx.author.id, pay)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE eco SET last_work=? WHERE guild_id=? AND user_id=?',
                          (now, str(gid), str(ctx.author.id)))

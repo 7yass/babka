@@ -160,27 +160,80 @@ async def _daily_backup():
         print(f'[-] DB backup failed: {e}')
 
 
+# READY + loop-lag bookkeeping (module scope: on_ready and the watchdog read it).
+_READY = {'n': 0, 'first': 0.0, 'synced': False, 'warned': False}
+_LAG = {'last_warn': 0.0}
+
+
 @bot.event
 async def on_ready():
-    print(f'[+] Babka Danka: {bot.user} ({bot.user.id})')
-    try:
-        if GUILD_ID:
-            guild = discord.Object(id=GUILD_ID)
-            bot.tree.copy_global_to(guild=guild)
-            await bot.tree.sync(guild=guild)
-            print(f'[+] Slash synced to guild {GUILD_ID}')
-        else:
-            await bot.tree.sync()
-            print('[+] Slash synced globally')
-    except Exception as e:
-        print(f'[-] Sync failed: {e}')
-    await bot.change_presence(activity=discord.Activity(
-        type=discord.ActivityType.watching, name='Jestem prawdziwą babcią Matrofa osły'))
+    import time as _t
+    _READY['n'] += 1
+    _READY['first'] = _READY['first'] or _t.time()
+    print(f'[+] Babka Danka: {bot.user} ({bot.user.id}) · ready #{_READY["n"]}')
+    # Slash sync is a REST PUT per guild. Doing it on EVERY ready turned a flaky
+    # gateway into a rate-limit hammer (log: 1486 syncs in 80 minutes), so sync
+    # once per process — retry on the next ready only if it actually failed.
+    if not _READY['synced']:
+        try:
+            if GUILD_ID:
+                guild = discord.Object(id=GUILD_ID)
+                bot.tree.copy_global_to(guild=guild)
+                await bot.tree.sync(guild=guild)
+                print(f'[+] Slash synced to guild {GUILD_ID}')
+            else:
+                await bot.tree.sync()
+                print('[+] Slash synced globally')
+            _READY['synced'] = True
+        except Exception as e:
+            print(f'[-] Sync failed: {e}')
+    if _READY['n'] == 1:
+        await bot.change_presence(activity=discord.Activity(
+            type=discord.ActivityType.watching, name='Jestem prawdziwą babcią Matrofa osły'))
+    # on_ready fires again whenever the session could NOT be resumed. Once or
+    # twice after a blip is normal; a sustained storm is not — the usual cause
+    # is a second process on the same token (panel + local run), because each
+    # login invalidates the other's session. That is also what kills
+    # interactions (404 code 10062) and drops whole commands.
+    if _READY['n'] > 6 and not _READY['warned'] and _t.time() - _READY['first'] < 900:
+        _READY['warned'] = True
+        print('[!] READY fired %d times in %ds — the gateway session keeps being '
+              'invalidated. Check for a SECOND bot instance on the same token '
+              '(panel + your PC); kill one or commands keep dying with '
+              '"Unknown interaction".' % (_READY['n'], int(_t.time() - _READY['first'])))
+
+
+@tasks.loop(seconds=15)
+async def _loop_lag():
+    """Event-loop watchdog. PIL card renders and synchronous sqlite calls share
+    the thread that answers gateway heartbeats, so a stall surfaces as
+    'Server disconnected' or 'Unknown interaction' instead of an error of its
+    own. Prints at most one line a minute, only when something really stalls."""
+    import time as _t
+    expected = _t.monotonic() + 15
+    await asyncio.sleep(15)
+    lag = _t.monotonic() - expected
+    if lag > 1.5 and _t.time() - _LAG['last_warn'] > 60:
+        _LAG['last_warn'] = _t.time()
+        print(f'[!] event loop stalled {lag:.1f}s — blocking work (PIL/sqlite) is '
+              f'sitting on the gateway thread; heartbeats and interactions expire.')
 
 
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
+        # Users keep typing the legacy PokeMeow/Node names that helpmeta still
+        # lists as aliases. Pure silence reads as "bot is dead"; a hint only
+        # fires for names helpmeta actually knows, everything else stays quiet.
+        try:
+            from cogs.help import suggest_command
+            gid = ctx.guild.id if ctx.guild else None
+            word = str(getattr(ctx, 'invoked_with', '') or '').split()[0]
+            hint = suggest_command(gid, word, ctx.prefix or '.', ctx.bot)
+            if hint:
+                await ctx.reply(hint, delete_after=12)
+        except Exception:
+            pass
         return
     if isinstance(error, (commands.CheckFailure, commands.MissingPermissions)):
         return  # checks.py already replied
@@ -234,6 +287,7 @@ async def main():
     db.init_db()
     print(_banner())
     _daily_backup.start()
+    _loop_lag.start()
     async with bot:
         failed = []
         for i, cog in enumerate(COGS, start=1):

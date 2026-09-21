@@ -203,11 +203,11 @@ class Wordle(commands.Cog):
             xp = random.randint(100, 300)
             cash = random.randint(100, 400)
             from cogs.levels import add_xp
-            from cogs.gamble import bal, set_cash
+            from cogs.gamble import bal, set_cash, add_cash
             try:
                 add_xp(message.guild.id, message.author.id, xp)
                 b = bal(message.guild.id, message.author.id)
-                set_cash(message.guild.id, message.author.id, b['cash'] + cash)
+                add_cash(message.guild.id, message.author.id, cash)
             except Exception:
                 pass
             with db.conn_ctx() as conn:

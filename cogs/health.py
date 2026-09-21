@@ -49,7 +49,10 @@ def _config_text_rules():
 
 # Source patterns marking runtime impact. Findings are SUSPECTED (static
 # scan, not business-logic proof) unless confirmed by review.
-MONEY_PATTERNS = ('set_cash(', 'take_cash(', 'UPDATE eco SET cash', 'UPDATE eco SET bank')
+# add_cash/take_cash_upto are the atomic writers: still currency-touching, so
+# they belong here even though they can't produce a racy absolute balance.
+MONEY_PATTERNS = ('set_cash(', 'add_cash(', 'take_cash_upto(', 'take_cash(',
+                  'UPDATE eco SET cash', 'UPDATE eco SET bank')
 ITEM_PATTERNS = ('balls_add(', 'balls_take(', 'inv_add(', 'inv_take(')
 XP_PATTERNS = ('add_xp(', 'UPDATE pk_mons SET level', 'UPDATE pk_mons SET xp')
 ROLE_PATTERNS = ('add_roles(', 'remove_roles(', 'create_role(', 'delete_role(')
@@ -282,14 +285,17 @@ def audit(bot):
             details['help'].append(f'{q}: no usage example (takes: {", ".join(_required_params(c))})')
         if v[0] not in CATEGORIES:
             details['help'].append(f'{q}: bad category {v[0]!r}')
+    # Help text falls back to helpmeta's desc_en, so English needs no hc_d_*.
+    # What Polish users actually miss is the PL string — check that instead of
+    # reporting the whole command list as "unlocalized".
     try:
         from lang import STR
-        en_keys = set((STR.get('en') or {}).keys())
+        pl_keys = set((STR.get('pl') or {}).keys())
     except Exception:
-        en_keys = set()
+        pl_keys = set()
     for q, _ in top:
-        if q in meta_names and f'hc_d_{q}' not in en_keys:
-            details['help'].append(f'{q}: no localized help text (hc_d_{q})')
+        if q in meta_names and f'hc_d_{q}' not in pl_keys:
+            details['help'].append(f'{q}: no Polish help text (hc_d_{q})')
 
     # ---- stale numbers: shape rules (explicit text expectations) ----
     try:

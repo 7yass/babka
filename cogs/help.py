@@ -87,6 +87,46 @@ def resolve_command(bot, dotted: str):
     return node
 
 
+def implemented_names(bot) -> set:
+    """Lowercased canonical names + aliases that exist on the running bot.
+
+    helpmeta.json carries ~100 legacy entries with no implementation behind
+    them; without this filter `.help <module>` advertises commands whose only
+    answer is silence (main.py swallows CommandNotFound)."""
+    if bot is None:
+        return set()
+    try:
+        out = set()
+        for c in bot.walk_commands():
+            out.add(str(c.name).lower())
+            for a in (getattr(c, 'aliases', None) or []):
+                out.add(str(a).lower())
+        return out
+    except Exception:
+        return set()
+
+
+def suggest_command(gid, name: str, prefix: str, bot=None) -> str:
+    """Legacy name a user typed -> the canonical command behind it, using
+    helpmeta's alias lists (they document the PokeMeow/Node names people
+    remember). Returns a hint, or '' when nothing sensible matches."""
+    q = (name or '').strip().lower()
+    if not q:
+        return ''
+    impl = implemented_names(bot)
+    for n, v in COMMAND_META.items():
+        if n.lower() == q:
+            continue  # they typed the canonical name — that's a different problem
+        if q not in [str(a).lower() for a in (v[2] or [])]:
+            continue
+        if impl and n.lower() not in impl:
+            continue  # never point at a command that isn't there
+        use_prefix = _cmd_prefix(bot, gid, prefix, n) if bot is not None else prefix
+        s = L(gid, 'hc.cmd_hint', '`{q}` is not a command — try `{p}{n}`')
+        return s.replace('{q}', q).replace('{p}', use_prefix).replace('{n}', n)
+    return ''
+
+
 def _box(gid, *blocks):
     from discord.ui import LayoutView, Container, TextDisplay, Separator
     layout = LayoutView(timeout=HELP_DELETE)
@@ -153,19 +193,26 @@ def start_layout(gid, bot_name: str):
                      f'{t(gid, "hc.start_body", bot=bot_name)}')
 
 
-def home_layout(gid, author, bot_user, prefix):
+def home_layout(gid, author, bot_user, prefix, bot=None):
     head = f'# {t(gid, "hc.help_title", name=bot_user.name)}'
+    impl = implemented_names(bot)
+    n_cmds = (len([n for n in COMMAND_META if n.lower() in impl]) if impl
+              else len(COMMAND_META))
     body = (f'**{t(gid, "hc.how_t")}**\n{t(gid, "hc.how_v")}\n\n'
             f'**{t(gid, "hc.pslash_t")}**\n{t(gid, "hc.pslash_v", p=prefix)}\n\n'
             f'**{t(gid, "hc.legend_t")}**\n{t(gid, "hc.legend_v")}\n\n'
-            f'-# {t(gid, "hc.foot", n=len(COMMAND_META), m=len(CATEGORIES), s=HELP_DELETE)}')
+            f'-# {t(gid, "hc.foot", n=n_cmds, m=len(CATEGORIES), s=HELP_DELETE)}')
     return _box(gid, head, body)
 
 
-def category_layout(gid, key, prefix):
+def category_layout(gid, key, prefix, bot=None):
     label = L(gid, f'hc.c_{key}_t', CATEGORIES[key][0])
     desc = L(gid, f'hc.c_{key}_d', CATEGORIES[key][1])
-    cmds = sorted(n for n, v in COMMAND_META.items() if v[0] == key)
+    impl = implemented_names(bot)
+    # Only commands that actually exist: the module listing used to advertise
+    # the whole legacy helpmeta backlog alongside the real ones.
+    cmds = sorted(n for n, v in COMMAND_META.items()
+                  if v[0] == key and (not impl or n.lower() in impl))
     lst = ', '.join(n + '/' if len(v) > 5 and v[5] else n for n, v in ((n, COMMAND_META[n]) for n in cmds))
     # View budget is 4000 chars total: cap a runaway category listing.
     if len(lst) > 3000:
@@ -175,10 +222,15 @@ def category_layout(gid, key, prefix):
     return _box(gid, body)
 
 
-def command_layout(gid, author, name, prefix):
+def command_layout(gid, author, name, prefix, bot=None):
     module, desc_en, aliases, example, perms = COMMAND_META[name][:5]
     slashonly = len(COMMAND_META[name]) > 5 and COMMAND_META[name][5]
     desc = L(gid, f'hc_d_{name}', desc_en)
+    impl = implemented_names(bot)
+    # helpmeta lists legacy aliases the cogs never defined; showing them points
+    # people at commands that stay silent.
+    if impl:
+        aliases = [a for a in aliases if str(a).lower() in impl]
     usage = f'/{name}' if slashonly else f'{prefix}{name}'
     if example:
         clean = example
@@ -229,9 +281,11 @@ class HelpSelect(discord.ui.Select):
         prefix = db.get_prefix(interaction.guild_id)
         me = interaction.user
         if self.values[0] == 'home':
-            layout = home_layout(interaction.guild_id, me, interaction.client.user, prefix)
+            layout = home_layout(interaction.guild_id, me, interaction.client.user,
+                                 prefix, interaction.client)
         else:
-            layout = category_layout(interaction.guild_id, self.values[0], prefix)
+            layout = category_layout(interaction.guild_id, self.values[0], prefix,
+                                     interaction.client)
         layout.invoker_id = invoker_id
         _attach_select(layout, HelpSelect(interaction.guild_id))
         await interaction.response.edit_message(view=layout)
@@ -290,16 +344,21 @@ class Help(commands.Cog):
             asyncio.create_task(autodelete_view(msg, HELP_DELETE))
             return
         if q in CATEGORIES:
-            layout = category_layout(gid, q, prefix)
+            layout = category_layout(gid, q, prefix, self.bot)
             layout.invoker_id = ctx.author.id
             _attach_select(layout, HelpSelect(gid))
             msg = await ctx.reply(view=layout, mention_author=False)
             asyncio.create_task(autodelete_view(msg, HELP_DELETE))
             return
-        name = q if q in COMMAND_META else next(
-            (n for n, v in COMMAND_META.items() if q in (v[2] or [])), None)
+        # Only offer a detail page for a command that exists: helpmeta carries
+        # 104 entries with no implementation behind them, and a detail page for
+        # one of those is a dead end.
+        impl = implemented_names(self.bot)
+        name = q if (q in COMMAND_META and q.lower() in impl) else next(
+            (n for n, v in COMMAND_META.items()
+             if q in (v[2] or []) and n.lower() in impl), None)
         if name:
-            layout = command_layout(gid, ctx.author, name, prefix)
+            layout = command_layout(gid, ctx.author, name, prefix, self.bot)
             msg = await ctx.reply(view=layout, mention_author=False)
             asyncio.create_task(autodelete(msg, CMD_DELETE))
             return

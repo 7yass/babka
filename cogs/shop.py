@@ -172,7 +172,7 @@ class Shop(commands.Cog):
         """Pokemon-catalog purchase for `;shop buy` on the ';' prefix.
         Same catalog/ids as `;balls buy` (eggs + incense handled properly)."""
         import time as _t
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         from utils.cards import short as cshort
         gid = ctx.guild.id
         if not key:
@@ -216,7 +216,7 @@ class Shop(commands.Cog):
         total = price * n
         if b['cash'] < total:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - total)
+        add_cash(gid, ctx.author.id, -total)
         if key == 'egg':
             with db.conn_ctx() as conn:
                 for _ in range(n):
@@ -234,7 +234,7 @@ class Shop(commands.Cog):
 
     async def _buy_economy(self, ctx, key: str, n: int):
         """Economy-catalog purchase (`.shop` board's own numbers/names)."""
-        from cogs.gamble import bal, set_cash, _gamble_gate
+        from cogs.gamble import bal, set_cash, _gamble_gate, add_cash
         from utils.cards import short as cshort
         gid = ctx.guild.id
         n = max(1, min(99, n or 1))
@@ -259,7 +259,7 @@ class Shop(commands.Cog):
         total = price * n
         if b['cash'] < total:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - total)
+        add_cash(gid, ctx.author.id, -total)
         inv_item, dur = BUY_MAP[key]
         exp = int(time.time()) + dur if dur else 0
         inv_add(gid, ctx.author.id, inv_item, n, exp)
@@ -273,7 +273,7 @@ class Shop(commands.Cog):
     @shop.command(name='buy', description='Kup przedmiot')
     async def buy(self, ctx, item: str = '', n: str = '1'):
         import random as _rnd
-        from cogs.gamble import bal, set_cash, _gamble_gate
+        from cogs.gamble import bal, set_cash, _gamble_gate, add_cash
         from utils.cards import short as cshort
         gid = ctx.guild.id
         key = (item or '').lower().strip()
@@ -322,7 +322,7 @@ class Shop(commands.Cog):
                 total = price * n
                 if b['cash'] < total:
                     return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-                set_cash(gid, ctx.author.id, b['cash'] - total)
+                add_cash(gid, ctx.author.id, -total)
                 # add to pokemon balls
                 from cogs.pokemon import balls_add
                 balls_add(gid, ctx.author.id, key, n)
@@ -403,29 +403,29 @@ class Shop(commands.Cog):
     async def _open_box(self, ctx, box: str, price: int):
         """Instant-open gambling box driven by BOX_TABLES."""
         import random as _rnd
-        from cogs.gamble import bal, set_cash, _gamble_use
+        from cogs.gamble import bal, set_cash, _gamble_use, add_cash
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
         if b['cash'] < price:
             return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - price)
+        add_cash(gid, ctx.author.id, -price)
         _gamble_use(gid, ctx.author.id)
         cfg = self.BOX_TABLES[box]
         now = int(time.time())
         roll = _rnd.random()
         if roll < cfg['jackpot_w']:
             win = cfg['jackpot']
-            set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
+            add_cash(gid, ctx.author.id, win)
             return await ctx.reply(t(gid, 'shop.loot_jackpot', win=cshort(win)), ephemeral=True)
         acc = cfg['jackpot_w'] + cfg['cash'][2]
         if roll < acc:
             win = _rnd.randint(cfg['cash'][0], cfg['cash'][1])
-            set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
+            add_cash(gid, ctx.author.id, win)
             return await ctx.reply(t(gid, 'shop.loot_cash', win=cshort(win)), ephemeral=True)
         acc += cfg['big'][2]
         if roll < acc:
             win = _rnd.randint(cfg['big'][0], cfg['big'][1])
-            set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
+            add_cash(gid, ctx.author.id, win)
             return await ctx.reply(t(gid, 'shop.loot_cash', win=cshort(win)), ephemeral=True)
         for inv_item, dur, w in cfg['items']:
             acc += w
@@ -433,23 +433,23 @@ class Shop(commands.Cog):
                 inv_add(gid, ctx.author.id, inv_item, 1, now + dur)
                 return await ctx.reply(t(gid, 'shop.loot_item', item=inv_item), ephemeral=True)
         win = _rnd.randint(cfg['cash'][0], cfg['cash'][1])
-        set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
+        add_cash(gid, ctx.author.id, win)
         return await ctx.reply(t(gid, 'shop.loot_cash', win=cshort(win)), ephemeral=True)
 
     async def _scratch(self, ctx, price: int):
         """10k scratchcard: mostly dust, rarely a fortune."""
         import random as _rnd
-        from cogs.gamble import bal, set_cash, _gamble_use
+        from cogs.gamble import bal, set_cash, _gamble_use, add_cash
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
         if b['cash'] < price:
             return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - price)
+        add_cash(gid, ctx.author.id, -price)
         _gamble_use(gid, ctx.author.id)
         roll = _rnd.random()
         if roll < 0.01:
             win = 300000
-            set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
+            add_cash(gid, ctx.author.id, win)
             return await ctx.reply(t(gid, 'shop.loot_jackpot', win=win), ephemeral=True)
         if roll < 0.10:
             win = _rnd.randint(15000, 30000)
@@ -458,7 +458,7 @@ class Shop(commands.Cog):
         else:
             win = _rnd.randint(0, 2000)
         if win:
-            set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
+            add_cash(gid, ctx.author.id, win)
             return await ctx.reply(t(gid, 'shop.loot_cash', win=cshort(win)), ephemeral=True)
         return await ctx.reply(t(gid, 'shop.scratch_lose'), ephemeral=True)
 
@@ -466,7 +466,7 @@ class Shop(commands.Cog):
         """Babka's cookie: always tasty, usually a donation to Babka.
         Rationed to 3 per day (house exempt)."""
         import random as _rnd
-        from cogs.gamble import bal, set_cash, _gamble_use, GOD_IDS
+        from cogs.gamble import bal, set_cash, _gamble_use, GOD_IDS, add_cash
         gid = ctx.guild.id
         if str(ctx.author.id) not in GOD_IDS:
             import time as _t
@@ -484,7 +484,7 @@ class Shop(commands.Cog):
         b = bal(gid, ctx.author.id)
         if b['cash'] < price:
             return await ctx.reply(t(gid, 'eco.broke', cash=b['cash']), ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - price)
+        add_cash(gid, ctx.author.id, -price)
         _gamble_use(gid, ctx.author.id)
         if str(ctx.author.id) not in GOD_IDS:
             with db.conn_ctx() as conn:
@@ -492,12 +492,12 @@ class Shop(commands.Cog):
                              (str(gid), str(ctx.author.id)))
         win = _rnd.randint(0, 2500)
         if win:
-            set_cash(gid, ctx.author.id, bal(gid, ctx.author.id)['cash'] + win)
+            add_cash(gid, ctx.author.id, win)
         return await ctx.reply(t(gid, 'shop.cookie_win', win=cshort(win)), ephemeral=True)
 
     async def _pardon(self, ctx, price: int):
         """Wipe your latest warn."""
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         gid = ctx.guild.id
         with db.conn_ctx() as conn:
             row = conn.execute('SELECT id FROM warns WHERE guild_id=? AND user_id=? ORDER BY id DESC LIMIT 1',
@@ -507,7 +507,7 @@ class Shop(commands.Cog):
             b = bal(gid, ctx.author.id)
             if b['cash'] < price:
                 return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-            set_cash(gid, ctx.author.id, b['cash'] - price)
+            add_cash(gid, ctx.author.id, -price)
             conn.execute('DELETE FROM warns WHERE id=?', (row['id'],))
         await ctx.reply(t(gid, 'shop.pardon_ok'), ephemeral=True)
 
@@ -530,7 +530,7 @@ class Shop(commands.Cog):
 
     async def _buy_vip(self, ctx, price: int):
         """One-time prestige role purchase."""
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         gid = ctx.guild.id
         member = ctx.author
         role = discord.utils.find(lambda r: r.name == VIP_ROLE, ctx.guild.roles)
@@ -547,7 +547,7 @@ class Shop(commands.Cog):
                 await member.add_roles(role, reason='VIP purchase')
         except Exception:
             return await ctx.reply(t(gid, 'shop.nick_fail'), ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - price)
+        add_cash(gid, ctx.author.id, -price)
         await ctx.reply(t(gid, 'shop.vip_ok'), ephemeral=True)
 
     @commands.command(name='inv', description='Twoje graty')
@@ -611,7 +611,7 @@ class Shop(commands.Cog):
 
     @commands.command(name='bail', description='Wykup się z pudła (40000)')
     async def bail(self, ctx):
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         gid = ctx.guild.id
         left = db.jail_left(gid, ctx.author.id)
         if not left:
@@ -619,20 +619,20 @@ class Shop(commands.Cog):
         b = bal(gid, ctx.author.id)
         if b['cash'] < BAIL_COST:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - BAIL_COST)
+        add_cash(gid, ctx.author.id, -BAIL_COST)
         db.unjail(gid, ctx.author.id)
         await ctx.reply(t(gid, 'shop.free'))
 
     async def _buy_bail(self, ctx, price: int):
         """Buy your way out through the shop (same as .bail)."""
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         gid = ctx.guild.id
         if not db.jail_left(gid, ctx.author.id):
             return await ctx.reply(t(gid, 'shop.not_jailed'), ephemeral=True)
         b = bal(gid, ctx.author.id)
         if b['cash'] < price:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - price)
+        add_cash(gid, ctx.author.id, -price)
         db.unjail(gid, ctx.author.id)
         await ctx.reply(t(gid, 'shop.free'))
 

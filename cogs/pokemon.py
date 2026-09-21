@@ -1838,7 +1838,7 @@ class Pokemon(commands.Cog):
                                                 t(gid, 'eco.pk_api')), ephemeral=True)
         with db.conn_ctx() as conn:
             conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active, ivs, evs) '
-                         'VALUES (?,?,?,?,0,0,"",1,?, '')', (str(gid), str(user.id), dex, 5, _roll_ivs()))
+                         'VALUES (?,?,?,?,0,0,"",1,?,?)', (str(gid), str(user.id), dex, 5, _roll_ivs(), ''))
             mid = conn.execute('SELECT id FROM pk_mons WHERE guild_id=? AND owner_id=? ORDER BY id',
                                (str(gid), str(user.id))).fetchone()
             if mid:
@@ -2485,11 +2485,11 @@ class Pokemon(commands.Cog):
             msg += '\n' + self._catch_meta(gid, uid, e['dex'], bool(e['shiny']))
             msg += '\n' + t(gid, 'eco.pk_roll_line', roll=int(roll * 100), rate=int(p * 100))
             msg += '\n' + _balls_left_line(gid, uid)
-            from cogs.gamble import bal, set_cash
+            from cogs.gamble import bal, set_cash, add_cash
             gain = e['level'] * CATCH_COINS_LVL + (CATCH_COINS_NEW if is_new else 0) \
                 + (CATCH_COINS_SHINY if e['shiny'] else 0)
             b = bal(gid, uid)
-            set_cash(gid, uid, b['cash'] + gain)
+            add_cash(gid, uid, gain)
             msg += '\n' + t(gid, 'eco.pk_coins_earned', win=cshort(gain))
             gif = showdown_gif(row.get('name', ''), bool(e['shiny']))
             if gif:
@@ -2525,7 +2525,7 @@ class Pokemon(commands.Cog):
 
     async def _catch_progress(self, gid, uid, dex: int, shiny: bool) -> list:
         """Dex milestones + region quest tiers + shiny-hunt streak. Returns lines."""
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         lines = []
         with db.conn_ctx() as conn:
             conn.execute('INSERT OR IGNORE INTO pk_dexcount (guild_id, user_id, dex, count) '
@@ -2537,7 +2537,7 @@ class Pokemon(commands.Cog):
         if count in DEX_MILESTONES:
             bonus = DEX_MILESTONES[count]
             b = bal(gid, uid)
-            set_cash(gid, uid, b['cash'] + bonus)
+            add_cash(gid, uid, bonus)
             lines.append(t(gid, 'eco.pk_dexbonus', count=count, win=cshort(bonus)))
         # region quests
         reg = region_of(dex)
@@ -2551,7 +2551,7 @@ class Pokemon(commands.Cog):
                 if prog >= need and claimed <= i:
                     reward = QUEST_REWARDS[i]
                     b = bal(gid, uid)
-                    set_cash(gid, uid, b['cash'] + reward)
+                    add_cash(gid, uid, reward)
                     lines.append(t(gid, 'eco.pk_quest', track=reg.title(), need=need,
                                      win=cshort(reward)))
                     # random stone bonus (35% on any quest tier)
@@ -2587,11 +2587,11 @@ class Pokemon(commands.Cog):
                 conn.execute('UPDATE pk_hunt SET streak=? WHERE guild_id=? AND user_id=?',
                              (streak, str(gid), str(uid)))
         # daily target + counters + egg cycles
-        from cogs.gamble import bal as _bal, set_cash as _set
+        from cogs.gamble import bal as _bal, set_cash as _set, add_cash as _add
         d = daily_row(gid, uid)
         if d['target'] == dex and not d['claimed']:
             b = _bal(gid, uid)
-            _set(gid, uid, b['cash'] + DAILY_TARGET_REWARD)
+            _add(gid, uid, DAILY_TARGET_REWARD)
             lines.append(t(gid, 'eco.pk_target_done', win=cshort(DAILY_TARGET_REWARD)))
             d['claimed'] = 1
         with db.conn_ctx() as conn:
@@ -2805,7 +2805,7 @@ class Pokemon(commands.Cog):
 
     @balls.command(name='buy', description='Kup balle')
     async def balls_buy(self, ctx, ball: str = '', n: int = 1):
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         gid = ctx.guild.id
         ball = (ball or '').lower()
         if ball.isdigit():
@@ -2814,7 +2814,7 @@ class Pokemon(commands.Cog):
             b = bal(gid, ctx.author.id)
             if POKE_SHOP_PRICES['incense'].amount > b['cash']:
                 return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-            set_cash(gid, ctx.author.id, b['cash'] - POKE_SHOP_PRICES['incense'].amount)
+            add_cash(gid, ctx.author.id, -POKE_SHOP_PRICES['incense'].amount)
             balls_add(gid, ctx.author.id, 'incense', 1)
             with db.conn_ctx() as conn:
                 conn.execute('UPDATE pk_balls SET expires=? WHERE guild_id=? AND user_id=? AND ball=?',
@@ -2844,7 +2844,7 @@ class Pokemon(commands.Cog):
         b = bal(gid, ctx.author.id)
         if cost > b['cash']:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - cost)
+        add_cash(gid, ctx.author.id, -cost)
         if ball == 'egg':
             with db.conn_ctx() as conn:
                 for _ in range(n):
@@ -3139,7 +3139,7 @@ class Pokemon(commands.Cog):
 
     @commands.command(name='release', description='Wypuść pokemona')
     async def release(self, ctx, *, arg: str = ''):
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         gid = ctx.guild.id
         arg = (arg or '').strip()
         m = None
@@ -3159,7 +3159,7 @@ class Pokemon(commands.Cog):
         name = mon_name(m, gid)
         val = release_value(m)
         b = bal(gid, ctx.author.id)
-        set_cash(gid, ctx.author.id, b['cash'] + val)
+        add_cash(gid, ctx.author.id, val)
         hk = held_key(m)
         if hk:
             balls_add(gid, ctx.author.id, hk, 1)  # the item drops back in the bag
@@ -3199,7 +3199,7 @@ class Pokemon(commands.Cog):
             if skipped_n:
                 msg += ' ' + t(gid, 'eco.pk_releaseall_skip', n=skipped_n)
             return await ctx.reply(msg, ephemeral=True)
-        from cogs.gamble import bal as _b2, set_cash as _s2
+        from cogs.gamble import bal as _b2, set_cash as _s2, add_cash as _s2_a
         total, back = 0, {}
         with db.conn_ctx() as conn:
             for mid in ids:
@@ -3217,7 +3217,7 @@ class Pokemon(commands.Cog):
         for hk, hn in back.items():
             balls_add(gid, ctx.author.id, hk, hn)  # held items come back in the bag
         b = _b2(gid, ctx.author.id)
-        _s2(gid, ctx.author.id, b['cash'] + total)
+        _s2_a(gid, ctx.author.id, total)
         msg = t(gid, 'eco.pk_released_cash', name=f'{len(ids)}x {label}', win=cshort(total))
         if skipped_n:
             msg += ' ' + t(gid, 'eco.pk_releaseall_skip', n=skipped_n)
@@ -3669,7 +3669,7 @@ class Pokemon(commands.Cog):
 
     @commands.command(name='buy', description='Kup z targu')
     async def buy(self, ctx, listing: str = None):
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         gid = ctx.guild.id
         # NOTE: listing is str (not int) on purpose — `;buy` bare or
         # `;buy <shop item>` used to 400 BadArgument spam in logs.
@@ -3697,9 +3697,9 @@ class Pokemon(commands.Cog):
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
         first = not my_mons(gid, ctx.author.id)
         fee = r['price'] * 5 // 100
-        set_cash(gid, ctx.author.id, b['cash'] - r['price'])
+        add_cash(gid, ctx.author.id, -r['price'])
         sb = bal(gid, r['seller_id'])
-        set_cash(gid, r['seller_id'], sb['cash'] + r['price'] - fee)
+        add_cash(gid, r['seller_id'], r['price'] - fee)
         with db.conn_ctx() as conn:
             conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active, ivs, evs) '
                          'VALUES (?,?,?,?,?,?,?,?,?,?)',
@@ -4190,7 +4190,7 @@ class Pokemon(commands.Cog):
         with db.conn_ctx() as conn:
             conn.execute('DELETE FROM pk_mons WHERE id=?', (m['id'],))
             conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active, ivs, evs) '
-                         'VALUES (?,?,?,?,0,?,?,?,?,'')',
+                         'VALUES (?,?,?,?,0,?,?,?,?,?)',
                          (str(gid), str(ctx.author.id), dex, level, 1 if shiny else 0, '',
                           1 if first else 0, _roll_ivs(), ''))
             left = conn.execute('SELECT id FROM pk_mons WHERE guild_id=? AND owner_id=? ORDER BY id LIMIT 1',
@@ -4225,7 +4225,7 @@ class Pokemon(commands.Cog):
 
     @commands.command(name='checklist', description='Dzienne zadania')
     async def checklist(self, ctx, action: str = ''):
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         gid = ctx.guild.id
         d = daily_row(gid, ctx.author.id)
         need, have = CHECKLIST_NEED, {'catches': d['catches'], 'battles': d['battles'], 'duels': d['duels']}
@@ -4236,7 +4236,7 @@ class Pokemon(commands.Cog):
             if not done:
                 return await ctx.reply(t(gid, 'eco.pk_check_todo'), ephemeral=True)
             b = bal(gid, ctx.author.id)
-            set_cash(gid, ctx.author.id, b['cash'] + CHECKLIST_REWARD)
+            add_cash(gid, ctx.author.id, CHECKLIST_REWARD)
             balls_add(gid, ctx.author.id, 'candy', 2)
             with db.conn_ctx() as conn:
                 conn.execute('UPDATE pk_daily SET checklist=1 WHERE guild_id=? AND user_id=?',
@@ -4438,12 +4438,12 @@ class Pokemon(commands.Cog):
 
     @commands.command(name='repel', description='Mocniejsze dzikie 30 min')
     async def repel(self, ctx):
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
         if POKE_SHOP_PRICES['repel'].amount > b['cash']:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - POKE_SHOP_PRICES['repel'].amount)
+        add_cash(gid, ctx.author.id, -POKE_SHOP_PRICES['repel'].amount)
         balls_add(gid, ctx.author.id, 'repel', 1)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE pk_balls SET expires=? WHERE guild_id=? AND user_id=? AND ball=?',
@@ -4717,7 +4717,7 @@ class Pokemon(commands.Cog):
 
     @commands.command(name='code', description='Kody eventowe')
     async def code(self, ctx, sub: str = '', a: str = '', b: str = ''):
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         gid = ctx.guild.id
         sub = (sub or '').lower()
         if sub == 'create':
@@ -4758,7 +4758,7 @@ class Pokemon(commands.Cog):
                                      t(gid, 'eco.pk_code_balls', n=row['amount']), None, 0xFFD43B)
             return await ctx.reply(view=view, files=files or None, ephemeral=True)
         x = bal(gid, ctx.author.id)
-        set_cash(gid, ctx.author.id, x['cash'] + row['amount'])
+        add_cash(gid, ctx.author.id, row['amount'])
         view, files = self._mini(gid, t(gid, 'eco.pk_code_title'),
                                  t(gid, 'eco.pk_code_cash', win=cshort(row['amount'])), None, 0x57F287)
         await ctx.reply(view=view, files=files or None, ephemeral=True)
@@ -5644,16 +5644,16 @@ class Pokemon(commands.Cog):
         # balances at settle = money creation).
         pot = 0
         if wager:
-            from cogs.gamble import bal, take_cash, set_cash
+            from cogs.gamble import bal, take_cash, set_cash, add_cash
             if bal(gid, u1.id)['cash'] < wager or bal(gid, u2.id)['cash'] < wager:
                 return await ix.followup.send(t(gid, 'eco.pk_duel_cash'), ephemeral=True)
             ok1 = take_cash(gid, u1.id, wager)
             ok2 = take_cash(gid, u2.id, wager)
             if not (ok1 and ok2):
                 if ok1:
-                    set_cash(gid, u1.id, bal(gid, u1.id)['cash'] + wager)
+                    add_cash(gid, u1.id, wager)
                 if ok2:
-                    set_cash(gid, u2.id, bal(gid, u2.id)['cash'] + wager)
+                    add_cash(gid, u2.id, wager)
                 return await ix.followup.send(t(gid, 'eco.pk_duel_cash'), ephemeral=True)
             pot = wager * 2
         try:
@@ -5675,9 +5675,9 @@ class Pokemon(commands.Cog):
                     s2.append(await fetch_sprite(s, pix_url(f['dex'], bool(f['shiny']))))
         except Exception:
             if pot:
-                from cogs.gamble import bal as _bal, set_cash as _set
-                _set(gid, u1.id, _bal(gid, u1.id)['cash'] + wager)
-                _set(gid, u2.id, _bal(gid, u2.id)['cash'] + wager)
+                from cogs.gamble import bal as _bal, set_cash as _set, add_cash as _add
+                _add(gid, u1.id, wager)
+                _add(gid, u2.id, wager)
             return await ix.followup.send(t(gid, 'eco.pk_api'), ephemeral=True)
         key = (str(gid), str(u1.id), str(u2.id))
         self._battle[key] = {'duel': True, 't1': f1, 't2': f2, 'm1': m1, 'm2': m2,
@@ -5762,7 +5762,7 @@ class Pokemon(commands.Cog):
     @_turn_lock
     @_turn_safe
     async def _duel_turn(self, ix: discord.Interaction, gid, key, what):
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         st = self._battle.get(key)
         if not st:
             return await ix.followup.send(t(gid, 'eco.pk_nobattle'), ephemeral=True)
@@ -5898,7 +5898,7 @@ class Pokemon(commands.Cog):
         await self._show_battle(ix, False, st, view, f)
 
     async def _duel_settle(self, ix: discord.Interaction, gid, key, st, winner_side, forfeit=False):
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash, take_cash_upto
         won1 = winner_side == 't1'
         is_npc = bool(st.get('npc'))
         uwin = st['u1'] if won1 else st['u2']
@@ -5936,7 +5936,7 @@ class Pokemon(commands.Cog):
                 # Double-settle guard: prize + badge only if unclaimed today.
                 if not already or (already['day'] or 0) != today:
                     b = bal(gid, uwin)
-                    set_cash(gid, uwin, b['cash'] + prize)
+                    add_cash(gid, uwin, prize)
                     line += '\n' + t(gid, 'eco.pk_npc_win', prize=cshort(prize))
                     conn.execute('INSERT OR REPLACE INTO pk_npc (guild_id, user_id, npc, day) VALUES (?,?,?,?)',
                                  (str(gid), str(uwin), st.get('npckey', ''), today))
@@ -5953,17 +5953,17 @@ class Pokemon(commands.Cog):
             # more (old live-balance split created money when spent mid-duel).
             winner = st['u1'] if won1 else st['u2']
             w = bal(gid, winner)
-            set_cash(gid, winner, w['cash'] + pot)
+            add_cash(gid, winner, pot)
             line += '\n' + t(gid, 'eco.pk_duel_wager', win=cshort(wager))
         elif wager:
             w1 = bal(gid, st['u1'])
             w2 = bal(gid, st['u2'])
             if won1:
-                set_cash(gid, st['u1'], w1['cash'] + wager)
-                set_cash(gid, st['u2'], max(0, w2['cash'] - wager))
+                add_cash(gid, st['u1'], wager)
+                take_cash_upto(gid, st['u2'], wager)
             else:
-                set_cash(gid, st['u2'], w2['cash'] + wager)
-                set_cash(gid, st['u1'], max(0, w1['cash'] - wager))
+                add_cash(gid, st['u2'], wager)
+                take_cash_upto(gid, st['u1'], wager)
             line += '\n' + t(gid, 'eco.pk_duel_wager', win=cshort(wager))
         with db.conn_ctx() as conn:
             conn.execute('INSERT OR IGNORE INTO pk_stats (guild_id, user_id, duels_won, duels_lost) '

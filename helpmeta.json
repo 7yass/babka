@@ -1055,9 +1055,9 @@
     ],
     "wordle": [
       "fun",
-      "Daily Polish 5-letter word: `.wordle <guess>`, 6 tries. Win = XP + cash, once per day. Bare `.wordle` shows today's board.",
+      "Word game on a channel: `.wordle set #channel [minutes]` kicks off a round, guesses are plain messages in that channel, `.wordle now` / `.wordle top` show the board and ranking. Win = XP + cash.",
       [],
-      "[guess]",
+      "set <channel> [minutes]",
       "Everyone"
     ],
     "counting": [
@@ -1271,7 +1271,7 @@
       "setup",
       "Self-assignable roles panel: `.selfroles`. Members take what they want, mods keep control.",
       [],
-      "",
+      "<role1> [@role2] [@role3] [@role4] [@role5] [title]",
       "Manage Server"
     ],
     "sr-add": [

@@ -134,7 +134,7 @@ class Stocks(commands.Cog):
 
     @commands.command(name='stockbuy', description='Kup akcje')
     async def stockbuy(self, ctx, symbol: str, cash: int):
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         gid = ctx.guild.id
         sym = (symbol or '').upper()
         if sym not in STOCKS:
@@ -150,7 +150,7 @@ class Stocks(commands.Cog):
         b = bal(gid, ctx.author.id)
         if cost > b['cash']:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - cost)
+        add_cash(gid, ctx.author.id, -cost)
         with db.conn_ctx() as conn:
             conn.execute('INSERT OR IGNORE INTO portfolio (guild_id, user_id, symbol, qty, spent) '
                          'VALUES (?,?,?,0,0)', (str(gid), str(ctx.author.id), sym))
@@ -164,7 +164,7 @@ class Stocks(commands.Cog):
 
     @commands.command(name='stocksell', description='Sprzedaj akcje')
     async def stocksell(self, ctx, symbol: str, qty: str = 'all'):
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         gid = ctx.guild.id
         sym = (symbol or '').upper()
         if sym not in STOCKS:
@@ -184,7 +184,7 @@ class Stocks(commands.Cog):
         avg = (pos['spent'] or 0) / max(1, pos['qty'])
         pnl = gain - int(avg * n)
         b = bal(gid, ctx.author.id)
-        set_cash(gid, ctx.author.id, b['cash'] + gain)
+        add_cash(gid, ctx.author.id, gain)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE portfolio SET qty=qty-?, spent=spent-? '
                          'WHERE guild_id=? AND user_id=? AND symbol=?',

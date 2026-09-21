@@ -347,7 +347,7 @@ class PokeExtras(commands.Cog):
     @commands.command(name='incense', description='Incense')
     async def incense(self, ctx):
         # functional: same as repel but for incense
-        from cogs.gamble import bal, set_cash
+        from cogs.gamble import bal, set_cash, add_cash
         gid = ctx.guild.id
         # price same as repel but use INCENSE_PRICE if available
         try:
@@ -357,7 +357,7 @@ class PokeExtras(commands.Cog):
         b = bal(gid, ctx.author.id)
         if INCENSE_PRICE > b['cash']:
             return await ctx.reply(f"Broke: {b['cash']:,}", ephemeral=True)
-        set_cash(gid, ctx.author.id, b['cash'] - INCENSE_PRICE)
+        add_cash(gid, ctx.author.id, -INCENSE_PRICE)
         balls_add(gid, ctx.author.id, 'incense', 1)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE pk_balls SET expires=? WHERE guild_id=? AND user_id=? AND ball=?',
