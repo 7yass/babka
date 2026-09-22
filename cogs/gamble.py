@@ -1,4 +1,4 @@
-"""Gambling economy: balance, daily, blackjack, slots, coinflip, rob, rich. Hybrid."""
+﻿"""Gambling economy: balance, daily, blackjack, slots, coinflip, rob, rich. Hybrid."""
 import random
 import time
 
@@ -18,7 +18,7 @@ START_CASH, DAILY_CASH, DAILY_CD = 1000, 500, 86400
 HIDDEN_LB = {'1270782781605154922', '558332192531546114'}
 ROB_CD = 3600
 # NOTE: betting limits live in utils.economy (CASINO_BASE_MAX_BET and
-# max_bet_for) — do not reintroduce local literals here.
+# max_bet_for) â€” do not reintroduce local literals here.
 BJ_MAX_WIN = 15000  # max profit per hand for mortals
 # (betting limit lives in utils.economy: CASINO_BASE_MAX_BET)
 SLOTS_MAX_WIN = 25000    # max slots payout for mortals
@@ -26,9 +26,9 @@ ROU_MAX_WIN = 25000      # max roulette profit for mortals
 POKER_MAX_WIN = 50000    # max poker profit for mortals
 # gambling is limited to 10 plays per hour (shared across all games); gods exempt
 GAMBLES_PER_HOUR = 10
-SUITS = ['♠', '♥', '♦', '♣']
+SUITS = ['â™ ', 'â™¥', 'â™¦', 'â™£']
 RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
-SLOTS = ['7', '★', '♦', '♣', '●']
+SLOTS = ['7', 'â˜…', 'â™¦', 'â™£', 'â—']
 # European roulette reds; 0 is green, rest black
 ROU_REDS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
 # mortals keep 70% of the spins they'd fairly win (~68% RTP uniform
@@ -141,7 +141,7 @@ def take_cash_upto(gid, uid, amount: int) -> int:
 def add_cash(gid, uid, delta: int) -> int:
     """Atomic credit/debit: one UPDATE, nothing read first.
 
-    The old shape (`b = bal(...)` … await … `set_cash(b['cash'] + pay)`) writes
+    The old shape (`b = bal(...)` â€¦ await â€¦ `set_cash(b['cash'] + pay)`) writes
     back a balance computed from a possibly stale read, so anything that
     credited the same wallet in between gets clobbered (lost or duplicated
     money). Returns the resulting balance."""
@@ -193,8 +193,8 @@ def slots_image(reels) -> bytes:
         f = _F.load_default()
         f_s = f
     try:
-        lw = d.textlength('• S L O T S •', font=f_s)
-        d.text(((W - lw) / 2, 16), '• S L O T S •', font=f_s, fill=(250, 200, 60))
+        lw = d.textlength('â€¢ S L O T S â€¢', font=f_s)
+        d.text(((W - lw) / 2, 16), 'â€¢ S L O T S â€¢', font=f_s, fill=(250, 200, 60))
     except Exception:
         pass
     top = pad + 8
@@ -234,7 +234,7 @@ def bj_table_image(phand, dhand, hide=True) -> bytes:
             for x in range(20, CW - 20, 16):
                 d.line([(x, 20), (x, CHH - 20)], fill=(70, 70, 78), width=3)
             return c
-        col = (180, 40, 40) if suit in ('♥', '♦') else (25, 25, 30)
+        col = (180, 40, 40) if suit in ('â™¥', 'â™¦') else (25, 25, 30)
         d.text((10, 6), rank, font=f_r, fill=col)
         try:
             w = d.textlength(suit, font=f_s)
@@ -270,7 +270,7 @@ def bj_table_image(phand, dhand, hide=True) -> bytes:
 
 
 def coin_image(side: str) -> bytes:
-    """Big reeded coin: O (orzeł) / R (reszka) with rim ticks + shine."""
+    """Big reeded coin: O (orzeÅ‚) / R (reszka) with rim ticks + shine."""
     import io as _io
     import math as _m
     from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
@@ -360,7 +360,7 @@ def poker_image(hand, held) -> bytes:
     d = _Dr.Draw(img)
     for i, (r, s) in enumerate(hand):
         x = 20 + i * (CW + 12)
-        col = (180, 40, 40) if s in ('♥', '♦') else (25, 25, 30)
+        col = (180, 40, 40) if s in ('â™¥', 'â™¦') else (25, 25, 30)
         card = _Img.new('RGB', (CW, CHH), (232, 232, 236))
         cd = _Dr.Draw(card)
         cd.rounded_rectangle([0, 0, CW - 1, CHH - 1], radius=12,
@@ -391,7 +391,7 @@ def _game_layout(title: str, desc: str, image_url: str = None, accent: int = 0xF
     # Clamp runaway descriptions here so no unbounded '\n'.join(rows)
     # caller can ever 400 the send (callers must still paginate/cap rows).
     if len(desc or '') > 3500:
-        desc = (desc or '')[:3500] + '…'
+        desc = (desc or '')[:3500] + 'â€¦'
     layout = LayoutView(timeout=120)
     box = Container(accent_color=accent)
     box.add_item(TextDisplay(f'## {title}\n{desc}'))
@@ -456,7 +456,7 @@ def split_allin(bet: str, *rest: str):
 
 def max_bet_for(level: int, base: int = CASINO_BASE_MAX_BET) -> int:
     """Betting limit grows with level: base + per-level, capped.
-    Lv0 plays at base, lv10 ~30k, lv30 ~60k — high rollers still bypass."""
+    Lv0 plays at base, lv10 ~30k, lv30 ~60k â€” high rollers still bypass."""
     try:
         lv = max(0, int(level or 0))
     except Exception:
@@ -525,7 +525,7 @@ def god_forced(gid, uid) -> bool:
 
 
 def has_highroller(gid, uid) -> bool:
-    """High Roller pass active: no max bet for 10 minutes. Losses stay lost —
+    """High Roller pass active: no max bet for 10 minutes. Losses stay lost â€”
     the old loss-refund is gone on purpose."""
     import time
     with db.conn_ctx() as conn:
@@ -631,7 +631,7 @@ def wallet_card(name: str, cash: int, streak: int, avatar_bytes: bytes = None, b
     d.text((dx, 74), cshort(cash), font=f_big, fill=GOLD)
     tracked((dx, 148), 'COINS', f_lab, FAINT)
     rx = 520
-    rows = [('DAILY STREAK', f'{streak} DAYS' if streak else '—'),
+    rows = [('DAILY STREAK', f'{streak} DAYS' if streak else 'â€”'),
             ('BANK', cshort(bank))]
     ry = 52
     for lab, val in rows:
@@ -713,8 +713,8 @@ def _roulette_spin(kind: str, num: int, god: bool, rigged: bool = True) -> int:
 
 def _rou_ball(n: int) -> str:
     if n == 0:
-        return '🟢 **0**'
-    return f"{'🔴' if n in ROU_REDS else '⚫'} **{n}**"
+        return 'ðŸŸ¢ **0**'
+    return f"{'ðŸ”´' if n in ROU_REDS else 'âš«'} **{n}**"
 
 
 def roulette_spin_gif(idxs, get_png, size: int = 240) -> bytes:
@@ -1101,7 +1101,7 @@ class Gamble(commands.Cog):
         await ctx.reply(t(gid, 'eco.daily_ok', cash=cshort(DAILY_CASH + bonus), streak=streak)
                         + _wallet_line(gid, ctx.author.id), ephemeral=True)
 
-    @commands.command(name='pay', description='Przelej kasę')
+    @commands.command(name='pay', description='Przelej kasÄ™')
     async def pay(self, ctx, member: discord.Member, amount: int):
         gid = ctx.guild.id
         if member.id == ctx.author.id or member.bot:
@@ -1145,7 +1145,7 @@ class Gamble(commands.Cog):
         other = row['u2'] if row['u1'] == str(uid) else row['u1']
         return row['u1'], other
 
-    @commands.command(name='bank', description='Twój bank')
+    @commands.command(name='bank', description='TwÃ³j bank')
     async def bank(self, ctx):
         gid = ctx.guild.id
         owner, partner = self._vault(gid, ctx.author.id)
@@ -1159,7 +1159,7 @@ class Gamble(commands.Cog):
             msg += '\n' + t(gid, 'eco.bank_interest', earned=earned)
         await ctx.reply(view=_game_layout(t(gid, 'eco.bank_title'), msg), ephemeral=True)
 
-    @commands.command(name='bankshare', description='Wspólny sejf we dwoje')
+    @commands.command(name='bankshare', description='WspÃ³lny sejf we dwoje')
     async def bankshare(self, ctx, partner: discord.Member = None):
         gid = ctx.guild.id
         me = str(ctx.author.id)
@@ -1181,7 +1181,7 @@ class Gamble(commands.Cog):
             conn.execute('INSERT INTO bank_links (guild_id, u1, u2) VALUES (?,?,?)', (str(gid), a, b))
         await ctx.reply(t(gid, 'eco.share_ok', user=partner.display_name), ephemeral=True)
 
-    @commands.command(name='deposit', description='Wpłać do banku', aliases=['dep'])
+    @commands.command(name='deposit', description='WpÅ‚aÄ‡ do banku', aliases=['dep'])
     async def deposit(self, ctx, amount: str = ''):
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
@@ -1207,7 +1207,7 @@ class Gamble(commands.Cog):
         await ctx.reply(t(gid, 'eco.dep_ok', amount=cshort(amount), bank=cshort(bank + amount))
                         + _wallet_line(gid, ctx.author.id), ephemeral=True)
 
-    @commands.command(name='withdraw', description='Wypłać z banku', aliases=['with'])
+    @commands.command(name='withdraw', description='WypÅ‚aÄ‡ z banku', aliases=['with'])
     async def withdraw(self, ctx, amount: str = ''):
         gid = ctx.guild.id
         b = bal(gid, ctx.author.id)
@@ -1309,7 +1309,7 @@ class Gamble(commands.Cog):
         cap = max_bet_for(get_user(gid, ctx.author.id).get('level', 0))
         if (str(ctx.author.id) not in GOD_IDS and not has_highroller(gid, ctx.author.id)
                 and bet > cap):
-            return None, t(gid, 'eco.max_bet', max=cshort(cap))
+            return None, t(gid, 'eco.max_bet', max=cshort(cap)), 0
         b = bal(gid, ctx.author.id)
         if bet > b['cash']:
             return None, t(gid, 'eco.broke', cash=cshort(b['cash'])), 0
@@ -1368,7 +1368,7 @@ class Gamble(commands.Cog):
             msg = (t(gid, 'eco.slots_jackpot', mult=mult, win=cshort(win)) if mult >= 3
                    else t(gid, 'eco.slots_small', win=cshort(win)))
         else:
-            reels = random.sample(SLOTS, 3)  # guaranteed no pair — matches the loss
+            reels = random.sample(SLOTS, 3)  # guaranteed no pair â€” matches the loss
             win = 0
             msg = t(gid, 'eco.slots_lose', bet=cshort(bet))
             hr = highroller_refund(gid, ctx.author.id, bet)
@@ -1402,7 +1402,7 @@ class Gamble(commands.Cog):
                                               'attachment://slots.png'),
                             file=discord.File(__import__('io').BytesIO(png), 'slots.png'))
 
-    @commands.hybrid_command(name='coinflip', description='Orzeł czy reszka', aliases=['moneta'])
+    @commands.hybrid_command(name='coinflip', description='OrzeÅ‚ czy reszka', aliases=['moneta'])
     async def coinflip(self, ctx, bet: str, side: str = '', extra: str = ''):
         await ctx.defer()
         gid = ctx.guild.id
@@ -1578,7 +1578,7 @@ class Gamble(commands.Cog):
                 return await interaction.response.send_message(
                     t(gid, 'eco.not_yours'), ephemeral=True)
             # Acknowledge FIRST: the spin does DB reads, a settle and possibly
-            # a wheel render — past Discord's 3s click window otherwise.
+            # a wheel render â€” past Discord's 3s click window otherwise.
             mode = await ack(interaction)
             wait = _gamble_gate(gid, uid)
             if wait is not None:
