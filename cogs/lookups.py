@@ -72,7 +72,7 @@ class Lookups(commands.Cog):
             prof = await _get_json(s, f'https://users.roblox.com/v1/users/{uid}') or {}
             fc = await _get_json(s, f'https://friends.roblox.com/v1/users/{uid}/friends/count') or {}
             fl = await _get_json(s, f'https://friends.roblox.com/v1/users/{uid}/followers/count') or {}
-        desc = (prof.get('description') or '')[:300] or 'â€”'
+        desc = (prof.get('description') or '')[:300] or '—'
         e = discord.Embed(title=f"{prof.get('displayName', info.get('displayName'))} (@{prof.get('name', username)})",
                           description=desc, color=WHITE,
                           url=f'https://www.roblox.com/users/{uid}/profile')
@@ -113,7 +113,7 @@ class Lookups(commands.Cog):
         names = [h.get('name') for h in ((hist or {}).get('data') or []) if h.get('name')]
         if not names:
             return await ctx.reply(t(gid, 'lk.rbx_nonames', user=username), ephemeral=True)
-        await ctx.reply(embed=ok(t(gid, 'lk.rbx_names', user=username) + '\n' + '\n'.join(f'â€¢ {n}' for n in names[:25])),
+        await ctx.reply(embed=ok(t(gid, 'lk.rbx_names', user=username) + '\n' + '\n'.join(f'• {n}' for n in names[:25])),
                         ephemeral=True)
 
 
