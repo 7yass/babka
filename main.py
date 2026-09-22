@@ -79,6 +79,7 @@ COGS = [
     'cogs.emojis',
     'cogs.ping',
     'cogs.health',
+    'cogs.commitlog',
 ]
 
 
