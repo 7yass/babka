@@ -1975,19 +1975,11 @@ class Pokemon(commands.Cog):
         """Catch-only encounters: balls, no FIGHT row. Also handles hunt target chance."""
         return await self._hunt_core(ctx, 'catch')
 
-    async def _hunt_core(self, ctx, mode: str):
-        # Rework phase 3: thin Discord wrapper — spawning lives in
-        # services.encounter_service. Typing stays up front (prefix commands
-        # have no 3s window, but the species loop is slow on bad networks).
-        from services.encounter_service import spawn_encounter
+    async def send_spawn(self, ctx, res):
+        """Render + send an EncounterResult: layout, buttons, stale-strip,
+        mid/cid bookkeeping. Shared by ;p and ;explore."""
         gid = ctx.guild.id
         key = (str(gid), str(ctx.author.id))
-        await ctx.typing()
-        res = await spawn_encounter(
-            gid, ctx.author.id, ctx.author.display_name, mode,
-            store=self._enc, cooldowns=self._hunt_cd)
-        if not res.ok:
-            return await ctx.reply(res.reply_text, ephemeral=res.ephemeral)
         view = self._encounter_layout(gid, res.title, res.desc, res.accent, res.media)
         self._attach_enc_buttons(view, gid, ctx.author.id, res.mode, is_hunt=res.is_hunt)
         # Catch-mode resolves by EDITING this message (one throw, win or gone):
@@ -2015,6 +2007,21 @@ class Pokemon(commands.Cog):
                 cur['cid'] = ctx.channel.id
         except Exception:
             pass
+        return sent
+
+    async def _hunt_core(self, ctx, mode: str):
+        # Rework: thin Discord wrapper — spawning lives in
+        # services.encounter_service. Typing stays up front (prefix commands
+        # have no 3s window, but the species loop is slow on bad networks).
+        from services.encounter_service import spawn_encounter
+        gid = ctx.guild.id
+        await ctx.typing()
+        res = await spawn_encounter(
+            gid, ctx.author.id, ctx.author.display_name, mode,
+            store=self._enc, cooldowns=self._hunt_cd)
+        if not res.ok:
+            return await ctx.reply(res.reply_text, ephemeral=res.ephemeral)
+        return await self.send_spawn(ctx, res)
 
     def _attach_enc_buttons(self, view, gid, uid, mode: str = 'fight', is_hunt: bool = False):
         from discord.ui import ActionRow

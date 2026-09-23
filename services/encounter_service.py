@@ -31,7 +31,8 @@ class EncounterResult:
 
 
 async def spawn_encounter(gid, uid, display_name: str, mode: str = 'catch',
-                          *, store: dict, cooldowns: dict) -> EncounterResult:
+                          *, store: dict, cooldowns: dict,
+                          dex_pool: list | None = None) -> EncounterResult:
     """Run one spawn: validate, select, roll, persist, describe.
     store/cooldowns are the cog's live dicts (injected, not owned)."""
     import aiohttp
@@ -51,9 +52,10 @@ async def spawn_encounter(gid, uid, display_name: str, mode: str = 'catch',
                                ephemeral=True)
     cooldowns[key] = int(time.time())
     inc = incense_active(gid, uid)
+    pool = [int(d) for d in (dex_pool or []) if int(d) > 0] or None
     async with aiohttp.ClientSession() as s:
         for _ in range(12):
-            dex = random.randint(1, 809)
+            dex = random.choice(pool) if pool else random.randint(1, 809)
             row = await dex_get(s, dex)
             if not row:
                 continue
