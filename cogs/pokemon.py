@@ -812,13 +812,15 @@ def calc_stats(base: dict, level: int, ivs: dict = None, nature: tuple = None,
 
 
 def damage(att_level: int, move: dict, atk_stats: dict, dfn_stats: dict,
-           att_types: list, dfn_types: list, weather=None) -> tuple:
-    """Returns (damage, crit). Misses deal 0. Rain/sun boost water/fire."""
+           att_types: list, dfn_types: list, weather=None, rng=None) -> tuple:
+    """Returns (damage, crit). Misses deal 0. Rain/sun boost water/fire.
+    rng injectable (random()/uniform()) for deterministic tests."""
+    _rng = rng or random
     a = atk_stats['atk'] if atk_stats['atk'] >= atk_stats['spa'] else atk_stats['spa']
     d = dfn_stats['dfn'] if atk_stats['atk'] >= atk_stats['spa'] else dfn_stats['spd']
-    if random.random() * 100 > (move.get('acc') or 100):
+    if _rng.random() * 100 > (move.get('acc') or 100):
         return 0, False
-    crit = random.random() < 0.0625
+    crit = _rng.random() < 0.0625
     stab = 1.5 if move.get('ptype') in att_types else 1.0
     eff = effectiveness(move.get('ptype', 'normal'), dfn_types)
     wmult = 1.0
@@ -827,7 +829,7 @@ def damage(att_level: int, move: dict, atk_stats: dict, dfn_stats: dict,
     elif weather == 'sun' and move.get('ptype') == 'fire':
         wmult = 1.2
     base = ((2 * att_level / 5 + 2) * (move.get('power') or 40) * max(1, a) / max(1, d)) / 50 + 2
-    dmg = base * stab * eff * wmult * random.uniform(0.85, 1.0) * (1.5 if crit else 1.0)
+    dmg = base * stab * eff * wmult * _rng.uniform(0.85, 1.0) * (1.5 if crit else 1.0)
     return max(1, int(dmg)), crit
 
 
@@ -5240,7 +5242,8 @@ class Pokemon(commands.Cog):
                 me['hp'] = min(me['stats']['maxhp'], me['hp'] + heal)
                 log.append(t(gid, 'eco.pk_healed', name=me['name'], hp=heal))
             # potion costs the turn: wild strikes
-            await self._wild_strike(gid, me, wild, log, st.get('weather'))
+            from services.battle_service import wild_strike as _wild_strike_fn
+            _wild_strike_fn(gid, me, wild, log, st.get('weather'))
             return await self._after_turn(ix, gid, user, key, st)
         if isinstance(what, tuple) and what[0] == 'switch':
             import aiohttp
@@ -5271,44 +5274,15 @@ class Pokemon(commands.Cog):
             st['me'], st['mid'], st['me_spr'] = me2, nm['id'], me2_spr
             me = me2
             log.append(t(gid, 'eco.pk_switched', name=mon_name(nm, gid)))
-            await self._wild_strike(gid, me, wild, log, st.get('weather'))
+            from services.battle_service import wild_strike as _wild_strike_fn2
+            _wild_strike_fn2(gid, me, wild, log, st.get('weather'))
             return await self._after_turn(ix, gid, user, key, st)
-        # chosen move (or fallback): faster strikes first
-        mv = None
-        if isinstance(what, tuple) and what[0] == 'move':
-            idx = what[1]
-            if 0 <= idx < len(me.get('moves') or []):
-                mv = me['moves'][idx]
-        order = []
-        if me['stats']['spe'] >= wild['stats']['spe']:
-            order = [('me', mv), ('wild', None)]
-        else:
-            order = [('wild', None), ('me', mv)]
-        for side, chosen in order:
-            if side == 'me':
-                if wild['hp'] <= 0:
-                    break
-                use_mv = chosen or random.choice(_safe_moves(me))
-                await self._strike(gid, me, wild, use_mv, True, log, st.get('weather'))
-            else:
-                if me['hp'] <= 0:
-                    break
-                await self._strike(gid, wild, me, random.choice(_safe_moves(wild)), False, log,
-                                   st.get('weather'))
+        # chosen move (or fallback): resolved in the battle service,
+        # faster strikes first, faint short-circuits, log appended in place
+        from services.battle_service import resolve_turn
+        mv_idx = what[1] if (isinstance(what, tuple) and what[0] == 'move') else None
+        resolve_turn(st, gid, mv_idx)
         return await self._after_turn(ix, gid, user, key, st)
-
-    async def _strike(self, gid, att, dfn, mv, is_me: bool, log: list, weather=None):
-        dmg, crit = damage(att['level'], mv, att['stats'], dfn['stats'],
-                           att['types'], dfn['types'], weather)
-        dmg = held_strike(att, dfn, dmg)
-        dfn['hp'] = max(0, dfn['hp'] - dmg)
-        eff = effectiveness(mv.get('ptype', 'normal'), dfn['types'])
-        tag = _hit_tag(gid, eff, crit, dmg)
-        who = t(gid, 'eco.pk_you') if is_me else t(gid, 'eco.pk_foe')
-        log.append(t(gid, 'eco.pk_hit', who=who, move=_mv_name(gid, mv), dmg=dmg) + tag)
-
-    async def _wild_strike(self, gid, me, wild, log: list, weather=None):
-        await self._strike(gid, wild, me, random.choice(_safe_moves(wild)), False, log, weather)
 
     async def _after_turn(self, ix: discord.Interaction, gid, user, key, st):
         me, wild, log = st['me'], st['wild'], st['log']
