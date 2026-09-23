@@ -582,21 +582,26 @@ def main() -> None:
     t1.join()
     t2.join()
     check(cout['u1']['ok'] and cout['u2']['ok'], 'racing claims both succeed')
+    # phase bonus guarantees >= 1 scale; the normal table can also roll one
+    # on top (same item, weighted), so assert the floor - never the exact.
     for u in ('u1', 'u2'):
-        check(_qty2(u, 'tidal_scale') == 1, f'{u} phase item exactly once')
+        check(_qty2(u, 'tidal_scale') >= 1, f'{u} phase item awarded')
     r = wb.claim_rewards(G6, 'u3', TP3 + 301)
     check(r['ok'], 'third qualifier claims')
-    check(_qty2('u3', 'tidal_scale') == 1, 'u3 phase item exactly once')
+    check(_qty2('u3', 'tidal_scale') >= 1, 'u3 phase item awarded')
     import json as _json
     with db.conn_ctx() as conn:
         rows = conn.execute('SELECT user_id, reward_json FROM world_boss_rewards WHERE boss_id=?',
                             (bid6,)).fetchall()
     check(sorted(_json.loads(x['reward_json'])['phase'] for x in rows) == ['raging'] * 3,
           'phase recorded in persisted outcomes')
+    scales_before = {}
+    for u in ('u1', 'u2', 'u3'):
+        scales_before[u] = _qty2(u, 'tidal_scale')
     for u in ('u1', 'u2', 'u3'):
         r = wb.claim_rewards(G6, u, TP3 + 302)
         check(not r['ok'], f'{u} retry denied')
-        check(_qty2(u, 'tidal_scale') == 1, f'{u} retry adds nothing')
+        check(_qty2(u, 'tidal_scale') == scales_before[u], f'{u} retry adds nothing')
     r = wb.claim_rewards(G6, 'u4', TP3 + 303)
     check(not r['ok'] and r['code'] == 'NO_REWARD', 'below threshold: no phase loot')
     with db.conn_ctx() as conn:

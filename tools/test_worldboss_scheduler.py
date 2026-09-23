@@ -126,14 +126,17 @@ def main() -> None:
           'unknown channel blocks start')
 
     # --- invalid rotation skips one guild, others proceed ---
-    auto(17, rotation='nope')
+    # (written raw: set_setting rightly rejects unknown keys at write time)
+    auto(17)
+    db.meta_set('wb_17_rotation', 'nope')
     auto(18)
     out = sch.tick([FakeGuild(17, ('7',)), FakeGuild(18, ('7',))], T0)
     check(out['17']['started'] is None and out['18']['started'] == 'dreadmaw',
           'bad config isolated per guild')
 
     # --- rotation skips unknown/disabled bosses inside the list ---
-    auto(19, rotation='nope,tidecaller')
+    auto(19)
+    db.meta_set('wb_19_rotation', 'nope,tidecaller')
     out = sch.tick([FakeGuild(19, ('7',))], T0)
     check(out['19']['started'] == 'tidecaller', 'unknown entries skipped in rotation')
 
@@ -151,6 +154,100 @@ def main() -> None:
     check(r['ok'] and r['code'] == 'EXPIRED', 'expire_event acts once')
     r = wb.expire_event(11, T0 + 20 + 21600 + 1 + 3600 + 5 + 21600 + 10 + 3600 + 2)
     check(not r['ok'] and r['code'] == 'NOOP', 'expire_event idempotent')
+
+    # --- structured actions carry identifiers ---
+    from tasks.worldboss_scheduler import run_pass
+    auto(21, channel='7')
+    _tick, acts = run_pass([FakeGuild(21, ('7',))], T0)
+    started = [a for a in acts if a.code == 'STARTED']
+    check(len(started) == 1 and started[0].boss_key == 'dreadmaw'
+          and started[0].event_id and started[0].duration_ms >= 0
+          and started[0].ok, 'STARTED action identified')
+    _tick2, acts2 = run_pass([FakeGuild(21, ('7',))], T0 + 5)
+    codes = {a.code for a in acts2}
+    check('ACTIVE' in codes, 'skip carries code')
+
+    # --- setting validation rejects bad input, keeps old state ---
+    from tasks.worldboss_scheduler import get_settings as _gs, set_setting as _ss
+    check(_ss(22, 'rotation', 'nope') is False, 'unknown rotation rejected')
+    check(_ss(22, 'rotation', '  ') is False, 'empty rotation rejected')
+    check(_ss(22, 'interval', '0') is False, 'non-positive interval rejected')
+    check(_ss(22, 'interval', 'soon') is False, 'unparseable interval rejected')
+    check(_ss(22, 'nope', 'x') is False, 'unknown setting rejected')
+    check(_ss(22, 'rotation', 'dreadmaw tidecaller') is True, 'valid rotation stored')
+    check(_gs(22)['rotation'] == ('dreadmaw', 'tidecaller'), 'rotation normalized')
+    check(_ss(22, 'interval', '6h') is True and _gs(22)['interval'] == 21600,
+          'interval suffix parsed')
+    check(_ss(22, 'auto', 'maybe') is False and _gs(22)['auto'] is False,
+          'bad bool keeps old state')
+
+    # --- forceexpire cannot touch other guilds or finished events ---
+    auto(23, channel='7')
+    _tick, _a = run_pass([FakeGuild(23, ('7',))], T0)
+    r = wb.expire_event(24, T0 + 1)
+    check(not r['ok'], 'force path scoped per guild')
+    with db.conn_ctx() as conn:
+        still = conn.execute("SELECT status FROM world_boss WHERE guild_id='23'").fetchone()['status']
+    check(still == 'ACTIVE', 'other guild untouched')
+    with db.conn_ctx() as conn:
+        conn.execute("UPDATE world_boss SET status='COMPLETED', defeated_at=? WHERE guild_id='23'",
+                     (T0 + 2,))
+    r = wb.expire_event(23, T0 + 3)
+    check(not r['ok'], 'defeated event cannot expire')
+
+    # --- error recorded, then cleared by a successful action ---
+    from unittest import mock as _mock
+    auto(25, channel='7')
+    with _mock.patch('services.worldboss_service.expire_event',
+                     side_effect=RuntimeError('boom')):
+        _t, acts = run_pass([FakeGuild(25, ('7',))], T0)
+    check(any(a.code == 'FAILED' and a.error for a in acts), 'failure action recorded')
+    from tasks.worldboss_scheduler import lifecycle_info as _life
+    check('boom' in _life(25)['error'], 'last error persisted')
+    _t, acts = run_pass([FakeGuild(25, ('7',))], T0 + 1)
+    check(any(a.code == 'STARTED' for a in acts), 'recovered pass starts')
+    check(_life(25)['error'] == '', 'success clears error state')
+    check('STARTED' in _life(25)['action'], 'last action recorded')
+
+    # --- failing guild never stops the healthy one ---
+    class BadGuild:
+        @property
+        def id(self):
+            raise RuntimeError('no id here')
+
+        def get_channel(self, cid):
+            return None
+
+    auto(26, channel='7')
+    _t, acts = run_pass([BadGuild(), FakeGuild(26, ('7',))], T0)
+    check(any(a.code == 'STARTED' for a in acts), 'healthy guild proceeds')
+    check('?' in _t, 'broken guild isolated without killing the loop')
+
+    # --- unexpected service failure becomes a FAILED action ---
+    from unittest import mock as _mock2
+    auto(30, channel='7')
+    with _mock2.patch('services.worldboss_service.start_boss',
+                      side_effect=RuntimeError('db gone')):
+        _t, acts = run_pass([FakeGuild(30, ('7',))], T0)
+    check(any(a.code == 'FAILED' and 'db gone' in (a.error or '') for a in acts),
+          'service failure surfaces with context')
+
+    # --- config survives a simulated restart (meta-persisted) ---
+    auto(27, channel='9', rotation='tidecaller', interval='12h')
+    s1 = _gs(27)
+    check(s1['auto'] and s1['channel'] == '9' and s1['rotation'] == ('tidecaller',)
+          and s1['interval'] == 43200, 'settings roundtrip persisted')
+
+    # --- status dashboard content ---
+    from cogs.worldboss import build_config_text
+    auto(28, channel='7')
+    _t, _a = run_pass([FakeGuild(28, ('7',))], T0)
+    txt = build_config_text(28, T0 + 60)
+    for needle in ('ENABLED', 'Auto: on', 'Rotation: dreadmaw', 'Active:',
+                   'Dreadmaw', 'Next eligible', 'Claims open', 'Last tick'):
+        check(needle in txt, f'status shows {needle}')
+    txt2 = build_config_text(29, T0)
+    check('Active: none' in txt2 and 'ENABLED' in txt2, 'empty status shape')
 
     print('FAILS: %d' % len(FAILS), flush=True)
     sys.exit(1 if FAILS else 0)
