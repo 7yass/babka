@@ -68,6 +68,74 @@ def build_config_text(gid, now):
     return '\n'.join(lines)
 
 
+def _dur(s) -> str:
+    try:
+        s = max(0, int(s or 0))
+    except Exception:
+        return '—'
+    if s < 60:
+        return f'{s}s'
+    m, s = divmod(s, 60)
+    if m < 60:
+        return f'{m}m'
+    h, m = divmod(m, 60)
+    return f'{h}h {m}m'
+
+
+def _member_name(guild, uid: str) -> str:
+    try:
+        mbr = guild.get_member(int(uid)) if guild else None
+        if mbr:
+            return mbr.display_name
+    except Exception:
+        pass
+    return f'<@{uid}>'
+
+
+def build_history_text(guild, events, page: int, total_pages: int, gid) -> str:
+    """Pure-ish history renderer (headless-testable with a stub guild)."""
+    lines = [t(gid, 'eco.wb_hist_title')]
+    for e in events:
+        top = _member_name(guild, e.top[0].user_id) if e.top else '—'
+        if e.outcome == 'active':
+            lines.append(f"**{e.name}** — ACTIVE, {e.participants} hunters, top {top}")
+        else:
+            lines.append(f"**{e.name}** — {e.outcome.upper()}, {e.participants} hunters, "
+                         f"{_dur(e.duration_s)}, top {top}")
+    if total_pages > 1:
+        lines.append(t(gid, 'eco.wb_hist_page', page=page + 1, total=total_pages))
+    return '\n'.join(lines)
+
+
+def build_leaderboard_text(guild, page_obj, gid) -> str:
+    lines = [t(gid, 'eco.wb_lb_title', metric=page_obj.metric)]
+    for e in page_obj.entries:
+        lines.append(f"{e.rank}. {_member_name(guild, e.user_id)} — {e.value}")
+    if page_obj.total_pages > 1:
+        lines.append(t(gid, 'eco.wb_hist_page', page=page_obj.page + 1,
+                       total=page_obj.total_pages))
+    return '\n'.join(lines)
+
+
+def build_stats_text(st, gid) -> str:
+    avg_dur = _dur(st.avg_duration_s) if st.avg_duration_s is not None else '—'
+    loot_bits = []
+    for item, qty in (st.loot_guaranteed or ()):
+        loot_bits.append(f'{item} (bonus) x{qty}')
+    for item, qty in (st.loot_weighted or ()):
+        loot_bits.append(f'{item} x{qty}')
+    return '\n'.join([
+        t(gid, 'eco.wb_stats_title'),
+        t(gid, 'eco.wb_stats_events', total=st.total, defeated=st.defeated,
+          expired=st.expired, rate=int(round(st.defeat_rate * 100))),
+        t(gid, 'eco.wb_stats_avg', dur=avg_dur, parts=f'{st.avg_participants:.1f}',
+          dpa=f'{st.avg_damage_per_attack:.1f}', claims=st.total_claims),
+        t(gid, 'eco.wb_stats_fav', boss=st.most_used_boss or '—',
+          phase=st.most_common_phase or '—'),
+        t(gid, 'eco.wb_stats_loot', loot=', '.join(loot_bits) or '—'),
+    ])
+
+
 class WorldBoss(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -299,6 +367,57 @@ class WorldBoss(commands.Cog):
             bits.append(bit)
         await ctx.reply(t(ctx.guild.id, 'eco.wb_tick_done',
                           summary=', '.join(bits) or 'quiet'), ephemeral=True)
+
+    @worldboss.command(name='history', description='Historia rajdów')
+    async def wb_history(self, ctx, page: str = ''):
+        from services import worldboss_history as _hist
+        gid = ctx.guild.id
+        try:
+            p = max(0, int((page or '1').strip()) - 1)
+        except Exception:
+            p = 0
+        per = _hist.HISTORY_PAGE_SIZE
+        total = _hist.count_events(gid)
+        total_pages = max(1, (total + per - 1) // per)
+        p = min(p, total_pages - 1)
+        events = _hist.recent_events(gid, limit=per, offset=p * per)
+        if not events:
+            return await ctx.reply(t(gid, 'eco.wb_hist_empty'), mention_author=False)
+        await ctx.reply(build_history_text(ctx.guild, events, p, total_pages, gid),
+                        mention_author=False)
+
+    @worldboss.command(name='stats', description='Statystyki rajdów (staff)')
+    @staff_or('administrator')
+    async def wb_stats(self, ctx):
+        import time as _t
+        from services import worldboss_history as _hist
+        gid = ctx.guild.id
+        st = _hist.statistics(gid, now=int(_t.time()))
+        if not st.total:
+            return await ctx.reply(t(gid, 'eco.wb_stats_empty'), ephemeral=True)
+        await ctx.reply(build_stats_text(st, gid), ephemeral=True)
+
+    @worldboss.command(name='leaderboard', aliases=['lb'],
+                       description='Ranking rajdowy')
+    async def wb_leaderboard(self, ctx, metric: str = 'damage', page: str = ''):
+        from services import worldboss_history as _hist
+        gid = ctx.guild.id
+        m = (metric or 'damage').lower().strip()
+        pg_raw = (page or '').strip()
+        # `;worldboss leaderboard 2` means page 2 of the default metric.
+        if m.isdigit() and not pg_raw:
+            pg_raw, m = m, 'damage'
+        if m not in ('damage', 'wins', 'participation'):
+            return await ctx.reply(t(gid, 'eco.wb_lb_use'), ephemeral=True)
+        try:
+            p = max(0, int(pg_raw or '1') - 1)
+        except Exception:
+            p = 0
+        board = _hist.leaderboard(gid, m, page=p)
+        if not board.entries:
+            return await ctx.reply(t(gid, 'eco.wb_lb_empty'), mention_author=False)
+        await ctx.reply(build_leaderboard_text(ctx.guild, board, gid),
+                        mention_author=False)
 
     @worldboss.command(name='forceexpire', description='Zakończ event (staff)')
     @staff_or('administrator')
