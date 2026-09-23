@@ -52,10 +52,15 @@ def wild_strike(gid, me: dict, wild: dict, log: list, weather=None,
            weather, rng)
 
 
-def resolve_turn(st: dict, gid, move_idx=None, rng=None) -> TurnResult:
+def resolve_turn(st: dict, gid, move_idx=None, rng=None,
+                 strict_faint: bool = False) -> TurnResult:
     """Wild-battle turn: faster strikes first, faint short-circuits.
     move_idx into me['moves'] (None/invalid = random safe fallback).
-    Mutates st in place; returns what happened."""
+    Mutates st in place; returns what happened.
+
+    strict_faint (used by world bosses): a side that fainted mid-turn
+    does not act. Default False preserves the legacy wild-battle quirk
+    where a KO'd mon still lands its retaliation (covered by tests)."""
     from cogs.pokemon import _safe_moves
     _rng = rng or _random
     me, wild, log = st['me'], st['wild'], st['log']
@@ -72,12 +77,12 @@ def resolve_turn(st: dict, gid, move_idx=None, rng=None) -> TurnResult:
         order = [('wild', None), ('me', mv)]
     for side, chosen in order:
         if side == 'me':
-            if wild['hp'] <= 0:
+            if wild['hp'] <= 0 or (strict_faint and me['hp'] <= 0):
                 break
             use_mv = chosen or _rng.choice(_safe_moves(me))
             strike(gid, me, wild, use_mv, True, log, weather, rng)
         else:
-            if me['hp'] <= 0:
+            if me['hp'] <= 0 or (strict_faint and wild['hp'] <= 0):
                 break
             strike(gid, wild, me, _rng.choice(_safe_moves(wild)), False,
                    log, weather, rng)

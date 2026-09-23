@@ -18,6 +18,7 @@ ATTACK_CD = 60         # seconds between attacks per user
 MIN_DAMAGE = 50        # reward threshold
 REWARD_BASE = 1000     # participation payout
 REWARD_TOP = 5000      # top-contributor bonus
+HEAL_COST = 1000       # coin cost, once per raid per user
 DEFAULT_DURATION = 3600
 
 BOSS = {
@@ -52,12 +53,22 @@ def ensure_tables() -> None:
             attacks INTEGER DEFAULT 0, joined_at INTEGER DEFAULT 0,
             last_action_at INTEGER DEFAULT 0, reward_claimed INTEGER DEFAULT 0,
             PRIMARY KEY (boss_id, user_id))''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS world_boss_combat (
+            boss_id INTEGER NOT NULL, guild_id TEXT NOT NULL,
+            user_id TEXT NOT NULL, mid INTEGER NOT NULL,
+            hp INTEGER NOT NULL, max_hp INTEGER NOT NULL,
+            healed INTEGER DEFAULT 0, updated_at INTEGER DEFAULT 0,
+            PRIMARY KEY (boss_id, user_id))''')
 
 
 def _sweep(conn, gid, now) -> None:
-    """Mark overdue ACTIVE bosses EXPIRED. Guarded; harmless if already done."""
+    """Mark overdue ACTIVE bosses EXPIRED + drop their combat snapshots
+    (parts stay for post-raid claims). Guarded; harmless if already done."""
     conn.execute("UPDATE world_boss SET status='EXPIRED' WHERE guild_id=? "
                  "AND status='ACTIVE' AND expires_at<=?", (str(gid), now))
+    conn.execute('DELETE FROM world_boss_combat WHERE boss_id IN '
+                 '(SELECT id FROM world_boss WHERE guild_id=? AND status<>?)',
+                 (str(gid), 'ACTIVE'))
 
 
 def _active_row(conn, gid):
@@ -132,25 +143,61 @@ def join_boss(gid, uid, now: int = None) -> dict:
                          name=BOSSES.get(b['boss_key'], {}).get('name', b['boss_key']))}
 
 
+def _fighter_from_mon(gid, mon: dict, hp: int | None = None) -> dict:
+    """Lightweight combatant from a collection row. Synthetic moveset
+    (STAB strike + Tackle): no network, deterministic. Permanent row
+    is never written — hp lives in the combat snapshot."""
+    from cogs.pokemon import _dex_row, calc_stats
+    row = _dex_row(mon['dex'])
+    stats = calc_stats(row, mon['level'])
+    types = list(row.get('types') or ['normal']) or ['normal']
+    ptype = types[0]
+    full = stats['maxhp']
+    return {'name': f"Lv{mon['level']} {(row.get('name') or 'mon').capitalize()}",
+            'level': mon['level'], 'hp': full if hp is None else hp,
+            'stats': stats, 'types': types, 'held': '',
+            'moves': [{'name': f'{ptype.capitalize()} Strike', 'power': 60,
+                       'acc': 100, 'ptype': ptype},
+                      {'name': 'Tackle', 'power': 40, 'acc': 100,
+                       'ptype': 'normal'}], '_maxhp': full}
+
+
 def _player_fighter(gid, uid):
-    """Lightweight combatant from the active mon. No network: STAB strike
-    derived from species types, so the flow stays offline-capable."""
-    from cogs.pokemon import _dex_row, calc_stats, my_mons
+    """Legacy full-HP builder (kept for tests/back-compat)."""
+    from cogs.pokemon import my_mons
     mons = my_mons(gid, uid)
     if not mons:
         return None
     act = next((m for m in mons if m.get('active')), mons[0])
-    row = _dex_row(act['dex'])
-    stats = calc_stats(row, act['level'])
-    types = list(row.get('types') or ['normal']) or ['normal']
-    ptype = types[0]
-    return {'name': f"Lv{act['level']} {(row.get('name') or 'mon').capitalize()}",
-            'level': act['level'], 'hp': stats['maxhp'], 'stats': stats,
-            'types': types, 'held': '',
-            'moves': [{'name': f'{ptype.capitalize()} Strike', 'power': 60,
-                       'acc': 100, 'ptype': ptype},
-                      {'name': 'Tackle', 'power': 40, 'acc': 100,
-                       'ptype': 'normal'}]}
+    return _fighter_from_mon(gid, act)
+
+
+def _load_combat(conn, gid, uid, boss_id):
+    """Snapshot row + live mon row. Rebuilds the snapshot when the pinned
+    mon is gone (traded/released mid-raid); None when the box is empty."""
+    from cogs.pokemon import my_mons
+    snap = conn.execute('SELECT * FROM world_boss_combat WHERE boss_id=? AND user_id=?',
+                        (boss_id, str(uid))).fetchone()
+    snap = dict(snap) if snap else None
+    mons = my_mons(gid, uid)
+    if not mons:
+        return None, None
+    live = next((m for m in mons if str(m['id']) == str((snap or {}).get('mid'))), None)
+    if snap and not live:
+        conn.execute('DELETE FROM world_boss_combat WHERE boss_id=? AND user_id=?',
+                     (boss_id, str(uid)))
+        snap = None
+    if not snap:
+        act = next((m for m in mons if m.get('active')), mons[0])
+        full = _fighter_from_mon(gid, act)['_maxhp']
+        conn.execute('INSERT OR REPLACE INTO world_boss_combat '
+                     '(boss_id, guild_id, user_id, mid, hp, max_hp, healed, updated_at) '
+                     'VALUES (?,?,?,?,?,?,?,?)',
+                     (boss_id, str(gid), str(uid), act['id'], full, full, 0,
+                      int(time.time())))
+        snap = {'mid': act['id'], 'hp': full, 'max_hp': full, 'healed': 0}
+        live = act
+    return snap, live
 
 
 def _boss_fighter(hp: int) -> dict:
@@ -160,8 +207,10 @@ def _boss_fighter(hp: int) -> dict:
 
 
 def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
-    """One attack: cooldown, resolve via battle_service, guarded HP write,
-    contribution. Loser of a revision race gets STALE (retry)."""
+    """One attack: cooldown, snapshot gate, resolve via battle_service,
+    persist boss HP + snapshot HP + contribution in one guarded txn.
+    Boss defeat skips retaliation (engine short-circuit); a fainted
+    snapshot must switch before acting again."""
     from services import battle_service as _bt
     ensure_tables()
     now = int(now if now is not None else time.time())
@@ -182,13 +231,19 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
         if wait > 0:
             return {'ok': False, 'code': 'COOLDOWN',
                     'message': t(gid, 'eco.wb_cooldown', s=wait)}
-    me = _player_fighter(gid, uid)
-    if not me:
-        return {'ok': False, 'code': 'NO_MON',
-                'message': t(gid, 'eco.pk_need_starter')}
+        snap, live = _load_combat(conn, gid, uid, b['id'])
+        if not snap or not live:
+            return {'ok': False, 'code': 'NO_MON',
+                    'message': t(gid, 'eco.pk_need_starter')}
+        if (snap['hp'] or 0) <= 0:
+            from cogs.pokemon import mon_name
+            return {'ok': False, 'code': 'FAINTED',
+                    'message': t(gid, 'eco.wb_fainted', name=mon_name(live, gid))}
+        me = _fighter_from_mon(gid, live, snap['hp'])
     st = {'me': me, 'wild': _boss_fighter(b['hp']), 'log': [], 'weather': None}
-    _bt.resolve_turn(st, gid, 0, rng)
+    _bt.resolve_turn(st, gid, 0, rng, strict_faint=True)
     dealt = max(0, b['hp'] - st['wild']['hp'])
+    left_hp = max(0, st['me']['hp'])
     with db.conn_ctx() as conn:
         cur = conn.execute('UPDATE world_boss SET hp=max(0, hp-?), revision=revision+1 '
                            'WHERE id=? AND status=\'ACTIVE\' AND revision=?',
@@ -196,6 +251,9 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
         if (cur.rowcount or 0) != 1:
             return {'ok': False, 'code': 'STALE',
                     'message': t(gid, 'eco.wb_stale')}
+        conn.execute('UPDATE world_boss_combat SET hp=?, updated_at=? '
+                     'WHERE boss_id=? AND user_id=?',
+                     (left_hp, now, b['id'], str(uid)))
         conn.execute('UPDATE world_boss_parts SET damage=damage+?, attacks=attacks+1, '
                      'last_action_at=? WHERE boss_id=? AND user_id=?',
                      (dealt, now, b['id'], str(uid)))
@@ -206,14 +264,88 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
         if defeated:
             conn.execute('UPDATE world_boss SET status=\'COMPLETED\', defeated_at=? '
                          'WHERE id=? AND status=\'ACTIVE\'', (now, b['id']))
+    tail = t(gid, 'eco.wb_fainted', name=me['name']) if left_hp <= 0 \
+        else t(gid, 'eco.wb_self_hp', name=me['name'], hp=left_hp, max_hp=me['_maxhp'])
     if defeated:
         return {'ok': True, 'code': 'DEFEATED', 'damage': dealt,
                 'boss_hp': 0, 'max_hp': left['max_hp'],
-                'message': t(gid, 'eco.wb_defeated', dmg=dealt)}
+                'message': t(gid, 'eco.wb_defeated', dmg=dealt) + '\n' + tail}
     return {'ok': True, 'code': 'ATTACK_OK', 'damage': dealt,
             'boss_hp': left['hp'], 'max_hp': left['max_hp'],
             'message': t(gid, 'eco.wb_hit', dmg=dealt, hp=left['hp'],
-                         max_hp=left['max_hp'])}
+                         max_hp=left['max_hp']) + '\n' + tail}
+
+
+def switch_mon(gid, uid, mon_id: int, now: int = None) -> dict:
+    """Send out another mon (full snapshot HP). Same-mon switch is a
+    no-op — otherwise it would be a free heal."""
+    from cogs.pokemon import mon_name
+    from services._common import get_owned_pokemon
+    ensure_tables()
+    now = int(now if now is not None else time.time())
+    with db.conn_ctx() as conn:
+        _sweep(conn, gid, now)
+        row = _active_row(conn, gid)
+        if not row:
+            return {'ok': False, 'code': 'NO_BOSS', 'message': t(gid, 'eco.wb_no_boss')}
+        b = dict(row)
+        mon = get_owned_pokemon(conn, gid, uid, mon_id)
+        if not mon:
+            return {'ok': False, 'code': 'NOT_FOUND',
+                    'message': t(gid, 'eco.pk_noslot')}
+        snap = conn.execute('SELECT mid FROM world_boss_combat WHERE boss_id=? AND user_id=?',
+                            (b['id'], str(uid))).fetchone()
+        if snap and str(snap['mid']) == str(mon['id']):
+            return {'ok': False, 'code': 'SAME_MON',
+                    'message': t(gid, 'eco.wb_same', name=mon_name(mon, gid))}
+        full = _fighter_from_mon(gid, mon)['_maxhp']
+        conn.execute('INSERT OR REPLACE INTO world_boss_combat '
+                     '(boss_id, guild_id, user_id, mid, hp, max_hp, healed, updated_at) '
+                     'VALUES (?,?,?,?,?,?,COALESCE((SELECT healed FROM world_boss_combat '
+                     'WHERE boss_id=? AND user_id=?),0),?)',
+                     (b['id'], str(gid), str(uid), mon['id'], full, full,
+                      b['id'], str(uid), now))
+    return {'ok': True, 'code': 'SWITCHED',
+            'message': t(gid, 'eco.wb_switched', name=mon_name(mon, gid))}
+
+
+def heal_fighter(gid, uid, now: int = None) -> dict:
+    """Top up the current snapshot to full: costs coins, once per raid,
+    never on a fainted mon (switch instead)."""
+    from services._common import cash_of, debit_cash
+    from utils.cards import short as cshort
+    ensure_tables()
+    now = int(now if now is not None else time.time())
+    with db.conn_ctx() as conn:
+        _sweep(conn, gid, now)
+        row = _active_row(conn, gid)
+        if not row:
+            return {'ok': False, 'code': 'NO_BOSS', 'message': t(gid, 'eco.wb_no_boss')}
+        b = dict(row)
+        snap = conn.execute('SELECT hp, max_hp, healed FROM world_boss_combat '
+                            'WHERE boss_id=? AND user_id=?', (b['id'], str(uid))).fetchone()
+        if not snap:
+            return {'ok': False, 'code': 'NO_MON',
+                    'message': t(gid, 'eco.pk_need_starter')}
+        snap = dict(snap)
+        if (snap['hp'] or 0) <= 0:
+            return {'ok': False, 'code': 'FAINTED',
+                    'message': t(gid, 'eco.wb_fainted_switch')}
+        if (snap['hp'] or 0) >= (snap['max_hp'] or 0):
+            return {'ok': False, 'code': 'FULL_HP',
+                    'message': t(gid, 'eco.wb_full')}
+        if snap['healed']:
+            return {'ok': False, 'code': 'HEAL_USED',
+                    'message': t(gid, 'eco.wb_healed_used')}
+        if cash_of(conn, gid, uid) < HEAL_COST:
+            return {'ok': False, 'code': 'INSUFFICIENT_FUNDS',
+                    'message': t(gid, 'eco.broke',
+                                 cash=cshort(cash_of(conn, gid, uid)))}
+        debit_cash(conn, gid, uid, HEAL_COST)
+        conn.execute('UPDATE world_boss_combat SET hp=max_hp, healed=1, updated_at=? '
+                     'WHERE boss_id=? AND user_id=?', (now, b['id'], str(uid)))
+    return {'ok': True, 'code': 'HEALED',
+            'message': t(gid, 'eco.wb_healed', cost=HEAL_COST)}
 
 
 def claim_rewards(gid, uid, now: int = None) -> dict:

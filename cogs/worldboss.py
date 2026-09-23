@@ -69,6 +69,25 @@ class WorldBoss(commands.Cog):
         res = _wb.claim_rewards(ctx.guild.id, ctx.author.id)
         await ctx.reply(res['message'], mention_author=False)
 
+    @worldboss.command(name='switch', description='Zmień wojownika')
+    async def wb_switch(self, ctx, slot: str = ''):
+        from services import worldboss_service as _wb
+        gid = ctx.guild.id
+        if not (slot or '').strip().isdigit():
+            return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
+        from cogs.pokemon import get_mon
+        m = get_mon(gid, ctx.author.id, int(slot.strip()))
+        if not m:
+            return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
+        res = _wb.switch_mon(gid, ctx.author.id, m['id'])
+        await ctx.reply(res['message'], mention_author=False)
+
+    @worldboss.command(name='heal', description='Ulecz wojownika (1/rajd, płatne)')
+    async def wb_heal(self, ctx):
+        from services import worldboss_service as _wb
+        res = _wb.heal_fighter(ctx.guild.id, ctx.author.id)
+        await ctx.reply(res['message'], mention_author=False)
+
     @worldboss.command(name='start', description='Wystaw bossa (staff)')
     @staff_or('administrator')
     async def wb_start(self, ctx, boss: str = 'dreadmaw'):

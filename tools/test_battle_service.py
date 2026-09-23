@@ -121,6 +121,22 @@ def main() -> None:
     bs.resolve_turn(st, 0, 0, FakeRng(rolls=[0.5, 0.5]))
     check(st['wild']['hp'] == 0, 'hp floored at 0')
 
+    # strict_faint (world-boss mode): a side KO'd mid-turn does not act.
+    st = state(mon('ME', 100, 50, move_name='Quick'),
+               mon('WILD', 10, 1, move_name='Slow'))
+    res = bs.resolve_turn(st, 0, 0, FakeRng(rolls=[0.5, 0.5]), True)
+    check(len(res.events) == 1 and 'Quick' in res.events[0]
+          and res.wild_fainted, 'strict: fainted foe stays down')
+    st = state(mon('ME', 100, 0, move_name='Quick'),
+               mon('WILD', 10, 50, move_name='Slow'))
+    res = bs.resolve_turn(st, 0, 0, FakeRng(), True)
+    check(len(res.events) == 0, 'strict: fainted lead aborts the turn')
+    # ...while default keeps the legacy retaliation quirk.
+    st = state(mon('ME', 100, 50, move_name='Quick'),
+               mon('WILD', 10, 1, move_name='Slow'))
+    res = bs.resolve_turn(st, 0, 0, FakeRng(rolls=[0.5, 0.5] * 2))
+    check(len(res.events) == 2, 'default: KO still retaliates (legacy)')
+
     print('FAILS: %d' % len(FAILS), flush=True)
     sys.exit(1 if FAILS else 0)
 
