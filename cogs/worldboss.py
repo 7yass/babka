@@ -82,6 +82,61 @@ def _dur(s) -> str:
     return f'{h}h {m}m'
 
 
+def build_sim_text(rep: dict) -> str:
+    """Compact balance report (headless-testable)."""
+    if not rep.get('ok'):
+        return f"Sim failed: {rep.get('code', 'ERROR')}."
+    a = rep['assumptions']
+    head = (f"**{rep['boss_name']}** sim — {a['fighters']}x {a['fighter']} "
+            f"(HP {a['fighter_maxhp']}, teams of {a['team_size']}), "
+            f"{a['raids']} raids, seed {a['seed']}, heal {a['heal_policy']}")
+    if not rep['kills']:
+        return (f"{head}\nNo kills: {rep['expiries']} expiries, "
+                f"{rep['wipes']} wipes. Weaker profile or bigger team needed.")
+    atk = rep['avg_attacks_to_kill']
+    clr = _dur(rep['avg_clear_time_s'])
+    lim = _dur(rep['duration_seconds'])
+    phases = ', '.join(f'{k} {v * 100:.0f}%' for k, v in rep['phase_reach'].items())
+    below = rep['below_threshold_pct']
+    below_s = f"{below * 100:.0f}%" if below is not None else '—'
+    loot = [f'{k} {v}/raid (bonus)' for k, v in rep['loot_guaranteed_per_raid'].items()]
+    loot += [f'{k} {v}/raid' for k, v in rep['loot_weighted_per_raid'].items()]
+    return '\n'.join([
+        head,
+        f"Kills {rep['kill_rate'] * 100:.0f}% ({rep['kills']}/{rep['raids']}) · "
+        f"avg {atk} attacks · ~{clr} clear (limit {lim})",
+        f"Faints {rep['avg_faints_per_raid']}/raid · "
+        f"heals {rep['avg_heals_per_raid']}/raid · "
+        f"{rep['avg_dmg_per_attack']} dmg/hit",
+        f"Phase: {phases or '—'} · below {rep['participation_damage']}dmg: {below_s}",
+        f"Loot: {'; '.join(loot) or '—'}",
+    ])
+
+
+def build_preview_text(p: dict) -> str:
+    """Config dump (headless-testable)."""
+    if not p.get('ok'):
+        return f"Unknown boss: {p.get('code', 'ERROR')}."
+    lines = [f"**{p['name']}** — {p['max_hp']} HP · {_dur(p['duration_seconds'])} · "
+             f"{p['attack_cooldown_seconds']}s cooldown · "
+             f"threshold {p['participation_damage']} dmg · "
+             f"{p['participation_coins']}+{p['top_bonus_coins']} coins"
+             + ('' if p['enabled'] else ' · DISABLED')]
+    for ph in p['phases']:
+        bits = [f">{ph['above_ratio'] * 100:.0f}%", f"x{ph['damage_mult']}"]
+        bits += list(ph['moves'])
+        if ph['effect']:
+            bits.append(ph['effect'])
+        if ph['phase_reward']:
+            bits.append(f"+{ph['phase_reward'][1]}x {ph['phase_reward'][0]}")
+        lines.append(f"{ph['display_name']}: {', '.join(bits)}")
+    loot = [f"{e['item']} {e['qty'][0]}-{e['qty'][1]} "
+            f"{e['weight_share'] * 100:.0f}% (min {e['min_damage']}dmg)"
+            for e in p['loot']]
+    lines.append(f"Loot/roll: {'; '.join(loot)}")
+    return '\n'.join(lines)
+
+
 def _member_name(guild, uid: str) -> str:
     try:
         mbr = guild.get_member(int(uid)) if guild else None
@@ -435,6 +490,41 @@ class WorldBoss(commands.Cog):
         else:
             return await ctx.reply(t(gid, 'eco.wb_use_unknown'), ephemeral=True)
         await ctx.reply(res['message'], mention_author=False)
+
+    @worldboss.command(name='sim', description='Symulacja balansu (staff)')
+    @staff_or('administrator')
+    async def wb_sim(self, ctx, boss: str = '', fighters: str = '',
+                     level: str = '', raids: str = ''):
+        from services import boss_simulator as _sim
+        key = (boss or '').strip().lower()
+        if not key:
+            return await ctx.reply('Usage: `;worldboss sim <boss> [fighters] [level] [raids]` '
+                                   '(e.g. `;worldboss sim tidecaller 5 100 200`).',
+                                   ephemeral=True)
+
+        def _num(raw, default, lo, hi):
+            try:
+                return max(lo, min(hi, int((raw or '').strip() or default)))
+            except Exception:
+                return default
+
+        n, lv, r = _num(fighters, 5, 1, 20), _num(level, 100, 1, 100), _num(raids, 200, 1, 1000)
+        try:
+            rep = await self.bot.loop.run_in_executor(
+                None, _sim.simulate_raids, key, 133, lv, n, 6, r, 7, 'none',
+                str(ctx.guild.id))
+        except Exception as e:
+            return await ctx.reply(f'Sim failed: {type(e).__name__}.', ephemeral=True)
+        await ctx.reply(build_sim_text(rep), mention_author=False)
+
+    @worldboss.command(name='preview', description='Podgląd configu bossa (staff)')
+    @staff_or('administrator')
+    async def wb_preview(self, ctx, boss: str = ''):
+        from services import boss_simulator as _sim
+        key = (boss or '').strip().lower()
+        if not key:
+            return await ctx.reply('Usage: `;worldboss preview <boss>`.', ephemeral=True)
+        await ctx.reply(build_preview_text(_sim.preview_boss(key)), mention_author=False)
 
     @worldboss.command(name='forceexpire', description='Zakończ event (staff)')
     @staff_or('administrator')
