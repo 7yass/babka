@@ -18,6 +18,8 @@ import time
 
 import database as db
 from lang import t
+from services._common import (cash_of, credit_cash, debit_cash, ensure_eco,
+                              get_owned_pokemon, reassign_active, upsert_item)
 
 MIN_PRICE = 100
 MAX_LISTINGS = 3
@@ -86,23 +88,6 @@ def _mon_name(m: dict, gid) -> str:
     return mon_name(m, gid)
 
 
-def _species_name(dex: int) -> str:
-    from cogs.pokemon import _dex_row
-    return (_dex_row(dex).get('name') or f'#{dex}').capitalize()
-
-
-def _ensure_eco(conn, gid, uid) -> None:
-    from cogs.gamble import START_CASH
-    conn.execute('INSERT OR IGNORE INTO eco (guild_id, user_id, cash) VALUES (?,?,?)',
-                 (str(gid), str(uid), START_CASH))
-
-
-def _cash(conn, gid, uid) -> int:
-    row = conn.execute('SELECT cash FROM eco WHERE guild_id=? AND user_id=?',
-                       (str(gid), str(uid))).fetchone()
-    return int(row['cash']) if row and row['cash'] is not None else 0
-
-
 def _policy_deny(m: dict, gid, uid, policy: MarketValidationPolicy,
                  busy_ids=None) -> str | None:
     """Result code when a policy check rejects, else None. Lenient flags
@@ -134,11 +119,9 @@ def create_listing(gid, seller_id, seller_name: str, mon_id: int, price: int,
     from utils.cards import short as cshort
     seller_id = str(seller_id)
     with db.conn_ctx() as conn:
-        m = conn.execute('SELECT * FROM pk_mons WHERE id=? AND guild_id=? AND owner_id=?',
-                         (mon_id, str(gid), seller_id)).fetchone()
+        m = get_owned_pokemon(conn, gid, seller_id, mon_id)
         if not m:
             return MarketResult(False, 'NOT_FOUND', t(gid, 'eco.pk_noslot'))
-        m = dict(m)
     if price is None or int(price) < MIN_PRICE:
         return MarketResult(False, 'PRICE_TOO_LOW', t(gid, 'eco.pk_market_min'))
     price = int(price)
@@ -156,10 +139,7 @@ def create_listing(gid, seller_id, seller_name: str, mon_id: int, price: int,
             return MarketResult(False, 'MARKET_FULL', t(gid, 'eco.pk_market_full'))
         if hk:
             # listings carry no held item: back to inventory, same txn
-            conn.execute('INSERT OR IGNORE INTO pk_balls (guild_id, user_id, ball, qty) '
-                         'VALUES (?,?,?,0)', (str(gid), seller_id, hk))
-            conn.execute('UPDATE pk_balls SET qty=qty+1 WHERE guild_id=? AND user_id=? AND ball=?',
-                         (str(gid), seller_id, hk))
+            upsert_item(conn, gid, seller_id, hk, 1)
         conn.execute('INSERT INTO pk_market (guild_id, seller_id, seller_name, dex, level, xp, '
                      'shiny, nick, price, created, ivs, evs) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
                      (str(gid), seller_id, (seller_name or '')[:24],
@@ -168,10 +148,7 @@ def create_listing(gid, seller_id, seller_name: str, mon_id: int, price: int,
                       m.get('ivs') or '', m.get('evs') or ''))
         conn.execute('DELETE FROM pk_mons WHERE id=?', (m['id'],))
         # quirk preserved: first remaining mon becomes active unconditionally
-        left = conn.execute('SELECT id FROM pk_mons WHERE guild_id=? AND owner_id=? ORDER BY id LIMIT 1',
-                            (str(gid), seller_id)).fetchone()
-        if left:
-            conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (left['id'],))
+        reassign_active(conn, gid, seller_id)
         lid = conn.execute('SELECT last_insert_rowid() i').fetchone()['i']
     name = _mon_name(m, gid)
     events = [{'type': 'held_returned', 'item': hk}] if hk else []
@@ -203,16 +180,14 @@ def buy_listing(gid, buyer_id, listing_id) -> MarketResult:
                                (r['id'], str(gid)))
             if (cur.rowcount or 0) != 1:
                 raise _Abort('ALREADY_SOLD', t(gid, 'eco.pk_market_gone'))
-            _ensure_eco(conn, gid, buyer_id)
-            _ensure_eco(conn, gid, r['seller_id'])
-            if _cash(conn, gid, buyer_id) < r['price']:
+            ensure_eco(conn, gid, buyer_id)
+            ensure_eco(conn, gid, r['seller_id'])
+            if cash_of(conn, gid, buyer_id) < r['price']:
                 raise _Abort('INSUFFICIENT_FUNDS',
-                             t(gid, 'eco.broke', cash=cshort(_cash(conn, gid, buyer_id))))
+                             t(gid, 'eco.broke', cash=cshort(cash_of(conn, gid, buyer_id))))
             fee = r['price'] * SALE_TAX_PCT // 100
-            conn.execute('UPDATE eco SET cash=cash-? WHERE guild_id=? AND user_id=?',
-                         (r['price'], str(gid), buyer_id))
-            conn.execute('UPDATE eco SET cash=cash+? WHERE guild_id=? AND user_id=?',
-                         (r['price'] - fee, str(gid), str(r['seller_id'])))
+            after = debit_cash(conn, gid, buyer_id, r['price'])
+            credit_cash(conn, gid, r['seller_id'], r['price'] - fee)
             has = conn.execute('SELECT COUNT(*) c FROM pk_mons WHERE guild_id=? AND owner_id=?',
                                (str(gid), buyer_id)).fetchone()['c']
             conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, '
@@ -221,7 +196,6 @@ def buy_listing(gid, buyer_id, listing_id) -> MarketResult:
                           r['shiny'], r['nick'], 1 if not has else 0,
                           r.get('ivs') or '', r.get('evs') or ''))
             mid = conn.execute('SELECT last_insert_rowid() i').fetchone()['i']
-            after = _cash(conn, gid, buyer_id)
     except _Abort as a:
         return MarketResult(False, a.code, a.message, listing_id=r['id'],
                             seller_id=str(r['seller_id']), price=r['price'])

@@ -16,6 +16,8 @@ import uuid
 
 import database as db
 from lang import t
+from services._common import (get_owned_pokemon, reassign_active,
+                              transfer_pokemon, OwnershipError)
 
 OFFER_TTL = 3600  # stale offers pruned opportunistically on create
 
@@ -44,14 +46,11 @@ def create_offer(store: dict, gid, sender_id, receiver_id: str,
         return {'ok': False, 'code': 'SELF',
                 'message': t(gid, 'eco.pk_duel_self')}
     with db.conn_ctx() as conn:
-        r1 = conn.execute('SELECT * FROM pk_mons WHERE id=? AND guild_id=? AND owner_id=?',
-                          (sender_mid, gid, sender_id)).fetchone()
-        r2 = conn.execute('SELECT * FROM pk_mons WHERE id=? AND guild_id=? AND owner_id=?',
-                          (receiver_mid, gid, receiver_id)).fetchone()
-        if not r1 or not r2:
+        m1 = get_owned_pokemon(conn, gid, sender_id, sender_mid)
+        m2 = get_owned_pokemon(conn, gid, receiver_id, receiver_mid)
+        if not m1 or not m2:
             return {'ok': False, 'code': 'NOT_FOUND',
                     'message': t(gid, 'eco.pk_noslot')}
-        m1, m2 = dict(r1), dict(r2)
     # quirk preserved: only the SENDER's mon is lock-checked at offer time
     if m1.get('locked'):
         return {'ok': False, 'code': 'LOCKED',
@@ -94,28 +93,21 @@ def accept_offer(store: dict, offer_id: str, user_id) -> dict:
     o['done'] = True  # fast path; DB guards below win cross-process
     try:
         with db.conn_ctx() as conn:
-            r1 = conn.execute('SELECT * FROM pk_mons WHERE id=? AND guild_id=? AND owner_id=?',
-                              (m1_id, gid, a)).fetchone()
-            r2 = conn.execute('SELECT * FROM pk_mons WHERE id=? AND guild_id=? AND owner_id=?',
-                              (m2_id, gid, b)).fetchone()
-            if not r1 or not r2:
+            m1 = get_owned_pokemon(conn, gid, a, m1_id)
+            m2 = get_owned_pokemon(conn, gid, b, m2_id)
+            if not m1 or not m2:
                 return {'ok': False, 'code': 'GONE', 'message': t(gid, 'eco.pk_gone')}
-            m1, m2 = dict(r1), dict(r2)
             if m1.get('locked'):
                 return {'ok': False, 'code': 'LOCKED',
                         'message': t(gid, 'eco.pk_locked', name=mon_name(m1, gid))}
-            c1 = conn.execute('UPDATE pk_mons SET owner_id=?, active=0 WHERE id=? AND guild_id=? AND owner_id=?',
-                              (b, m1_id, gid, a))
-            c2 = conn.execute('UPDATE pk_mons SET owner_id=?, active=0 WHERE id=? AND guild_id=? AND owner_id=?',
-                              (a, m2_id, gid, b))
-            if (c1.rowcount or 0) != 1 or (c2.rowcount or 0) != 1:
+            try:
+                transfer_pokemon(conn, gid, m1_id, a, b)
+                transfer_pokemon(conn, gid, m2_id, b, a)
+            except OwnershipError:
                 # lost a cross-process race: roll back (commit skipped on raise)
                 raise _Abort()
-            for uid in (a, b):
-                r = conn.execute('SELECT id FROM pk_mons WHERE guild_id=? AND owner_id=? '
-                                 'ORDER BY id LIMIT 1', (gid, uid)).fetchone()
-                if r:
-                    conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (r['id'],))
+            reassign_active(conn, gid, a)
+            reassign_active(conn, gid, b)
     except _Abort:
         return {'ok': False, 'code': 'GONE', 'message': t(gid, 'eco.pk_gone')}
     n1, n2 = _names(gid, m1, m2)
