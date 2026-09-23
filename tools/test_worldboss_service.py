@@ -461,6 +461,69 @@ def main() -> None:
                           (bidp, 'pfin')).fetchone()
     check(sz['hp'] == sz['max_hp'], 'no retaliation after phase-2 defeat')
 
+    # --- phase effects: rain resolved pre-attack, engine-applied ---
+    from cogs.pokemon import _dex_row, calc_stats, damage
+    from game.bosses.tidecaller import TIDECALLER
+    G5 = 9094
+    TP2 = T0 + 400000
+    with db.conn_ctx() as conn:
+        for u in ('w1', 'w2', 'wx'):
+            conn.execute(
+                'INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, '
+                'active, ivs, evs, locked, fav, held) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                (str(G5), u, 25, 100, 0, 0, '', 1, '', '', 0, 0, ''))
+    r = wb.start_boss(G5, 'tidecaller', TP2)
+    bidw = r['boss_id']
+    with db.conn_ctx() as conn:
+        before_mons = [dict(x) for x in conn.execute(
+            'SELECT * FROM pk_mons WHERE guild_id=? ORDER BY id', (str(G5),)).fetchall()]
+    v = wb.boss_status(G5, TP2)
+    check(v['weather'] is None, 'no weather in normal phase')
+
+    row = _dex_row(25)
+    pstats = calc_stats(row, 100)
+    bstats = dict(TIDECALLER.base_stats)
+    btypes = list(TIDECALLER.types)
+    wg = {'name': 'Water Gun', 'power': 40, 'acc': 100, 'ptype': 'water'}
+    exp_dry, _ = damage(70, wg, bstats, pstats, btypes, ['electric'],
+                        None, FakeRng(rolls=[0.5, 0.5]))
+    r1 = wb.attack_boss(G5, 'w1', TP2, rng=FakeRng(rolls=[0.5] * 8))
+    with db.conn_ctx() as conn:
+        d1 = conn.execute('SELECT max_hp - hp FROM world_boss_combat WHERE boss_id=? AND user_id=?',
+                          (bidw, 'w1')).fetchone()[0]
+    check(d1 == exp_dry, 'normal retaliation has no weather')
+
+    with db.conn_ctx() as conn:
+        conn.execute('UPDATE world_boss SET hp=? WHERE id=?', (2000, bidw))
+    v = wb.boss_status(G5, TP2)
+    check(v['weather'] == 'rain' and v['phase'] == 'raging', 'status shows rain')
+    hpump = {'name': 'Hydro Pump', 'power': 80, 'acc': 85, 'ptype': 'water'}
+    exp_wet, _ = damage(70, hpump, bstats, pstats, btypes, ['electric'],
+                        'rain', FakeRng(rolls=[0.5, 0.5]))
+    exp_wet = int(exp_wet * 1.15)
+    r2 = wb.attack_boss(G5, 'w2', TP2, rng=FakeRng(rolls=[0.5] * 8))
+    with db.conn_ctx() as conn:
+        d2 = conn.execute('SELECT max_hp - hp FROM world_boss_combat WHERE boss_id=? AND user_id=?',
+                          (bidw, 'w2')).fetchone()[0]
+    check(d2 == exp_wet, 'enraged retaliation carries rain through the engine')
+    check(r1['damage'] == r2['damage'], 'phase never touches the player strike')
+    check('Raging Tide' not in r2['message'], 'no transition without crossing')
+
+    # crossing turn retaliates with the PRE-attack (dry) phase:
+    # 4250/7000 = 60.7% normal, ~99 deterministic damage lands <= 4200.
+    with db.conn_ctx() as conn:
+        conn.execute('UPDATE world_boss SET hp=? WHERE id=?', (4250, bidw))
+    rx = wb.attack_boss(G5, 'wx', TP2, rng=FakeRng(rolls=[0.5] * 8))
+    check('Raging Tide' in rx['message'], 'crossing announces once')
+    with db.conn_ctx() as conn:
+        dx = conn.execute('SELECT max_hp - hp FROM world_boss_combat WHERE boss_id=? AND user_id=?',
+                          (bidw, 'wx')).fetchone()[0]
+    check(dx == exp_dry, 'crossing retaliation uses pre-attack phase')
+    with db.conn_ctx() as conn:
+        after_mons = [dict(x) for x in conn.execute(
+            'SELECT * FROM pk_mons WHERE guild_id=? ORDER BY id', (str(G5),)).fetchall()]
+    check(after_mons == before_mons, 'combat never touches collection rows')
+
     # --- per-guild isolation + expiry cleanup ---
     G2 = 9091
     with db.conn_ctx() as conn:

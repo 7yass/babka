@@ -33,6 +33,13 @@ class BossPhase:
     moves: tuple              # retaliation pool (engine move dicts)
     damage_mult: float = 1.0
     display_name: str | None = None
+    # Optional engine effect (weather). Must be in KNOWN_PHASE_EFFECTS;
+    # None = no effect. Mirrors the battle engine's WEATHER_LINE keys —
+    # update both if the engine ever learns new weather.
+    effect_key: str | None = None
+
+
+KNOWN_PHASE_EFFECTS = ('rain', 'sun')
 
 
 @dataclass(frozen=True)
@@ -73,6 +80,8 @@ def validate_definition(defn: BossDefinition) -> None:
         if not (0.0 <= ph.min_hp_ratio < 1.0):
             raise ValueError(f'{defn.key}: phase {ph.key!r} ratio outside [0, 1)')
         ratios.append(ph.min_hp_ratio)
+        if ph.effect_key is not None and ph.effect_key not in KNOWN_PHASE_EFFECTS:
+            raise ValueError(f'{defn.key}: phase {ph.key!r} unknown effect {ph.effect_key!r}')
         if not ph.moves:
             raise ValueError(f'{defn.key}: phase {ph.key!r} needs moves')
         for mv in ph.moves:
@@ -104,7 +113,8 @@ def definition_from_snapshot(data: dict) -> BossDefinition:
         key=p['key'], min_hp_ratio=p['min_hp_ratio'],
         moves=tuple(dict(m) for m in p['moves']),
         damage_mult=p.get('damage_mult', 1.0),
-        display_name=p.get('display_name')) for p in data.get('phases') or ())
+        display_name=p.get('display_name'),
+        effect_key=p.get('effect_key')) for p in data.get('phases') or ())
     lt = data.get('loot_table')
     data['loot_table'] = BossLootTable(
         boss_key=lt['boss_key'], rolls=lt.get('rolls', 1),

@@ -28,6 +28,10 @@ class WorldBoss(commands.Cog):
                  f"**{v['hp']}/{v['max_hp']}**"]
         m, s = divmod(int(v['ends_in']), 60)
         lines.append(f"Ends in {m}m {s}s · {v['participants']} hunters")
+        if v.get('weather') == 'rain':
+            lines.append(t(gid, 'eco.wb_weather_rain'))
+        elif v.get('weather'):
+            lines.append(t(gid, 'eco.wb_weather', name=v['weather']))
         for i, p in enumerate(v['top'], start=1):
             try:
                 mbr = self.bot.get_guild(int(gid)).get_member(int(p['user_id']))

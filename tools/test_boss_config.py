@@ -101,6 +101,10 @@ def main() -> None:
             boss_key='other', rolls=1, entries=(LootEntry('poke', 1, 1, 1),))}),
         ('bad loot entry', {'loot_table': BossLootTable(
             boss_key='x', rolls=1, entries=(LootEntry('poke', 5, 1, 1),))}),
+        ('bad phase effect', {'phases': (BossPhase(
+            key='a', min_hp_ratio=0.0,
+            moves=({'name': 'M', 'power': 10, 'acc': 100, 'ptype': 'normal'},),
+            effect_key='lava'),)}),
     ]:
         try:
             validate_definition(bad(**kwargs))
@@ -118,6 +122,15 @@ def main() -> None:
     snap2 = snapshot_definition(TIDECALLER)
     check(definition_from_snapshot(__import__('json').loads(snap2)) == TIDECALLER,
           'second snapshot roundtrips')
+    check(all(p.effect_key is None for p in DREADMAW.phases),
+          'dreadmaw stays effect-free')
+    check(TIDECALLER.phases[1].effect_key == 'rain', 'tidecaller enraged rains')
+    legacy = __import__('json').loads(snap2)
+    for p in legacy['phases']:
+        del p['effect_key']
+    check(all(p.effect_key is None
+              for p in definition_from_snapshot(legacy).phases),
+          'pre-effect snapshots load with safe default')
 
     # --- disabled bosses cannot start ---
     off = BossDefinition(key='off', display_name='Off', max_hp=100,

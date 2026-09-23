@@ -143,6 +143,7 @@ def boss_status(gid, now: int = None) -> dict | None:
             'name': defn.display_name,
             'hp': b['hp'], 'max_hp': b['max_hp'], 'revision': b['revision'],
             'phase': phase.key, 'phase_name': phase.display_name,
+            'weather': _phase_weather(phase),
             'ends_in': max(0, b['expires_at'] - now),
             'participants': len(parts), 'top': top,
             'by_user': {p['user_id']: p for p in parts}}
@@ -223,6 +224,15 @@ def _load_combat(conn, gid, uid, boss_id):
     return snap, live
 
 
+def _phase_weather(phase) -> str | None:
+    """Effect resolver: only engine-known weather passes through.
+    The service never interprets what rain/sun DO — that's the engine's
+    damage math. Unknown/future keys resolve to no weather."""
+    from game.bosses.models import KNOWN_PHASE_EFFECTS
+    key = (phase.effect_key or '') if phase else ''
+    return key if key in KNOWN_PHASE_EFFECTS else None
+
+
 def _boss_fighter(defn, hp: int, phase=None) -> dict:
     phase = phase or defn.phases[0]
     return {'name': defn.display_name, 'level': defn.level, 'hp': hp,
@@ -270,7 +280,9 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
         # into the service (or push boss concepts into the engine). The
         # crossing hit still announces + commits in the same txn below.
         phase = resolve_boss_phase(defn.phases, b['hp'], b['max_hp'])
-    st = {'me': me, 'wild': _boss_fighter(defn, b['hp'], phase), 'log': [], 'weather': None}
+        weather = _phase_weather(phase)
+    st = {'me': me, 'wild': _boss_fighter(defn, b['hp'], phase), 'log': [],
+          'weather': weather}
     _bt.resolve_turn(st, gid, 0, rng, strict_faint=True, foe_mult=phase.damage_mult)
     dealt = max(0, b['hp'] - st['wild']['hp'])
     left_hp = max(0, st['me']['hp'])
