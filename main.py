@@ -157,6 +157,10 @@ async def _daily_backup():
         import datetime as _dt
         from pathlib import Path as _P
         _P('backups').mkdir(exist_ok=True)
+        try:
+            pruned = db.prune()
+        except Exception:
+            pruned = {}
         stamp = _dt.datetime.now().strftime('%Y%m%d-%H%M%S')
         db.backup_to(str(_P('backups') / f'data-{stamp}.db'))
         snaps = sorted(_P('backups').glob('data-*.db'))
@@ -165,7 +169,7 @@ async def _daily_backup():
                 old.unlink()
             except Exception:
                 pass
-        print(f'[+] DB backup done ({len(snaps[:7])} kept)')
+        print(f'[+] DB backup done ({len(snaps[:7])} kept, pruned {pruned})')
     except Exception as e:
         print(f'[-] DB backup failed: {e}')
 

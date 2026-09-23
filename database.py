@@ -36,6 +36,23 @@ def backup_to(path) -> None:
         src.close()
 
 
+def prune() -> dict:
+    """Retention: drop per-day message stats older than 30 days and cap
+    stock history at 200 rows per symbol. Keeps data.db (and its daily
+    backup copy) from growing forever on small hosts."""
+    out = {'msg_stats': 0, 'stock_hist': 0}
+    with conn_ctx() as conn:
+        cur = conn.execute("DELETE FROM msg_stats WHERE day < date('now','-30 days')")
+        out['msg_stats'] = cur.rowcount or 0
+        cur = conn.execute('''DELETE FROM stock_hist WHERE rowid NOT IN (
+            SELECT rowid FROM stock_hist AS keep
+            WHERE keep.guild_id = stock_hist.guild_id
+              AND keep.symbol = stock_hist.symbol
+            ORDER BY ts DESC LIMIT 200)''')
+        out['stock_hist'] = cur.rowcount or 0
+    return out
+
+
 @contextmanager
 def conn_ctx():
     conn = get_conn()
@@ -546,10 +563,11 @@ def init_db():
                 pass  # already there
 
 
-_CACHE_TTL = 45
+_CACHE_TTL = 180  # prefix/settings/antiraid: config changes take up to 3 min to apply
 _prefix_cache = {}
 _settings_cache = {}
 _lang_cache = {}
+_antiraid_cache = {}
 
 
 def get_settings(guild_id: str) -> dict:
@@ -581,8 +599,15 @@ def get_prefix(guild_id) -> str:
 
 
 def get_antiraid(guild_id) -> dict:
+    import time as _t
+    key = str(guild_id)
+    hit = _antiraid_cache.get(key)
+    if hit and _t.time() - hit[0] < _CACHE_TTL:
+        return dict(hit[1])
     with conn_ctx() as conn:
         # Single atomic upsert: check-then-insert races between tasks on new guilds.
         conn.execute('INSERT OR IGNORE INTO antiraid (guild_id) VALUES (?)', (str(guild_id),))
         row = conn.execute('SELECT * FROM antiraid WHERE guild_id = ?', (str(guild_id),)).fetchone()
-        return dict(row)
+        d = dict(row)
+    _antiraid_cache[key] = (_t.time(), d)
+    return dict(d)

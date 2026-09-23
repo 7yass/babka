@@ -2185,7 +2185,7 @@
     "hc_d_roblox": "Sprawdzanie Robloxa: `.roblox user <nick>` profil + konto + znajomi, `.roblox avatar <nick>` awatar, `.roblox previousnames <nick>` historia nicków.",
     "hc_d_bal": "Twoja karta portfela: kasa, bank i seria — z twoim bannerm nitro w tle jak masz. `.bal [@user]` podgląd kogokolwiek.",
     "hc_d_daily": "Dzienna kasa co 24h: `.daily`. Baza 500 plus bonus za serię (+50/dzień do +500). Opuszczenie dnia resetuje serię — nie rób tego.",
-    "hc_d_blackjack": "JAK GRAĆ: `.blackjack <stawka>` (max 15000). Ty vs krupier, bliżej 21 wygrywa. HIT dobiera, STAND stój, DOUBLE podwaja za jedną kartę. Krupier dobiera do 17, remisy zwracają stawkę. Oczko płaci 6:5, fura = strata, max 15k zysku z ręki. 10 gier/h wspólne z innymi. Stawki: 1k / 2.5k / 1m / all.",
+    "hc_d_blackjack": "JAK GRAĆ: `.blackjack <stawka>` (max 15000). Ty vs krupier, bliżej 21 wygrywa. HIT dobiera, STAND stój, DOUBLE podwaja za jedną kartę. Krupier dobiera do 17, remisy zwracają stawkę. Oczko płaci 1:1, fura = strata, max 15k zysku z ręki. 10 gier/h wspólne z innymi. Stawki: 1k / 2.5k / 1m / all.",
     "lk.no_banner": "{user} nie ma bannera.",
     "lk.rbx_none": "Nie ma takiego na Robloxie: **{user}**.",
     "lk.rbx_id": "ID",

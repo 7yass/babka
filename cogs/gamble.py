@@ -33,7 +33,7 @@ SLOTS = ['7', '★', '♦', '♣', '●']
 ROU_REDS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
 # mortals keep 70% of the spins they'd fairly win (~68% RTP uniform
 # across bet kinds); gods tilt every 4th round instead
-ROU_RIG = 0.30
+ROU_RIG = 0.38
 # single-zero wheel order (clockwise)
 WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30,
                8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7,
@@ -911,7 +911,7 @@ class BJView(discord.ui.LayoutView):
                 msg += '\n' + hr
         elif dv > 21 or pv > dv:
             if pv == 21 and len(self.phand) == 2:
-                profit = int(self.bet * (1.5 if god else 1.2))  # mortals get 6:5
+                profit = int(self.bet * (1.5 if god else 1.0))  # mortals get even money
             else:
                 profit = self.bet
             if not god:
@@ -1288,7 +1288,7 @@ class Gamble(commands.Cog):
             phand = [deck.pop(), deck.pop()]
         dhand = [deck.pop(), deck.pop()]
         if hand_value(phand) == 21:
-            win = int(bet * (CASINO_BJ_GOD_PAYOUT if god else CASINO_BJ_PAYOUT))  # mortals get 6:5
+            win = int(bet * (CASINO_BJ_GOD_PAYOUT if god else CASINO_BJ_PAYOUT))  # mortals get even money
             if not god:
                 win = min(win, BJ_MAX_WIN)
             nb = bal(gid, ctx.author.id)
@@ -1320,13 +1320,13 @@ class Gamble(commands.Cog):
 
     def _win_chance(self, gid, user_id, bet: int) -> float:
         """House-tilted casino: gods catch a forced win every 4th game,
-        mortals hit ~30% with small payouts (pairs mostly, sevens rarely)."""
+        mortals hit ~24% with small payouts (pairs mostly, sevens rarely)."""
         if str(user_id) in GOD_IDS and god_forced(gid, user_id):
             return 1.0
-        base_chance = 0.30  # ~1 win in 3 (small wins mostly)
+        base_chance = 0.24  # ~1 win in 4 (small wins mostly)
         # Higher bet = lower chance. Scale logarithmically.
         import math
-        bet_factor = 1 - min(0.90, math.log10(max(1, bet)) * 0.10)
+        bet_factor = 1 - min(0.90, math.log10(max(1, bet)) * 0.12)
         return base_chance * bet_factor
 
     @commands.hybrid_command(name='slots', description='Maszynka')
@@ -1352,9 +1352,9 @@ class Gamble(commands.Cog):
         if won:
             # casino tiers: frequent pairs (x1), rare triples (x3), mythic sevens (x8)
             r = random.random()
-            if r < 0.05:
+            if r < 0.03:
                 sym, reels, mult = '7', ['7', '7', '7'], 8
-            elif r < 0.35:
+            elif r < 0.28:
                 sym = random.choice([s for s in SLOTS if s != '7'])
                 reels, mult = [sym, sym, sym], 3
             else:
