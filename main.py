@@ -315,6 +315,19 @@ def _bar(done: int, total: int) -> str:
 async def main():
     db.init_db()
     print(_banner())
+    import logging as _lg
+    try:
+        # Slow-callback tripwire: asyncio logs any callback hogging the loop
+        # longer than this. The watchdog only says the loop starved; this
+        # names the culprit (e.g. a sync DB call on slow shared storage).
+        bot.loop.slow_callback_duration = 2.0
+        _h = _lg.StreamHandler(sys.stdout)
+        _h.setFormatter(_lg.Formatter('[asyncio] %(message)s'))
+        _alog = _lg.getLogger('asyncio')
+        _alog.addHandler(_h)
+        _alog.propagate = False
+    except Exception:
+        pass
     _daily_backup.start()
     _loop_lag.start()
     async with bot:
