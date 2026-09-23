@@ -44,6 +44,7 @@ EGG_CYCLES = 20  # hatch cycles: quantity, not money — stays local
 CHECKLIST_NEED = {'catches': 5, 'battles': 3, 'duels': 1}
 CHECKLIST_REWARD = 15000
 DAILY_TARGET_REWARD = 7500
+HUNT_DAILY_REWARD = 5000  # casual daily hunt quest completion (once per day)
 
 # NPC ladder: (key, display name, level, team size, prize)
 NPCS = [
@@ -1925,8 +1926,18 @@ class Pokemon(commands.Cog):
         today = int(time.time()) // 86400
         with db.conn_ctx() as conn:
             conn.execute('CREATE TABLE IF NOT EXISTS pk_hunt_daily (guild_id TEXT, user_id TEXT, target INT, day INT, PRIMARY KEY (guild_id, user_id))')
-            h = conn.execute('SELECT target, day FROM pk_hunt_daily WHERE guild_id=? AND user_id=?',
-                             (str(gid), str(ctx.author.id))).fetchone()
+            try:
+                conn.execute('ALTER TABLE pk_hunt_daily ADD COLUMN done INTEGER DEFAULT 0')
+            except Exception:
+                pass
+            try:
+                h = conn.execute('SELECT target, day, done FROM pk_hunt_daily WHERE guild_id=? AND user_id=?',
+                                 (str(gid), str(ctx.author.id))).fetchone()
+                hunt_done = bool(h and (h['day'] or 0) == today and (h['done'] or 0))
+            except Exception:
+                h = conn.execute('SELECT target, day FROM pk_hunt_daily WHERE guild_id=? AND user_id=?',
+                                 (str(gid), str(ctx.author.id))).fetchone()
+                hunt_done = False
             # also fetch shiny streak for display (from pk_hunt)
             sh = conn.execute('SELECT streak FROM pk_hunt WHERE guild_id=? AND user_id=?',
                               (str(gid), str(ctx.author.id))).fetchone()
@@ -1948,9 +1959,12 @@ class Pokemon(commands.Cog):
         tgt_emo = em(gid, 'hunt_target') or ''
         tname = (row.get('name') or '#' + str(h['target'])).capitalize()
         title = f"{tgt_emo + ' ' if tgt_emo else ''}Your hunt today is {re} {spe + ' ' if spe else ''}{tname}!"
-        streak_txt = (f"Streak: **{streak}**\n"
-                      f"When you do `;p` you have a chance of finding this specific Pokemon!\n"
-                      f"-# Check `;help hunt` for streak bonuses. Resets tomorrow.")
+        if hunt_done:
+            streak_txt = t(gid, 'eco.pk_hunt_claimed')
+        else:
+            streak_txt = (f"Streak: **{streak}**\n"
+                          f"When you do `;p` you have a chance of finding this specific Pokemon!\n"
+                          f"-# Check `;help hunt` for streak bonuses. Resets tomorrow.")
         return await ctx.reply(view=self._layout(gid, title, streak_txt), ephemeral=True)
 
     @commands.command(name='p', description='Spotkaj dzikiego (tylko łapanie)')
@@ -2610,6 +2624,24 @@ class Pokemon(commands.Cog):
                                  (str(gid), str(uid))).fetchone()['c']
         if ready:
             lines.append(t(gid, 'eco.pk_egg_ready'))
+        # casual daily hunt quest: catching today's target finishes it (once)
+        try:
+            with db.conn_ctx() as conn:
+                try:
+                    conn.execute('ALTER TABLE pk_hunt_daily ADD COLUMN done INTEGER DEFAULT 0')
+                except Exception:
+                    pass
+                today = int(time.time()) // 86400
+                dh = conn.execute('SELECT target, day, done FROM pk_hunt_daily WHERE guild_id=? AND user_id=?',
+                                  (str(gid), str(uid))).fetchone()
+                if dh and (dh['target'] or 0) == dex and (dh['day'] or 0) == today \
+                        and not (dh['done'] or 0):
+                    _add(gid, uid, HUNT_DAILY_REWARD)
+                    lines.append(t(gid, 'eco.pk_hunt_done', win=cshort(HUNT_DAILY_REWARD)))
+                    conn.execute('UPDATE pk_hunt_daily SET done=1 WHERE guild_id=? AND user_id=?',
+                                 (str(gid), str(uid)))
+        except Exception:
+            pass
         return lines
 
     def _catch_meta(self, gid, uid, dex: int, shiny: bool = False) -> str:
