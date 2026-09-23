@@ -1690,6 +1690,7 @@ class Pokemon(commands.Cog):
         self._hunt_cd = {}
         self._enc = {}    # (gid, uid) -> encounter dict
         self._battle = {}  # (gid, uid) -> battle state
+        self._trades = {}  # offer_id -> trade offer dict
         self._chatxp_cd = {}
         self._spawn_count = {}  # gid -> messages since last wild spawn
         self._wild = {}   # (gid, cid) -> shared channel encounter
@@ -5952,53 +5953,44 @@ class Pokemon(commands.Cog):
                                  emoji=_btn_emoji(gid, 'check_cross'))
 
         m1_id, m2_id = mine['id'], want['id']
-        _tclaimed = {'done': False}  # double-ACCEPT guard for the offer below
+        from services import trade_service as _tr
+        offer = _tr.create_offer(self._trades, gid, ctx.author.id, member.id,
+                                 m1_id, m2_id, member.bot)
+        if not offer['ok']:
+            # sender mon locked (missing/self answered above)
+            return await ctx.reply(offer['message'], ephemeral=True)
+        oid = offer['offer_id']
         async def _ok(ix: discord.Interaction):
             set_ctx_lang(ix.user)
             if ix.user.id != member.id:
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
-            if _tclaimed['done']:
-                return await ix.response.send_message(t(gid, 'eco.pk_gone'), ephemeral=True)
-            _tclaimed['done'] = True
+            res = _tr.accept_offer(self._trades, oid, ix.user.id)
+            if not res['ok'] and res['code'] == 'LOCKED':
+                await ix.response.defer()
+                return await ix.followup.send(res['message'])
+            if not res['ok']:
+                # consumed/expired/stale offer: strip dead buttons, say gone
+                try:
+                    await ix.message.edit(view=None)
+                except Exception:
+                    pass
+                return await ix.response.send_message(
+                    res['message'] or t(gid, 'eco.pk_gone'), ephemeral=True)
             # Strip the offer first: a double ACCEPT can't swap twice.
             try:
                 await ix.message.edit(view=None)
             except Exception:
                 pass
             await ix.response.defer()
-            with db.conn_ctx() as conn:
-                r1 = conn.execute('SELECT * FROM pk_mons WHERE id=? AND guild_id=? AND owner_id=?',
-                                  (m1_id, str(gid), str(ctx.author.id))).fetchone()
-                r2 = conn.execute('SELECT * FROM pk_mons WHERE id=? AND guild_id=? AND owner_id=?',
-                                  (m2_id, str(gid), str(member.id))).fetchone()
-                if not r1 or not r2:
-                    return await ix.followup.send(t(gid, 'eco.pk_gone'), ephemeral=True)
-                m1, m2 = dict(r1), dict(r2)
-            if m1.get('locked'):
-                return await ix.followup.send(t(gid, 'eco.pk_locked', name=mon_name(m1, gid)),
-                                              ephemeral=True)
-            with db.conn_ctx() as conn:
-                c1 = conn.execute('UPDATE pk_mons SET owner_id=?, active=0 WHERE id=? AND guild_id=? AND owner_id=?',
-                                  (str(member.id), m1_id, str(gid), str(ctx.author.id)))
-                c2 = conn.execute('UPDATE pk_mons SET owner_id=?, active=0 WHERE id=? AND guild_id=? AND owner_id=?',
-                                  (str(ctx.author.id), m2_id, str(gid), str(member.id)))
-                if (c1.rowcount or 0) != 1 or (c2.rowcount or 0) != 1:
-                    return await ix.followup.send(t(gid, 'eco.pk_gone'), ephemeral=True)
-                for uid in (str(ctx.author.id), str(member.id)):
-                    r = conn.execute('SELECT id FROM pk_mons WHERE guild_id=? AND owner_id=? '
-                                     'ORDER BY id LIMIT 1', (str(gid), uid)).fetchone()
-                    if r:
-                        conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (r['id'],))
             view, files = self._mini(gid, t(gid, 'eco.pk_traded_title'),
-                                     t(gid, 'eco.pk_traded', m1=mon_name(m1, gid), m2=mon_name(m2, gid)),
-                                     None, 0x57F287)
+                                     res['message'], None, 0x57F287)
             await ix.followup.send(view=view, files=files or None)
 
         async def _no(ix: discord.Interaction):
             set_ctx_lang(ix.user)
             if ix.user.id != member.id:
                 return await ix.response.send_message(t(gid, 'eco.not_yours'), ephemeral=True)
-            _tclaimed['done'] = True
+            _tr.decline_offer(self._trades, oid, ix.user.id)
             try:
                 await ix.message.edit(view=None)
             except Exception:
