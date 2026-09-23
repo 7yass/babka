@@ -525,22 +525,42 @@ def main() -> None:
     check(after_mons == before_mons, 'combat never touches collection rows')
 
     # --- phase loot: fought-phase bonus, one-shot exclusion, raced claims ---
-    # NOTE: level-100 STAB electric vs water/flying hits ~453, so size the
-    # boss for a real 3-hit arc (crossing -> enraged -> kill).
+    # Level-100 Eevees deal deterministic ~113/hit (normal STAB, eff 1);
+    # a level-10 Eevee chips ~17. Choreography is relational throughout.
     G6 = 9095
     TP3 = T0 + 500000
     with db.conn_ctx() as conn:
-        for u in ('ga', 'gb', 'gc'):
+        conn.execute(
+            'INSERT INTO pk_dex (dex, name, types, hp, atk, dfn, spa, spd, spe, '
+            'sprite, rate, legendary, evo_to, evo_level) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            (133, 'eevee', '["normal"]', 55, 55, 50, 45, 65, 55, '', 45, 0, 0, 0))
+        for u, lv in (('u1', 100), ('u2', 100), ('u3', 100), ('u4', 10)):
             conn.execute(
                 'INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, '
                 'active, ivs, evs, locked, fav, held) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                (str(G6), u, 25, 100, 0, 0, '', 1, '', '', 0, 0, ''))
-    r = wb.start_boss(G6, 'tidecaller', TP3, max_hp=950)
+                (str(G6), u, 133, lv, 0, 0, '', 1, '', '', 0, 0, ''))
+    r = wb.start_boss(G6, 'tidecaller', TP3, max_hp=400)
     bid6 = r['boss_id']
-    ra = wb.attack_boss(G6, 'ga', TP3, rng=FakeRng(rolls=[0.5] * 8))
-    rb = wb.attack_boss(G6, 'gb', TP3 + 61, rng=FakeRng(rolls=[0.5] * 8))
-    rc = wb.attack_boss(G6, 'gc', TP3 + 122, rng=FakeRng(rolls=[0.5] * 8))
-    check(rc['code'] == 'DEFEATED', 'three-hit kill')
+
+    def _hit(u, t):
+        return wb.attack_boss(G6, u, t, rng=FakeRng(rolls=[0.5] * 8))
+
+    r4 = _hit('u4', TP3)
+    # level-10 is slower than the boss: it faints before acting (0 damage),
+    # either way it stays far below the threshold.
+    check(r4['ok'] and r4['damage'] < 75, 'weak chip stays below threshold')
+    r1 = _hit('u1', TP3 + 61)
+    r2 = _hit('u2', TP3 + 122)
+    check(r1['ok'] and r2['ok'], 'qualifiers land')
+    check(r1['damage'] == r2['damage'] and r1['damage'] >= 75, 'equal deterministic hits')
+    check('Raging Tide' in r2['message'], 'crossing announces once')
+    with db.conn_ctx() as conn:
+        mp = conn.execute('SELECT max_phase FROM world_boss WHERE id=?',
+                          (bid6,)).fetchone()['max_phase']
+    check(mp == 'raging', 'crossing commits the fought phase')
+    r3 = _hit('u3', TP3 + 183)
+    r5 = _hit('u1', TP3 + 244)
+    check(r5['code'] == 'DEFEATED', 'kill lands')
 
     def _qty2(u, item, _bid=bid6, _g=G6):
         with db.conn_ctx() as conn:
@@ -554,31 +574,34 @@ def main() -> None:
 
     def _claim(u):
         bar.wait()
-        cout[u] = wb.claim_rewards(G6, u, TP3 + 200)
+        cout[u] = wb.claim_rewards(G6, u, TP3 + 300)
 
-    t1, t2 = _th.Thread(target=_claim, args=('ga',)), _th.Thread(target=_claim, args=('gb',))
+    t1, t2 = _th.Thread(target=_claim, args=('u1',)), _th.Thread(target=_claim, args=('u2',))
     t1.start()
     t2.start()
     t1.join()
     t2.join()
-    check(cout['ga']['ok'] and cout['gb']['ok'], 'racing claims both succeed')
-    for u in ('ga', 'gb'):
+    check(cout['u1']['ok'] and cout['u2']['ok'], 'racing claims both succeed')
+    for u in ('u1', 'u2'):
         check(_qty2(u, 'tidal_scale') == 1, f'{u} phase item exactly once')
+    r = wb.claim_rewards(G6, 'u3', TP3 + 301)
+    check(r['ok'], 'third qualifier claims')
+    check(_qty2('u3', 'tidal_scale') == 1, 'u3 phase item exactly once')
     import json as _json
     with db.conn_ctx() as conn:
         rows = conn.execute('SELECT user_id, reward_json FROM world_boss_rewards WHERE boss_id=?',
                             (bid6,)).fetchall()
-    check(sorted(_json.loads(x['reward_json'])['phase'] for x in rows) == ['raging', 'raging'],
+    check(sorted(_json.loads(x['reward_json'])['phase'] for x in rows) == ['raging'] * 3,
           'phase recorded in persisted outcomes')
-    for u in ('ga', 'gb'):
-        r = wb.claim_rewards(G6, u, TP3 + 201)
+    for u in ('u1', 'u2', 'u3'):
+        r = wb.claim_rewards(G6, u, TP3 + 302)
         check(not r['ok'], f'{u} retry denied')
         check(_qty2(u, 'tidal_scale') == 1, f'{u} retry adds nothing')
-    r = wb.claim_rewards(G6, 'gc', TP3 + 202)
+    r = wb.claim_rewards(G6, 'u4', TP3 + 303)
     check(not r['ok'] and r['code'] == 'NO_REWARD', 'below threshold: no phase loot')
     with db.conn_ctx() as conn:
         norow = conn.execute('SELECT 1 FROM world_boss_rewards WHERE boss_id=? AND user_id=?',
-                             (bid6, 'gc')).fetchone()
+                             (bid6, 'u4')).fetchone()
     check(norow is None, 'no outcome row without reward')
 
     # one-shot from full HP never fought the phase: no bonus
@@ -601,7 +624,12 @@ def main() -> None:
         jj = conn.execute('SELECT reward_json FROM world_boss_rewards WHERE boss_id=? AND user_id=?',
                           (bid7, 'go')).fetchone()['reward_json']
     check(_json.loads(jj)['phase'] is None, 'no phase in one-shot outcome')
-    check(_qty2('go', 'tidal_scale', bid7, G7) == 0, 'no phase item without the fight')
+    with db.conn_ctx() as conn:
+        mp7 = conn.execute('SELECT max_phase FROM world_boss WHERE id=?',
+                           (bid7,)).fetchone()['max_phase']
+    # (tidal_scale can still drop from the normal table on damage;
+    # the fought-phase BONUS is what one-shots never earn)
+    check(not mp7, 'one-shot records no fought phase')
 
     # --- per-guild isolation + expiry cleanup ---
     G2 = 9091

@@ -16,6 +16,58 @@ def _bar(hp: int, max_hp: int, width: int = 20) -> str:
     return '█' * full + '░' * (width - full)
 
 
+def _ago(ts, now):
+    try:
+        s = max(0, int(now) - int(ts))
+    except Exception:
+        return 'never'
+    if s < 60:
+        return f'{s}s ago'
+    m, s = divmod(s, 60)
+    if m < 60:
+        return f'{m}m ago'
+    h, m = divmod(m, 60)
+    return f'{h}h {m}m ago'
+
+
+def build_config_text(gid, now):
+    """Pure status dashboard (headless-testable): settings, event,
+    next eligible time, claims, tick lifecycle."""
+    from services import worldboss_service as _wb
+    from tasks import worldboss_scheduler as _sched
+    gid, now = str(gid), int(now)
+    s = _sched.get_settings(gid)
+    life = _sched.lifecycle_info(gid)
+    v = _wb.boss_status(gid, now)
+    rot = ' → '.join(s['rotation']) if s['rotation'] else '—'
+    lines = [f"World-boss scheduler — {'ENABLED' if s['enabled'] else 'DISABLED'}",
+             f"Auto: {'on' if s['auto'] else 'off'} · "
+             f"Channel: {'<#' + s['channel'] + '>' if s['channel'] else '—'} · "
+             f"Interval: {s['interval'] // 3600}h · Rotation: {rot}"]
+    if v:
+        m, sec = divmod(int(v['ends_in']), 60)
+        title = v['name'] + (f" — {v['phase_name']}" if v.get('phase_name') else '')
+        lines.append(f"Active: **{title}** {v['hp']}/{v['max_hp']} · "
+                     f"ends in {m}m {sec}s · {v['participants']} hunters")
+    else:
+        lines.append('Active: none')
+    _key, end, _status = _sched.last_event_info(gid)
+    if end is None:
+        lines.append('Next eligible: now')
+    else:
+        nxt = end + s['interval'] - now
+        lines.append('Next eligible: ' + ('now' if nxt <= 0 else f'in {nxt // 3600}h '
+                     f'{(nxt % 3600) // 60}m'))
+    lines.append(f"Claims open: {'yes' if _sched.claims_open(gid) else 'no'}")
+    tick_at = life.get('tick_at')
+    lines.append(f"Last tick: {_ago(tick_at, now) if tick_at else 'never'}")
+    if life.get('action'):
+        lines.append(f"Last action: {life['action']}")
+    if life.get('error'):
+        lines.append(f"Last error: {life['error']}")
+    return '\n'.join(lines)
+
+
 class WorldBoss(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -175,6 +227,95 @@ class WorldBoss(commands.Cog):
             return await ctx.reply(t(gid, 'eco.wb_channel_bad'), ephemeral=True)
         _sched.set_setting(gid, 'channel', cid)
         await ctx.reply(t(gid, 'eco.wb_channel_set', ch=f'<#{cid}>'), ephemeral=True)
+
+    @worldboss.command(name='rotation', description='Rotacja bossów (staff)')
+    @staff_or('administrator')
+    async def wb_rotation(self, ctx, *, bosses: str = ''):
+        from tasks import worldboss_scheduler as _sched
+        from tasks.worldboss_scheduler import _validate
+        gid = ctx.guild.id
+        if not (bosses or '').strip():
+            cur = _sched.get_settings(gid)
+            rot = ' '.join(cur['rotation']) if cur['rotation'] else '—'
+            return await ctx.reply(t(gid, 'eco.wb_rotation_state', rotation=rot),
+                                   ephemeral=True)
+        ok, _norm = _validate('rotation', bosses)
+        if not ok:
+            return await ctx.reply(t(gid, 'eco.wb_rotation_bad'), ephemeral=True)
+        _sched.set_setting(gid, 'rotation', bosses)
+        cur = _sched.get_settings(gid)
+        await ctx.reply(t(gid, 'eco.wb_rotation_set',
+                          rotation=' → '.join(cur['rotation'])), ephemeral=True)
+
+    @worldboss.command(name='interval', description='Interwał rajdu (staff)')
+    @staff_or('administrator')
+    async def wb_interval(self, ctx, span: str = ''):
+        from tasks import worldboss_scheduler as _sched
+        from tasks.worldboss_scheduler import _validate
+        gid = ctx.guild.id
+        if not (span or '').strip():
+            cur = _sched.get_settings(gid)
+            return await ctx.reply(t(gid, 'eco.wb_interval_state',
+                                     h=cur['interval'] // 3600), ephemeral=True)
+        ok, _norm = _validate('interval', span)
+        if not ok:
+            return await ctx.reply(t(gid, 'eco.wb_interval_bad'), ephemeral=True)
+        _sched.set_setting(gid, 'interval', span)
+        cur = _sched.get_settings(gid)
+        await ctx.reply(t(gid, 'eco.wb_interval_set', h=cur['interval'] // 3600),
+                        ephemeral=True)
+
+    @worldboss.command(name='config', description='Status schedulera (staff)')
+    @staff_or('administrator')
+    async def wb_config(self, ctx):
+        import time as _t
+        await ctx.reply(build_config_text(ctx.guild.id, int(_t.time())), ephemeral=True)
+
+    @worldboss.command(name='scheduler', description='Zdrowie schedulera (staff)')
+    @staff_or('administrator')
+    async def wb_scheduler(self, ctx):
+        import time as _t
+        from tasks import worldboss_scheduler as _sched
+        gid, now = ctx.guild.id, int(_t.time())
+        life = _sched.lifecycle_info(gid)
+        lines = ['Scheduler tick health']
+        tick_at = life.get('tick_at')
+        lines.append(f"Last tick: {_ago(tick_at, now) if tick_at else 'never'}")
+        lines.append(f"Last action: {life.get('action') or '—'}")
+        lines.append(f"Last error: {life.get('error') or '—'}")
+        await ctx.reply('\n'.join(lines), ephemeral=True)
+
+    @worldboss.command(name='tick', description='Ręczny przebieg (staff)')
+    @staff_or('administrator')
+    async def wb_tick(self, ctx):
+        import time as _t
+        from tasks import worldboss_scheduler as _sched
+        _tick, acts = _sched.run_pass([ctx.guild], int(_t.time()))
+        bits = []
+        for a in acts:
+            bit = f"{a.action}:{a.code}"
+            if a.boss_key:
+                bit += f":{a.boss_key}"
+            bits.append(bit)
+        await ctx.reply(t(ctx.guild.id, 'eco.wb_tick_done',
+                          summary=', '.join(bits) or 'quiet'), ephemeral=True)
+
+    @worldboss.command(name='forceexpire', description='Zakończ event (staff)')
+    @staff_or('administrator')
+    async def wb_forceexpire(self, ctx, confirm: str = ''):
+        import time as _t
+        from services import worldboss_service as _wb
+        gid = ctx.guild.id
+        if (confirm or '').lower() != 'confirm':
+            v = _wb.boss_status(gid, int(_t.time()))
+            if not v:
+                return await ctx.reply(t(gid, 'eco.wb_force_none'), ephemeral=True)
+            return await ctx.reply(t(gid, 'eco.wb_force_warn', name=v['name']),
+                                   ephemeral=True)
+        res = _wb.expire_event(gid, int(_t.time()))
+        if res['ok']:
+            return await ctx.reply(t(gid, 'eco.wb_force_done'), ephemeral=True)
+        return await ctx.reply(t(gid, 'eco.wb_force_none'), ephemeral=True)
 
 
 async def setup(bot):
