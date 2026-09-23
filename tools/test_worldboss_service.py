@@ -383,6 +383,82 @@ def main() -> None:
     r = wb.heal_fighter(GID, 'broke', now + 905)
     check(not r['ok'] and r['code'] == 'INSUFFICIENT_FUNDS', 'broke healer rejected')
 
+    # --- phases: derived, deterministic, retaliation-only ---
+    from services.worldboss_service import DREADMAW_PHASES, resolve_boss_phase
+    check(resolve_boss_phase(3000, 5000).key == 'normal', 'above threshold: phase 1')
+    check(resolve_boss_phase(2500, 5000).key == 'enraged', 'exactly at threshold: phase 2')
+    check(resolve_boss_phase(100, 5000).key == 'enraged', 'below threshold: phase 2')
+    check(resolve_boss_phase(3000, 5000) is resolve_boss_phase(3000, 5000),
+          'phase selection deterministic')
+
+    G4 = 9093
+    TP = T0 + 300000
+    with db.conn_ctx() as conn:
+        for u, lv in (('pp1', 40), ('pp2', 40), ('px', 100), ('pz', 20)):
+            conn.execute(
+                'INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, '
+                'active, ivs, evs, locked, fav, held) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                (str(G4), u, 25, lv, 0, 0, '', 1, '', '', 0, 0, ''))
+    r = wb.start_boss(G4, 'dreadmaw', TP, max_hp=5000)
+    bidp = r['boss_id']
+    v = wb.boss_status(G4, TP)
+    check(v['phase'] == 'normal' and v['phase_name'] is None, 'status shows phase 1')
+    check(wb.boss_status(G4, TP) == v, 'repeated status creates no events')
+
+    def _snap_hp(uid):
+        with db.conn_ctx() as conn:
+            return conn.execute('SELECT hp, max_hp FROM world_boss_combat WHERE boss_id=? AND user_id=?',
+                                (bidp, uid)).fetchone()
+
+    def _monrows(uid):
+        with db.conn_ctx() as conn:
+            return [dict(x) for x in conn.execute(
+                'SELECT * FROM pk_mons WHERE guild_id=? AND owner_id=? ORDER BY id',
+                (str(G4), uid)).fetchall()]
+
+    before_p1 = _monrows('pp1')
+    before_p2 = _monrows('pp2')
+    r1 = wb.attack_boss(G4, 'pp1', TP, rng=FakeRng(rolls=[0.5] * 8))
+    s1 = _snap_hp('pp1')
+    with db.conn_ctx() as conn:
+        conn.execute('UPDATE world_boss SET hp=? WHERE id=?', (2000, bidp))
+    r2 = wb.attack_boss(G4, 'pp2', TP, rng=FakeRng(rolls=[0.5] * 8))
+    s2 = _snap_hp('pp2')
+    check(r1['ok'] and r2['ok'], 'phase attacks land')
+    check(r1['damage'] == r2['damage'], 'phase affects retaliation only, never the strike')
+    check((s1['max_hp'] - s1['hp']) < (s2['max_hp'] - s2['hp']),
+          'enraged retaliation hits harder')
+    check('ENRAGED' not in r2['message'], 'no transition message without crossing')
+    check(_monrows('pp1') == before_p1 and _monrows('pp2') == before_p2,
+          'permanent rows byte-identical in both phases')
+
+    # crossing attack announces + commits in the same txn
+    with db.conn_ctx() as conn:
+        conn.execute('UPDATE world_boss SET hp=? WHERE id=?', (2600, bidp))
+    rx = wb.attack_boss(G4, 'px', TP, rng=FakeRng(rolls=[0.5] * 8))
+    check(rx['ok'] and 'ENRAGED' in rx['message'], 'crossing attack announces')
+    with db.conn_ctx() as conn:
+        hpx = conn.execute('SELECT hp FROM world_boss WHERE id=?', (bidp,)).fetchone()['hp']
+    check(hpx <= 2500, 'crossing commits with the announcement')
+    v = wb.boss_status(G4, TP)
+    check(v['phase'] == 'enraged' and v['phase_name'] == 'Enraged', 'status shows phase 2')
+
+    # defeat in phase 2 still skips retaliation
+    with db.conn_ctx() as conn:
+        conn.execute('UPDATE world_boss SET hp=? WHERE id=?', (5, bidp))
+    # pz already owns a mon from seeding; use a fresh uid for clarity
+    with db.conn_ctx() as conn:
+        conn.execute(
+            'INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, '
+            'active, ivs, evs, locked, fav, held) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            (str(G4), 'pfin', 25, 20, 0, 0, '', 1, '', '', 0, 0, ''))
+    rz = wb.attack_boss(G4, 'pfin', TP)
+    check(rz['code'] == 'DEFEATED', 'phase-2 defeat lands')
+    with db.conn_ctx() as conn:
+        sz = conn.execute('SELECT hp, max_hp FROM world_boss_combat WHERE boss_id=? AND user_id=?',
+                          (bidp, 'pfin')).fetchone()
+    check(sz['hp'] == sz['max_hp'], 'no retaliation after phase-2 defeat')
+
     # --- per-guild isolation + expiry cleanup ---
     G2 = 9091
     with db.conn_ctx() as conn:

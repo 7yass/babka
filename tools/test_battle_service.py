@@ -137,6 +137,16 @@ def main() -> None:
     res = bs.resolve_turn(st, 0, 0, FakeRng(rolls=[0.5, 0.5] * 2))
     check(len(res.events) == 2, 'default: KO still retaliates (legacy)')
 
+    # foe_mult scales retaliation only; default keeps legacy numbers.
+    def _pair():
+        return state(mon('ME', 100, 200, move_name='Quick'),
+                     mon('WILD', 10, 200, move_name='Slow'))
+    s1, s2 = _pair(), _pair()
+    bs.resolve_turn(s1, 0, 0, FakeRng(rolls=[0.5] * 4))
+    bs.resolve_turn(s2, 0, 0, FakeRng(rolls=[0.5] * 4), foe_mult=2.0)
+    check(s1['wild']['hp'] == s2['wild']['hp'], 'mult spares the player strike')
+    check(s2['me']['hp'] < s1['me']['hp'], 'mult scales retaliation')
+
     print('FAILS: %d' % len(FAILS), flush=True)
     sys.exit(1 if FAILS else 0)
 

@@ -29,13 +29,17 @@ class TurnResult:
 
 
 def strike(gid, att: dict, dfn: dict, mv: dict, is_me: bool, log: list,
-           weather=None, rng=None) -> None:
-    """One strike: damage, held-item tweak, hp, effectiveness tag, log line."""
+           weather=None, rng=None, foe_mult: float = 1.0) -> None:
+    """One strike: damage, held-item tweak, hp, effectiveness tag, log line.
+    foe_mult scales the FOE's damage only (world-boss phases); default 1.0
+    keeps wild battles byte-identical."""
     from cogs.pokemon import (_hit_tag, _mv_name, damage, effectiveness,
                               held_strike)
     dmg, crit = damage(att['level'], mv, att['stats'], dfn['stats'],
                        att['types'], dfn['types'], weather, rng)
     dmg = held_strike(att, dfn, dmg)
+    if not is_me and foe_mult != 1.0:
+        dmg = max(1, int(dmg * foe_mult))
     dfn['hp'] = max(0, dfn['hp'] - dmg)
     eff = effectiveness(mv.get('ptype', 'normal'), dfn['types'])
     tag = _hit_tag(gid, eff, crit, dmg)
@@ -53,7 +57,7 @@ def wild_strike(gid, me: dict, wild: dict, log: list, weather=None,
 
 
 def resolve_turn(st: dict, gid, move_idx=None, rng=None,
-                 strict_faint: bool = False) -> TurnResult:
+                 strict_faint: bool = False, foe_mult: float = 1.0) -> TurnResult:
     """Wild-battle turn: faster strikes first, faint short-circuits.
     move_idx into me['moves'] (None/invalid = random safe fallback).
     Mutates st in place; returns what happened.
@@ -85,6 +89,6 @@ def resolve_turn(st: dict, gid, move_idx=None, rng=None,
             if me['hp'] <= 0 or (strict_faint and wild['hp'] <= 0):
                 break
             strike(gid, wild, me, _rng.choice(_safe_moves(wild)), False,
-                   log, weather, rng)
+                   log, weather, rng, foe_mult)
     return TurnResult(events=log[before:], me_hp=me['hp'], wild_hp=wild['hp'],
                       me_fainted=me['hp'] <= 0, wild_fainted=wild['hp'] <= 0)

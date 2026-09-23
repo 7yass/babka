@@ -21,7 +21,10 @@ class WorldBoss(commands.Cog):
         self.bot = bot
 
     def _status_text(self, gid, v: dict) -> str:
-        lines = [f"☠️ **{v['name']}**  `{_bar(v['hp'], v['max_hp'])}` "
+        title = f"☠️ **{v['name']}**"
+        if v.get('phase_name'):
+            title += f" — {v['phase_name']}"
+        lines = [f"{title}  `{_bar(v['hp'], v['max_hp'])}` "
                  f"**{v['hp']}/{v['max_hp']}**"]
         m, s = divmod(int(v['ends_in']), 60)
         lines.append(f"Ends in {m}m {s}s · {v['participants']} hunters")

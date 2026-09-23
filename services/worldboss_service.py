@@ -24,6 +24,37 @@ DEFAULT_DURATION = 3600
 
 
 @dataclass(frozen=True)
+class BossPhase:
+    key: str
+    min_hp_ratio: float       # active while hp/max_hp is ABOVE this
+    moves: tuple              # retaliation pool (engine move dicts)
+    damage_mult: float = 1.0
+    display_name: str | None = None
+
+
+DREADMAW_PHASES = (
+    BossPhase(key='normal', min_hp_ratio=0.50,
+              moves=({'name': 'Tackle', 'power': 40, 'acc': 100,
+                      'ptype': 'normal'},),
+              damage_mult=1.0, display_name=None),
+    BossPhase(key='enraged', min_hp_ratio=0.00,
+              moves=({'name': 'Ember', 'power': 50, 'acc': 100,
+                      'ptype': 'fire'},),
+              damage_mult=1.2, display_name='Enraged'),
+)
+
+
+def resolve_boss_phase(hp: int, max_hp: int) -> BossPhase:
+    """Phase from HP ratio. Exactly-at-threshold counts as the lower
+    phase (50% hp = enraged). Pure + deterministic."""
+    ratio = (hp or 0) / max(1, max_hp or 1)
+    for phase in DREADMAW_PHASES:
+        if ratio > phase.min_hp_ratio:
+            return phase
+    return DREADMAW_PHASES[-1]
+
+
+@dataclass(frozen=True)
 class LootEntry:
     item_id: str
     quantity_min: int
@@ -60,8 +91,6 @@ BOSS = {
     'types': ['rock', 'dark'],
     'stats': {'atk': 120, 'spa': 100, 'dfn': 110, 'spd': 90, 'spe': 30,
               'maxhp': 10 ** 9},
-    'moves': [{'name': 'Crunch', 'power': 80, 'acc': 100, 'ptype': 'dark'},
-              {'name': 'Stone Edge', 'power': 100, 'acc': 80, 'ptype': 'rock'}],
     'max_hp': 5000,
     'duration': DEFAULT_DURATION,
 }
@@ -152,9 +181,11 @@ def boss_status(gid, now: int = None) -> dict | None:
             'WHERE boss_id=? ORDER BY damage DESC', (b['id'],)).fetchall()]
     top = [{'user_id': p['user_id'], 'damage': p['damage'],
             'attacks': p['attacks']} for p in parts[:3]]
+    phase = resolve_boss_phase(b['hp'], b['max_hp'])
     return {'boss_id': b['id'], 'boss_key': b['boss_key'],
             'name': BOSSES.get(b['boss_key'], {}).get('name', b['boss_key']),
             'hp': b['hp'], 'max_hp': b['max_hp'], 'revision': b['revision'],
+            'phase': phase.key, 'phase_name': phase.display_name,
             'ends_in': max(0, b['expires_at'] - now),
             'participants': len(parts), 'top': top,
             'by_user': {p['user_id']: p for p in parts}}
@@ -235,10 +266,11 @@ def _load_combat(conn, gid, uid, boss_id):
     return snap, live
 
 
-def _boss_fighter(hp: int) -> dict:
+def _boss_fighter(hp: int, phase=None) -> dict:
+    phase = phase or DREADMAW_PHASES[0]
     return {'name': BOSS['name'], 'level': BOSS['level'], 'hp': hp,
             'stats': dict(BOSS['stats']), 'types': list(BOSS['types']),
-            'held': '', 'moves': [dict(m) for m in BOSS['moves']]}
+            'held': '', 'moves': [dict(m) for m in phase.moves]}
 
 
 def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
@@ -275,8 +307,13 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
             return {'ok': False, 'code': 'FAINTED',
                     'message': t(gid, 'eco.wb_fainted', name=mon_name(live, gid))}
         me = _fighter_from_mon(gid, live, snap['hp'])
-    st = {'me': me, 'wild': _boss_fighter(b['hp']), 'log': [], 'weather': None}
-    _bt.resolve_turn(st, gid, 0, rng, strict_faint=True)
+        # Phase from PRE-attack HP for the whole turn: the shared engine
+        # resolves atomically, so a mid-turn pool swap would fork turn order
+        # into the service (or push boss concepts into the engine). The
+        # crossing hit still announces + commits in the same txn below.
+        phase = resolve_boss_phase(b['hp'], b['max_hp'])
+    st = {'me': me, 'wild': _boss_fighter(b['hp'], phase), 'log': [], 'weather': None}
+    _bt.resolve_turn(st, gid, 0, rng, strict_faint=True, foe_mult=phase.damage_mult)
     dealt = max(0, b['hp'] - st['wild']['hp'])
     left_hp = max(0, st['me']['hp'])
     with db.conn_ctx() as conn:
@@ -301,14 +338,17 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
                          'WHERE id=? AND status=\'ACTIVE\'', (now, b['id']))
     tail = t(gid, 'eco.wb_fainted', name=me['name']) if left_hp <= 0 \
         else t(gid, 'eco.wb_self_hp', name=me['name'], hp=left_hp, max_hp=me['_maxhp'])
+    crossed = (phase.key == 'normal'
+               and resolve_boss_phase(left['hp'], left['max_hp']).key != 'normal')
+    ping = ('\n' + t(gid, 'eco.wb_enraged')) if crossed else ''
     if defeated:
         return {'ok': True, 'code': 'DEFEATED', 'damage': dealt,
                 'boss_hp': 0, 'max_hp': left['max_hp'],
-                'message': t(gid, 'eco.wb_defeated', dmg=dealt) + '\n' + tail}
+                'message': t(gid, 'eco.wb_defeated', dmg=dealt) + ping + '\n' + tail}
     return {'ok': True, 'code': 'ATTACK_OK', 'damage': dealt,
             'boss_hp': left['hp'], 'max_hp': left['max_hp'],
             'message': t(gid, 'eco.wb_hit', dmg=dealt, hp=left['hp'],
-                         max_hp=left['max_hp']) + '\n' + tail}
+                         max_hp=left['max_hp']) + ping + '\n' + tail}
 
 
 def switch_mon(gid, uid, mon_id: int, now: int = None) -> dict:
