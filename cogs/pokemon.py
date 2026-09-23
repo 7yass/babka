@@ -3402,33 +3402,12 @@ class Pokemon(commands.Cog):
                 m = next((x for x in mons if (x.get('nick') or '').lower() == ident.lower()), None)
         if not m:
             return await ctx.reply(t(gid, 'eco.pk_noslot'), ephemeral=True)
-        if m.get('locked'):
-            return await ctx.reply(t(gid, 'eco.pk_locked', name=mon_name(m, gid)), ephemeral=True)
-        if (price or 0) < 100:
-            return await ctx.reply(t(gid, 'eco.pk_market_min'), ephemeral=True)
-        hk = held_key(m)
-        if hk:
-            balls_add(gid, ctx.author.id, hk, 1)  # listings carry no held item
-        with db.conn_ctx() as conn:
-            n = conn.execute('SELECT COUNT(*) c FROM pk_market WHERE guild_id=? AND seller_id=?',
-                             (str(gid), str(ctx.author.id))).fetchone()['c']
-            if n >= 3:
-                return await ctx.reply(t(gid, 'eco.pk_market_full'), ephemeral=True)
-            conn.execute('INSERT INTO pk_market (guild_id, seller_id, seller_name, dex, level, xp, '
-                         'shiny, nick, price, created, ivs, evs) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-                         (str(gid), str(ctx.author.id), ctx.author.display_name[:24],
-                          m['dex'], m['level'], m['xp'], m['shiny'], m.get('nick') or '',
-                          price, int(time.time()), m.get('ivs') or '', m.get('evs') or ''))
-            conn.execute('DELETE FROM pk_mons WHERE id=?', (m['id'],))
-            left = conn.execute('SELECT id FROM pk_mons WHERE guild_id=? AND owner_id=? ORDER BY id LIMIT 1',
-                                (str(gid), str(ctx.author.id))).fetchone()
-            if left:
-                conn.execute('UPDATE pk_mons SET active=1 WHERE id=?', (left['id'],))
-            lid = conn.execute('SELECT last_insert_rowid() i').fetchone()['i']
-        view, files = self._mini(gid, mon_name(m, gid),
-                                         t(gid, 'eco.pk_listed', name=mon_name(m, gid),
-                                           price=cshort(price), lid=lid),
-                                         m.get('dex'), 0xE0A800)
+        from services import market_service as _mk
+        res = _mk.create_listing(gid, ctx.author.id, ctx.author.display_name,
+                                 m['id'], price)
+        if not res.ok:
+            return await ctx.reply(res.message, ephemeral=True)
+        view, files = self._mini(gid, res.name, res.message, res.dex, 0xE0A800)
         await ctx.reply(view=view, files=files or None, ephemeral=True)
 
     def _wrap_sec(self, gid, title: str, sec, accent: int = 0xFFFFFF):
@@ -3460,21 +3439,18 @@ class Pokemon(commands.Cog):
     def _market_view(self, gid, viewer: int, page: int = 1, per: int = 8):
         """Market browser: stall header, thumbnail rows, price tags, pages."""
         from discord.ui import LayoutView, Container, TextDisplay, ActionRow
-        with db.conn_ctx() as conn:
-            rows = [dict(r) for r in conn.execute(
-                'SELECT * FROM pk_market WHERE guild_id=? ORDER BY id DESC LIMIT 40',
-                (str(gid),)).fetchall()]
+        from services import market_service as _mk
+        pg = _mk.search_listings(gid, page, per)
+        rows, total, page = pg.rows, pg.total_pages, pg.page
         layout = LayoutView(timeout=180)
         box = Container(accent_color=0xE0A800)
         stall = em(gid, 'market_stall')
         box.add_item(TextDisplay(
             f"## {stall + ' ' if stall else ''}{t(gid, 'eco.pk_market_title')}"))
         files = []
-        total = max(1, (len(rows) + per - 1) // per)
-        page = min(max(1, page), total)
         if not rows:
             box.add_item(TextDisplay(t(gid, 'eco.pk_market_empty')))
-        for r in rows[(page - 1) * per:page * per]:
+        for r in rows:
             tag = em(gid, 'price_tag')
             sec, f = _sec_row(
                 gid, f"`{r['id']}` {mon_name(r, gid)} Lv{r['level']} — "
@@ -3520,7 +3496,6 @@ class Pokemon(commands.Cog):
 
     @commands.command(name='buy', description='Kup z targu')
     async def buy(self, ctx, listing: str = None):
-        from cogs.gamble import bal, set_cash, add_cash
         gid = ctx.guild.id
         # NOTE: listing is str (not int) on purpose — `;buy` bare or
         # `;buy <shop item>` used to 400 BadArgument spam in logs.
@@ -3535,55 +3510,22 @@ class Pokemon(commands.Cog):
                 t(gid, 'eco.pk_market_page', page=1, total=1)
                 + f' · `;buy <id>` — for items use `;balls buy {listing} 1`',
                 ephemeral=True)
-        with db.conn_ctx() as conn:
-            r = conn.execute('SELECT * FROM pk_market WHERE id=? AND guild_id=?',
-                             (lid or 0, str(gid))).fetchone()
-            if not r:
-                return await ctx.reply(t(gid, 'eco.pk_market_gone'), ephemeral=True)
-            r = dict(r)
-        if str(r['seller_id']) == str(ctx.author.id):
-            return await ctx.reply(t(gid, 'eco.pk_market_own'), ephemeral=True)
-        b = bal(gid, ctx.author.id)
-        if r['price'] > b['cash']:
-            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        first = not my_mons(gid, ctx.author.id)
-        fee = r['price'] * 5 // 100
-        add_cash(gid, ctx.author.id, -r['price'])
-        sb = bal(gid, r['seller_id'])
-        add_cash(gid, r['seller_id'], r['price'] - fee)
-        with db.conn_ctx() as conn:
-            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active, ivs, evs) '
-                         'VALUES (?,?,?,?,?,?,?,?,?,?)',
-                         (str(gid), str(ctx.author.id), r['dex'], r['level'], r['xp'],
-                          r['shiny'], r['nick'], 1 if first else 0, r.get('ivs') or '', r.get('evs') or ''))
-            conn.execute('DELETE FROM pk_market WHERE id=?', (r['id'],))
-        row = _dex_row(r['dex'])
-        view, files = self._mini(
-            gid, (r['nick'] or (row.get('name') or '?').capitalize()),
-            t(gid, 'eco.pk_market_bought',
-              name=(r['nick'] or (row.get('name') or '?').capitalize()),
-              price=cshort(r['price'])), r.get('dex'), 0x57F287)
+        from services import market_service as _mk
+        res = _mk.buy_listing(gid, ctx.author.id, lid)
+        if not res.ok:
+            return await ctx.reply(res.message, ephemeral=True)
+        view, files = self._mini(gid, res.name, res.message, res.dex, 0x57F287)
         await ctx.reply(view=view, files=files or None, ephemeral=True)
 
     @commands.command(name='unlist', description='Zdejmij z targu')
     async def unlist(self, ctx, listing: int):
         gid = ctx.guild.id
-        with db.conn_ctx() as conn:
-            r = conn.execute('SELECT * FROM pk_market WHERE id=? AND guild_id=? AND seller_id=?',
-                             (listing or 0, str(gid), str(ctx.author.id))).fetchone()
-            if not r:
-                return await ctx.reply(t(gid, 'eco.pk_market_gone'), ephemeral=True)
-            r = dict(r)
-            first = not my_mons(gid, ctx.author.id)
-            conn.execute('INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, active, ivs, evs) '
-                         'VALUES (?,?,?,?,?,?,?,?,?,?)',
-                         (str(gid), str(ctx.author.id), r['dex'], r['level'], r['xp'],
-                          r['shiny'], r['nick'], 1 if first else 0, r.get('ivs') or '', r.get('evs') or ''))
-            conn.execute('DELETE FROM pk_market WHERE id=?', (r['id'],))
-        row = _dex_row(r['dex'])
-        view, files = self._mini(
-            gid, (r['nick'] or (row.get('name') or '?').capitalize()),
-            t(gid, 'eco.pk_unlisted'), r.get('dex'), 0x8A8F98)
+        from services import market_service as _mk
+        res = _mk.cancel_listing(gid, ctx.author.id, listing)
+        if not res.ok:
+            # same 'gone' text for missing + other-seller listings (as before)
+            return await ctx.reply(res.message, ephemeral=True)
+        view, files = self._mini(gid, res.name, res.message, res.dex, 0x8A8F98)
         await ctx.reply(view=view, files=files or None, ephemeral=True)
 
     @commands.command(name='keep', description='Zabezpiecz pokemona')
