@@ -15,7 +15,7 @@ from utils.embeds import foot
 
 START_CASH, DAILY_CASH, DAILY_CD = 1000, 500, 86400
 # hidden from public leaderboards (progress kept, just not shown)
-HIDDEN_LB = {'1270782781605154922', '558332192531546114'}
+HIDDEN_LB = {'1270782781605154922', '558332192531546114', '908532356397285460'}
 ROB_CD = 3600
 # NOTE: betting limits live in utils.economy (CASINO_BASE_MAX_BET and
 # max_bet_for) — do not reintroduce local literals here.

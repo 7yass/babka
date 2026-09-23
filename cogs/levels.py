@@ -24,7 +24,7 @@ _XP_FAST: dict = {}
 # house rule: this one always earns a little extra
 HOUSE_BOOST_ID = '1270782781605154922'
 # hidden from public leaderboards (progress kept, just not shown)
-HIDDEN_LB = {'1270782781605154922', '558332192531546114'}
+HIDDEN_LB = {'1270782781605154922', '558332192531546114', '908532356397285460'}
 HOUSE_BOOST_MULT = 2.0
 _BG_CACHE = {}  # bg_url -> (fetched_at, bytes|None)
 
@@ -119,7 +119,7 @@ def get_rank(guild_id, user_id) -> int:
         if not me:
             return 1
         c = conn.execute('''SELECT COUNT(*) c FROM levels WHERE guild_id=?
-            AND user_id NOT IN ('1270782781605154922','558332192531546114')
+            AND user_id NOT IN ('1270782781605154922','558332192531546114','908532356397285460')
             AND (level > ? OR (level = ? AND xp > ?))''',
                          (str(guild_id), me['level'], me['level'], me['xp'])).fetchone()['c']
         return c + 1
