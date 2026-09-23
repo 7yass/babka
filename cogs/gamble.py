@@ -203,8 +203,7 @@ def slots_image(reels) -> bytes:
         d.rounded_rectangle([x, top, x + cw, top + ch], radius=18, fill=(34, 34, 39),
                             outline=(250, 200, 60) if s == '7' else (70, 70, 78), width=3)
         try:
-            w = d.textlength(s, font=f)
-            d.text((x + (cw - w) / 2, top + 28), s, font=f,
+            d.text((x + cw / 2, top + ch / 2), s, font=f, anchor='mm',
                    fill=(250, 200, 60) if s == '7' else (240, 240, 245))
         except Exception:
             d.text((x + 60, top + 60), s, font=f, fill=(240, 240, 245))
@@ -225,35 +224,21 @@ def bj_table_image(phand, dhand, hide=True) -> bytes:
     except Exception:
         f_r = f_s = _F.load_default()
 
-    def card(rank, suit, back=False):
+    from utils.cards import card_face, card_shadow, felt
+
+    def back():
         c = _Img.new('RGB', (CW, CHH), (232, 232, 236))
         d = _Dr.Draw(c)
         d.rounded_rectangle([0, 0, CW - 1, CHH - 1], radius=12, outline=(120, 120, 128), width=3)
-        if back:
-            d.rounded_rectangle([12, 12, CW - 13, CHH - 13], radius=8, fill=(40, 40, 46))
-            for x in range(20, CW - 20, 16):
-                d.line([(x, 20), (x, CHH - 20)], fill=(70, 70, 78), width=3)
-            return c
-        col = (180, 40, 40) if suit in ('♥', '♦') else (25, 25, 30)
-        d.text((10, 6), rank, font=f_r, fill=col)
-        try:
-            w = d.textlength(suit, font=f_s)
-            d.text(((CW - w) / 2, 52), suit, font=f_s, fill=col)
-        except Exception:
-            d.text((40, 60), suit, font=f_r, fill=col)
+        d.rounded_rectangle([12, 12, CW - 13, CHH - 13], radius=8, fill=(40, 40, 46))
+        for x in range(20, CW - 20, 16):
+            d.line([(x, 20), (x, CHH - 20)], fill=(70, 70, 78), width=3)
         return c
 
-    def row(cards, hide_first=False):
-        n = max(1, len(cards))
-        strip = _Img.new('RGB', (n * (CW + 14), CHH), (22, 22, 26))
-        for i, (r, s) in enumerate(cards):
-            strip.paste(card(r, s, back=(hide_first and i == 0)), (i * (CW + 14), 0))
-        return strip
-
-    prows, drows = row(phand), row(dhand, hide_first=hide)
-    W = max(prows.width, drows.width) + 60
+    n = max(1, len(phand), len(dhand))
+    W = n * (CW + 14) + 60
     H = CHH * 2 + 150
-    img = _Img.new('RGB', (W, H), (22, 22, 26))
+    img = felt(W, H)
     d = _Dr.Draw(img)
     try:
         f_t = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 30)
@@ -261,9 +246,15 @@ def bj_table_image(phand, dhand, hide=True) -> bytes:
         f_t = f_r
     pv, dv = hand_value(phand), '?' if hide else str(hand_value(dhand))
     d.text((30, 14), f'DEALER  {dv}', font=f_t, fill=(160, 160, 168))
-    img.paste(drows, (30, 52))
+    for i, (r, s) in enumerate(dhand):
+        x = 30 + i * (CW + 14)
+        card_shadow(d, x, 52, CW, CHH)
+        img.paste(back() if (hide and i == 0) else card_face(r, s, CW, CHH), (x, 52))
     d.text((30, 52 + CHH + 12), f'YOU  {pv}', font=f_t, fill=(255, 255, 255))
-    img.paste(prows, (30, 52 + CHH + 50))
+    for i, (r, s) in enumerate(phand):
+        x = 30 + i * (CW + 14)
+        card_shadow(d, x, 52 + CHH + 50, CW, CHH)
+        img.paste(card_face(r, s, CW, CHH), (x, 52 + CHH + 50))
     buf = _io.BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()
@@ -292,9 +283,8 @@ def coin_image(side: str) -> bytes:
     except Exception:
         f = _F.load_default()
     try:
-        w = d.textlength(side, font=f)
-        d.text(((S - w) / 2, 58), side, font=f, fill=(250, 200, 60))
-        d.text(((S - w) / 2, 52), side, font=f, fill=(255, 230, 140))
+        d.text((S / 2, S / 2 + 3), side, font=f, anchor='mm', fill=(250, 200, 60))
+        d.text((S / 2, S / 2 - 3), side, font=f, anchor='mm', fill=(255, 230, 140))
     except Exception:
         d.text((110, 90), side, font=f, fill=(250, 200, 60))
     buf = _io.BytesIO()
@@ -345,33 +335,22 @@ def poker_eval(cards) -> tuple:
 
 def poker_image(hand, held) -> bytes:
     import io as _io
-    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
+    from PIL import ImageDraw as _Dr, ImageFont as _F
     from pathlib import Path as _P
+    from utils.cards import card_face, card_shadow, felt
     CW, CHH = 110, 154
     try:
-        f_r = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 32)
-        f_s = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans.ttf'), 48)
         f_h = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 26)
     except Exception:
-        f_r = f_s = f_h = _F.load_default()
+        f_h = _F.load_default()
     W = 5 * (CW + 12) + 40
     H = CHH + 90
-    img = _Img.new('RGB', (W, H), (22, 22, 26))
+    img = felt(W, H)
     d = _Dr.Draw(img)
     for i, (r, s) in enumerate(hand):
         x = 20 + i * (CW + 12)
-        col = (180, 40, 40) if s in ('♥', '♦') else (25, 25, 30)
-        card = _Img.new('RGB', (CW, CHH), (232, 232, 236))
-        cd = _Dr.Draw(card)
-        cd.rounded_rectangle([0, 0, CW - 1, CHH - 1], radius=12,
-                             outline=(250, 200, 60) if i in held else (120, 120, 128), width=4)
-        cd.text((10, 6), r, font=f_r, fill=col)
-        try:
-            w = cd.textlength(s, font=f_s)
-            cd.text(((CW - w) / 2, 50), s, font=f_s, fill=col)
-        except Exception:
-            cd.text((38, 58), s, font=f_r, fill=col)
-        img.paste(card, (x, 10))
+        card_shadow(d, x, 10, CW, CHH)
+        img.paste(card_face(r, s, CW, CHH, held=(i in held)), (x, 10))
         tag = f'HOLD {i + 1}' if i in held else f'{i + 1}'
         try:
             tw = d.textlength(tag, font=f_h)

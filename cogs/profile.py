@@ -233,16 +233,8 @@ def identity_card(title_label: str, head: str, rows: list,
             text = text[:24]
         return text
 
-    # corner brackets + top gold edge
-    cb = (64, 64, 72)
-    d.line([(14, 14), (34, 14)], fill=cb, width=2)
-    d.line([(14, 14), (14, 34)], fill=cb, width=2)
-    d.line([(W - 34, 14), (W - 16, 14)], fill=cb, width=2)
-    d.line([(W - 16, 14), (W - 16, 32)], fill=cb, width=2)
-    d.line([(14, H - 14), (34, H - 14)], fill=cb, width=2)
-    d.line([(14, H - 14), (14, H - 34)], fill=cb, width=2)
-    d.line([(W - 34, H - 14), (W - 16, H - 14)], fill=cb, width=2)
-    d.line([(W - 16, H - 30), (W - 16, H - 14)], fill=cb, width=2)
+    # left gold edge (brand bar); top gold rule kept as the identity marker
+    d.rectangle([0, 0, 6, H], fill=(250, 200, 60))
     d.line([(42, 14), (W - 42, 14)], fill=(250, 200, 60), width=2)
 
     # left: identity info

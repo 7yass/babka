@@ -177,6 +177,83 @@ def cover(img: Image.Image, w: int, h: int) -> Image.Image:
     return img.crop((x, y, x + w, y + h))
 
 
+RED_SUITS = {'♥', '♦'}
+GOLD = (250, 200, 60)
+FACE_BG = (238, 238, 242)
+FACE_INK = (25, 25, 30)
+FACE_RED = (180, 40, 40)
+
+
+def card_face(rank: str, suit: str, w: int = 110, h: int = 154,
+              held: bool = False) -> Image.Image:
+    """Modern playing-card face: corner indices top-left + bottom-right,
+    big center pip. Red for hearts/diamonds. Shared by poker + blackjack
+    so every table looks the same."""
+    try:
+        a = Path(__file__).parent.parent / 'assets'
+        f_rank = ImageFont.truetype(str(a / 'DejaVuSans-Bold.ttf'), max(10, int(w * 0.27)))
+        f_pip = ImageFont.truetype(str(a / 'DejaVuSans.ttf'), max(10, int(w * 0.24)))
+        f_big = ImageFont.truetype(str(a / 'DejaVuSans.ttf'), max(12, int(h * 0.34)))
+    except Exception:
+        try:
+            f_rank = ImageFont.truetype('arialbd.ttf', max(10, int(w * 0.27)))
+            f_pip = f_big = ImageFont.truetype('arial.ttf', max(10, int(w * 0.24)))
+        except Exception:
+            f_rank = f_pip = f_big = ImageFont.load_default()
+    col = FACE_RED if suit in RED_SUITS else FACE_INK
+    card = Image.new('RGB', (w, h), FACE_BG)
+    cd = ImageDraw.Draw(card)
+    cd.rounded_rectangle([0, 0, w - 1, h - 1], radius=min(14, w // 8),
+                         outline=GOLD if held else (120, 120, 128),
+                         width=4 if held else 3)
+    # top-left index
+    cd.text((max(6, w // 12), max(2, h // 30)), rank, font=f_rank, fill=col)
+    try:
+        cd.text((max(6, w // 12), max(2, h // 30) + int(w * 0.30)), suit,
+                font=f_pip, fill=col)
+    except Exception:
+        pass
+    # center pip
+    try:
+        cd.text((w / 2, h * 0.58), suit, font=f_big, fill=col, anchor='mm')
+    except Exception:
+        cd.text((w // 2 - 10, h // 2), suit, font=f_pip, fill=col)
+    # bottom-right index (rotated tile in face bg color)
+    try:
+        tw, th = max(20, int(w * 0.30)), max(30, int(h * 0.30))
+        tile = Image.new('RGB', (tw, th), FACE_BG)
+        td = ImageDraw.Draw(tile)
+        td.text((2, 0), rank, font=f_rank, fill=col)
+        td.text((2, int(w * 0.26)), suit, font=f_pip, fill=col)
+        tile = tile.rotate(180, expand=True)
+        card.paste(tile, (w - tw - max(4, w // 16), h - th - max(4, h // 24)))
+    except Exception:
+        pass
+    return card
+
+
+def felt(w: int, h: int, top=(30, 30, 38), bottom=(15, 15, 19)) -> Image.Image:
+    """Subtle vertical gradient table background for casino cards."""
+    img = Image.new('RGB', (w, h), bottom)
+    px = img.load()
+    for y in range(h):
+        f = y / max(1, h - 1)
+        px_line = tuple(int(top[i] + (bottom[i] - top[i]) * f) for i in range(3))
+        for x in range(w):
+            px[x, y] = px_line
+    return img
+
+
+def card_shadow(d: ImageDraw.ImageDraw, x: int, y: int, w: int, h: int,
+                radius: int = 12, dx: int = 0, dy: int = 5):
+    """Soft drop shadow under a card face. Draw before pasting the face."""
+    try:
+        d.rounded_rectangle([x + dx, y + dy, x + dx + w, y + dy + h],
+                            radius=radius, fill=(5, 5, 8))
+    except Exception:
+        pass
+
+
 def apply_bg(style: dict, bg_bytes: bytes = None, banner_bytes: bytes = None,
              accent: tuple = None) -> tuple:
     """Background priority: custom URL > user banner > accent tint > solid color > dark."""
@@ -291,6 +368,7 @@ def render_greet(kind: str, name: str, stat: str, avatar_bytes: bytes = None,
     else:
         # banner layout — Direction A (avatar left, tracked title, big name)
         INK, FAINT, DIM, HAIR = (255, 255, 255), (96, 96, 104), (150, 150, 158), (54, 54, 60)
+        d.rectangle([0, 0, 6, H], fill=accent)
         try:
             _a = Path(__file__).parent.parent / 'assets'
             f_lab = ImageFont.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 17)
