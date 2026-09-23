@@ -335,10 +335,11 @@ def rank_card(member: discord.Member, data: dict, rank: int, lang: str = 'en', a
         img.save(buf, 'PNG')
         buf.seek(0)
         return discord.File(buf, 'rank.png')
-    # banner layout — Direction A (avatar left, tier pill, stat columns, knob bar)
+    # banner layout — unified gold revamp: edge bar, avatar with tier ring,
+    # name with right-aligned tier pill, stat columns, labeled XP bar.
     from utils.cards import paste_avatar
+    GOLD = (250, 200, 60)
     INK, FAINT, DIM, HAIR = (255, 255, 255), (96, 96, 104), (150, 150, 158), (54, 54, 60)
-    ac = (240, 240, 246)
     try:
         f_name = ImageFont.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 40)
         f_pill = ImageFont.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 19)
@@ -347,40 +348,30 @@ def rank_card(member: discord.Member, data: dict, rank: int, lang: str = 'en', a
         f_xp = ImageFont.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans.ttf'), 19)
     except Exception:
         f_name, f_pill, f_lab, f_val, f_xp = f_big, f_mid, f_sm, f_mid, f_sm
+    d.rectangle([0, 0, 6, H], fill=GOLD)
     x0, s = 42, 148
     ay = (H - s) // 2
     if show_av:
         if not (avatar_bytes and paste_avatar(img, avatar_bytes, (x0, ay, s))):
             fallback_face(d, (x0, ay, s), name)
         d.ellipse([x0 - 3, ay - 3, x0 + s + 3, ay + s + 3], outline=(70, 70, 78), width=2)
-        d.ellipse([x0, ay, x0 + s, ay + s], outline=ac, width=4)
+        d.ellipse([x0, ay, x0 + s, ay + s], outline=tier_c, width=4)
         dx = x0 + s + 38
     else:
         dx = 48
-    # corner brackets (top-right + bottom-right)
-    cb = (64, 64, 72)
-    d.line([(W - 34, 14), (W - 16, 14)], fill=cb, width=2)
-    d.line([(W - 16, 14), (W - 16, 32)], fill=cb, width=2)
-    d.line([(W - 36, H - 14), (W - 20, H - 14)], fill=cb, width=2)
-    d.line([(W - 20, H - 30), (W - 20, H - 14)], fill=cb, width=2)
     disp_name = name.upper()[:16]
-    d.text((dx, 26), disp_name, font=f_name, fill=INK)
+    d.text((dx, 28), disp_name, font=f_name, fill=INK)
     if show_tier:
-        try:
-            nw = d.textlength(disp_name, font=f_name)
-        except Exception:
-            nw = len(disp_name) * 26
-        pill_x, pill_y = dx + nw + 18, 34
         tier_txt = tier_name + (' ' + '★' * stars if stars else '')
         try:
             tw = d.textlength(tier_txt, font=f_pill) + 26
         except Exception:
             tw = len(tier_txt) * 12 + 26
-        if pill_x + tw < W - 20:
-            d.rounded_rectangle([pill_x, pill_y, pill_x + tw, pill_y + 32], radius=16,
-                                outline=tier_c, width=2, fill=(22, 22, 26))
-            d.text((pill_x + 13, pill_y + 6), tier_txt, font=f_pill, fill=tier_c)
-    d.line([(dx, 92), (W - 40, 92)], fill=HAIR, width=1)
+        px = W - 40 - tw
+        d.rounded_rectangle([px, 36, px + tw, 36 + 32], radius=16,
+                            outline=tier_c, width=2, fill=(22, 22, 26))
+        d.text((px + 13, 42), tier_txt, font=f_pill, fill=tier_c)
+    d.line([(dx, 96), (W - 40, 96)], fill=HAIR, width=1)
     cols = [('LEVEL', lvl_num), ('RANK', rank_num), ('PROGRESS', pct_txt)]
     cw = (W - dx - 60) / len(cols)
     for i, (lab, val) in enumerate(cols):
@@ -392,7 +383,7 @@ def rank_card(member: discord.Member, data: dict, rank: int, lang: str = 'en', a
     if show_xp:
         d.text((W - 40, 176), f"{cshort(data['xp'])} / {cshort(need)} XP", font=f_xp, fill=DIM, anchor='ra')
     if show_bar:
-        _bar_knob(img, dx, 204, W - dx - 40, 13, pct, ac)
+        _bar_knob(img, dx, 204, W - dx - 40, 13, pct, tier_c)
     if data['level'] >= 20:
         d.rectangle([6, 6, W - 6, H - 6], outline=(120, 120, 128), width=2)
     if data['level'] >= 50:

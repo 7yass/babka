@@ -627,9 +627,18 @@ def wallet_card(name: str, cash: int, streak: int, avatar_bytes: bytes = None, b
     d.ellipse([x0, ay, x0 + s, ay + s], outline=GOLD, width=4)
     d.rectangle([0, 0, 6, H], fill=GOLD)
     dx = x0 + s + 34
-    d.text((dx, 30), name[:20], font=f_name, fill=INK)
-    d.text((dx, 74), cshort(cash), font=f_big, fill=GOLD)
-    tracked((dx, 148), 'COINS', f_lab, FAINT)
+    tracked((dx, 22), 'WALLET', f_lab, FAINT)
+    _nm = name[:20]
+    try:
+        while _nm and d.textlength(_nm, font=f_name) > 500 - dx:
+            _nm = _nm[:-1]
+        if len(_nm) < len(name[:20]):
+            _nm = _nm.rstrip() + '…'
+    except Exception:
+        pass
+    d.text((dx, 44), _nm, font=f_name, fill=INK)
+    d.text((dx, 86), cshort(cash), font=f_big, fill=GOLD)
+    tracked((dx, 160), 'COINS', f_lab, FAINT)
     rx = 520
     rows = [('DAILY STREAK', f'{streak} DAYS' if streak else '—'),
             ('BANK', cshort(bank))]

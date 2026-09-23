@@ -39,6 +39,7 @@ def profile_card(name: str, level: int, xp: int, need: int, rank: int,
     else:
         img = _Img.new('RGB', (W, H), (16, 16, 19))
     d = _Dr.Draw(img)
+    d.rectangle([0, 0, 6, H], fill=GOLD)
     try:
         _a = _P(__file__).parent.parent / 'assets'
         f_name = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 34)
@@ -95,16 +96,9 @@ def profile_card(name: str, level: int, xp: int, need: int, rank: int,
                    font=_fl, fill=(220, 220, 225), anchor='mm')
         except Exception:
             pass
-    ring_c = GOLD if is_staff else (240, 240, 246)
+    ring_c = GOLD if is_staff else tier_color
     d.ellipse([x0 - 3, ay - 3, x0 + s + 3, ay + s + 3], outline=(70, 70, 78), width=2)
     d.ellipse([x0, ay, x0 + s, ay + s], outline=ring_c, width=4)
-
-    # corner brackets
-    cb = (64, 64, 72)
-    d.line([(W - 34, 14), (W - 16, 14)], fill=cb, width=2)
-    d.line([(W - 16, 14), (W - 16, 32)], fill=cb, width=2)
-    d.line([(W - 36, H - 14), (W - 20, H - 14)], fill=cb, width=2)
-    d.line([(W - 20, H - 30), (W - 20, H - 14)], fill=cb, width=2)
 
     dx = x0 + s + 38
     d.text((dx, 38), name.upper()[:16], font=f_name, fill=INK)
