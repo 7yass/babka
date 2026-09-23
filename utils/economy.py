@@ -91,7 +91,7 @@ POKE_SHOP_PRICES: dict[str, ShopPrice] = {
 
 # ---- casino ----
 CASINO_BASE_MAX_BET = 15000
-CASINO_MAX_BET_PER_LEVEL = 1500
+CASINO_MAX_BET_PER_LEVEL = 2000
 CASINO_MAX_BET_CAP = 100000
 CASINO_BJ_PAYOUT = 1.0          # blackjack pays even money
 CASINO_BJ_GOD_PAYOUT = 1.3      # house edge, kept deniable

@@ -455,8 +455,8 @@ def split_allin(bet: str, *rest: str):
 
 
 def max_bet_for(level: int, base: int = CASINO_BASE_MAX_BET) -> int:
-    """Betting limit grows with level: base + per-level, capped.
-    Lv0 plays at base, lv10 ~30k, lv30 ~60k — high rollers still bypass."""
+    """Betting limit grows with level: base + 2k per level, capped.
+    Lv0 plays at base, lv10 ~35k, lv30 ~75k — high rollers still bypass."""
     try:
         lv = max(0, int(level or 0))
     except Exception:
