@@ -2544,6 +2544,29 @@ class Pokemon(commands.Cog):
                 out[reg] += r['count'] or 0
         return out
 
+    def _hunt_daily_complete(self, gid, uid, dex):
+        """Casual daily hunt quest shared by the catch + fight-KO paths.
+        Returns the reward line on first completion today, else None."""
+        from cogs.gamble import add_cash as _add
+        try:
+            with db.conn_ctx() as conn:
+                try:
+                    conn.execute('ALTER TABLE pk_hunt_daily ADD COLUMN done INTEGER DEFAULT 0')
+                except Exception:
+                    pass
+                today = int(time.time()) // 86400
+                dh = conn.execute('SELECT target, day, done FROM pk_hunt_daily WHERE guild_id=? AND user_id=?',
+                                  (str(gid), str(uid))).fetchone()
+                if dh and (dh['target'] or 0) == dex and (dh['day'] or 0) == today \
+                        and not (dh['done'] or 0):
+                    _add(gid, uid, HUNT_DAILY_REWARD)
+                    conn.execute('UPDATE pk_hunt_daily SET done=1 WHERE guild_id=? AND user_id=?',
+                                 (str(gid), str(uid)))
+                    return t(gid, 'eco.pk_hunt_done', win=cshort(HUNT_DAILY_REWARD))
+        except Exception:
+            pass
+        return None
+
     async def _catch_progress(self, gid, uid, dex: int, shiny: bool) -> list:
         """Dex milestones + region quest tiers + shiny-hunt streak. Returns lines."""
         from cogs.gamble import bal, set_cash, add_cash
@@ -2625,23 +2648,9 @@ class Pokemon(commands.Cog):
         if ready:
             lines.append(t(gid, 'eco.pk_egg_ready'))
         # casual daily hunt quest: catching today's target finishes it (once)
-        try:
-            with db.conn_ctx() as conn:
-                try:
-                    conn.execute('ALTER TABLE pk_hunt_daily ADD COLUMN done INTEGER DEFAULT 0')
-                except Exception:
-                    pass
-                today = int(time.time()) // 86400
-                dh = conn.execute('SELECT target, day, done FROM pk_hunt_daily WHERE guild_id=? AND user_id=?',
-                                  (str(gid), str(uid))).fetchone()
-                if dh and (dh['target'] or 0) == dex and (dh['day'] or 0) == today \
-                        and not (dh['done'] or 0):
-                    _add(gid, uid, HUNT_DAILY_REWARD)
-                    lines.append(t(gid, 'eco.pk_hunt_done', win=cshort(HUNT_DAILY_REWARD)))
-                    conn.execute('UPDATE pk_hunt_daily SET done=1 WHERE guild_id=? AND user_id=?',
-                                 (str(gid), str(uid)))
-        except Exception:
-            pass
+        line = self._hunt_daily_complete(gid, uid, dex)
+        if line:
+            lines.append(line)
         return lines
 
     def _catch_meta(self, gid, uid, dex: int, shiny: bool = False) -> str:
@@ -5513,6 +5522,10 @@ class Pokemon(commands.Cog):
             ev = await self._gain_party_xp(gid, user.id, st['mid'], gain)
             ev.extend(evs_win(gid, st['mid'], wild.get('row') or {}, me))
             msgs.extend(ev)
+            # fight KO of today's hunt target finishes the quest too
+            line = self._hunt_daily_complete(gid, user.id, wild.get('dex', 0))
+            if line:
+                msgs.append(line)
             with db.conn_ctx() as conn:
                 conn.execute('UPDATE pk_daily SET battles=battles+1 WHERE guild_id=? AND user_id=?',
                              (str(gid), str(user.id)))
