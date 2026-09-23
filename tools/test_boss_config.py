@@ -134,12 +134,43 @@ def main() -> None:
     check(TIDECALLER.phases[1].phase_reward == LootReward('tidal_scale', 1, 1),
           'tidecaller enraged pays a scale')
     check(TIDECALLER.phases[0].phase_reward is None, 'normal has no bonus')
+    check(TIDECALLER.phases[1].defense_mult == 0.85, 'tidecaller hide is 0.85 in rage')
+    check(TIDECALLER.phases[0].defense_mult == 1.0, 'tidecaller normal takes full damage')
+    check(all(p.defense_mult == 1.0 for p in DREADMAW.phases),
+          'dreadmaw has no hide anywhere')
     legacy = __import__('json').loads(snap2)
     for p in legacy['phases']:
         del p['effect_key']
     check(all(p.effect_key is None
               for p in definition_from_snapshot(legacy).phases),
           'pre-effect snapshots load with safe default')
+    legacy2 = __import__('json').loads(snapshot_definition(TIDECALLER))
+    for p in legacy2['phases']:
+        del p['defense_mult']
+    check(all(p.defense_mult == 1.0
+              for p in definition_from_snapshot(legacy2).phases),
+          'pre-hide snapshots default to full damage')
+    for bad_mult in (0, -0.5, 2.5, 'tough'):
+        try:
+            validate_definition(bad(
+                key='dm', phases=(BossPhase(
+                    key='a', min_hp_ratio=0.0,
+                    moves=({'name': 'M', 'power': 10, 'acc': 100,
+                            'ptype': 'normal'},),
+                    defense_mult=bad_mult),)))
+            check(False, f'validation rejects defense_mult={bad_mult!r}')
+        except ValueError:
+            check(True, f'validation rejects defense_mult={bad_mult!r}')
+
+    # --- shared strike scaler (service + simulator use one rule) ---
+    from services.worldboss_service import scale_incoming
+    check(scale_incoming(TIDECALLER.phases[0], 113) == 113, '1.0 hide is identity')
+    check(scale_incoming(TIDECALLER.phases[1], 113) == int(113 * 0.85),
+          '0.85 hide scales')
+    check(scale_incoming(TIDECALLER.phases[1], 1) == 1, 'non-zero strike lands >= 1')
+    check(scale_incoming(TIDECALLER.phases[1], 0) == 0, 'zero stays zero')
+    check(scale_incoming(None, 50) == 50 and scale_incoming({}, 50) == 50,
+          'missing phase degrades to full damage')
 
     # --- disabled bosses cannot start ---
     off = BossDefinition(key='off', display_name='Off', max_hp=100,

@@ -104,7 +104,8 @@ def build_sim_text(rep: dict) -> str:
     return '\n'.join([
         head,
         f"Kills {rep['kill_rate'] * 100:.0f}% ({rep['kills']}/{rep['raids']}) · "
-        f"avg {atk} attacks · ~{clr} clear (limit {lim})",
+        f"failed {rep['failed']} · avg {atk} attacks/kill "
+        f"({rep['avg_attacks_all_raids']} all raids) · ~{clr} clear (limit {lim})",
         f"Faints {rep['avg_faints_per_raid']}/raid · "
         f"heals {rep['avg_heals_per_raid']}/raid · "
         f"{rep['avg_dmg_per_attack']} dmg/hit",
@@ -124,6 +125,8 @@ def build_preview_text(p: dict) -> str:
              + ('' if p['enabled'] else ' · DISABLED')]
     for ph in p['phases']:
         bits = [f">{ph['above_ratio'] * 100:.0f}%", f"x{ph['damage_mult']}"]
+        if ph.get('defense_mult', 1.0) != 1.0:
+            bits.append(f"hide x{ph['defense_mult']}")
         bits += list(ph['moves'])
         if ph['effect']:
             bits.append(ph['effect'])

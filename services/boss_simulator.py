@@ -39,6 +39,7 @@ def preview_boss(boss_key: str) -> dict:
         'phases': tuple({
             'key': p.key, 'display_name': p.display_name or p.key,
             'above_ratio': p.min_hp_ratio, 'damage_mult': p.damage_mult,
+            'defense_mult': p.defense_mult,
             'effect': p.effect_key,
             'moves': tuple(m.get('name') for m in p.moves),
             'phase_reward': ([p.phase_reward.item_id, p.phase_reward.quantity_min]
@@ -105,8 +106,8 @@ def _one_raid(gid, defn, template: dict, n: int, team: int, cooldown: int,
         wild = _boss_fighter(defn, boss_hp, phase)
         _bt.resolve_turn({'me': me, 'wild': wild, 'log': []}, gid, 0, rng,
                          strict_faint=True, foe_mult=phase.damage_mult)
-        dealt = max(0, boss_hp - wild['hp'])
-        boss_hp = wild['hp']
+        dealt = _wb.scale_incoming(phase, max(0, boss_hp - wild['hp']))
+        boss_hp = max(0, boss_hp - dealt)
         f['dmg'] += dealt
         f['attacks'] += 1
         f['next'] = t + cooldown
@@ -160,37 +161,13 @@ def _raid_loot(defn, damage_list, max_phase, rng) -> tuple:
     return w_rows, g_rows
 
 
-def simulate_raids(boss_key: str, dex: int = 133, level: int = 100,
-                   fighters: int = 5, team_size: int = 6, raids: int = 200,
-                   seed: int = 0, heal_policy: str = 'none', gid=0) -> dict:
-    """Monte-Carlo raid simulation. All caps clamped; bad profiles
-    rejected without running. Returns a JSON-safe report dict."""
-    from game.bosses.registry import registry
-    key = (boss_key or '').strip().lower()
-    defn = registry.get(key)
-    if defn is None:
-        return {'ok': False, 'code': 'UNKNOWN_BOSS'}
-    try:
-        level, n, team = int(level), int(fighters), int(team_size)
-    except Exception:
-        return {'ok': False, 'code': 'BAD_PROFILE'}
-    if not (1 <= level <= 100 and 1 <= n <= MAX_FIGHTERS and 1 <= team <= 6):
-        return {'ok': False, 'code': 'BAD_PROFILE'}
-    try:
-        raids = max(1, min(MAX_RAIDS, int(raids)))
-    except Exception:
-        raids = 200
-    try:
-        dex = int(dex)
-    except Exception:
-        return {'ok': False, 'code': 'UNKNOWN_DEX'}
-    template = _fighter(gid, dex, level)
-    if template is None:
-        return {'ok': False, 'code': 'UNKNOWN_DEX'}
-    heal = str(heal_policy or 'none').lower() == 'coin'
+def _run(defn, template: dict, n: int, team: int, raids: int, seed: int,
+         heal: bool, gid) -> dict:
+    """Aggregation loop shared by registry and explicit-definition runs."""
     cooldown, duration = defn.attack_cooldown_seconds, defn.duration_seconds
     outcomes = {'kill': 0, 'expiry': 0, 'wipe': 0}
-    atk_to_kill, clear_times, faints, heals, switches = [], [], 0, 0, 0
+    atk_to_kill, atk_all, clear_times = [], [], []
+    faints, heals, switches = 0, 0, 0
     all_dmg, all_atk, part_dmgs = 0, 0, []
     phase_hits: dict = {}
     w_agg: dict = {}
@@ -204,6 +181,7 @@ def simulate_raids(boss_key: str, dex: int = 133, level: int = 100,
         switches += r['switches']
         all_dmg += sum(r['damage'])
         all_atk += r['attacks']
+        atk_all.append(r['attacks'])
         if r['outcome'] == 'kill':
             part_dmgs.extend(r['damage'])
             atk_to_kill.append(r['attacks'])
@@ -217,18 +195,19 @@ def simulate_raids(boss_key: str, dex: int = 133, level: int = 100,
             for item, q in g_rows:
                 g_agg[item] = g_agg.get(item, 0) + q
     kills = outcomes['kill']
+    failed = outcomes['expiry'] + outcomes['wipe']
     below = sum(1 for d in part_dmgs if d < defn.participation_damage)
+    phase_item = None
+    for p in defn.phases:
+        if p.phase_reward is not None:
+            phase_item = p.phase_reward.item_id
     return {
-        'ok': True, 'boss_key': defn.key, 'boss_name': defn.display_name,
-        'assumptions': {'dex': dex, 'level': level, 'fighters': n,
-                        'team_size': team, 'raids': raids, 'seed': int(seed),
-                        'heal_policy': 'coin' if heal else 'none',
-                        'fighter': template['name'],
-                        'fighter_maxhp': template['_maxhp']},
+        'boss_key': defn.key, 'boss_name': defn.display_name,
         'raids': raids, 'kills': kills, 'expiries': outcomes['expiry'],
-        'wipes': outcomes['wipe'],
+        'wipes': outcomes['wipe'], 'failed': failed,
         'kill_rate': round(kills / raids, 4) if raids else 0.0,
         'avg_attacks_to_kill': round(sum(atk_to_kill) / kills, 1) if kills else None,
+        'avg_attacks_all_raids': round(sum(atk_all) / raids, 1) if raids else None,
         'avg_clear_time_s': round(sum(clear_times) / kills, 1) if kills else None,
         'duration_seconds': duration,
         'avg_faints_per_raid': round(faints / raids, 2) if raids else 0.0,
@@ -238,9 +217,72 @@ def simulate_raids(boss_key: str, dex: int = 133, level: int = 100,
         'phase_reach': {k: round(v / kills, 4) for k, v in phase_hits.items()} if kills else {},
         'below_threshold_pct': (round(below / len(part_dmgs), 4)
                                 if part_dmgs else None),
+        'qualifying_pct': (round(1 - below / len(part_dmgs), 4)
+                           if part_dmgs else None),
         'participation_damage': defn.participation_damage,
+        'phase_item': phase_item,
         'loot_weighted_per_raid': {k: round(v / raids, 3) for k, v in sorted(w_agg.items())},
         'loot_guaranteed_per_raid': {k: round(v / raids, 3) for k, v in sorted(g_agg.items())},
         'loot_weighted_total': dict(sorted(w_agg.items())),
         'loot_guaranteed_total': dict(sorted(g_agg.items())),
+        'loot_phase_total': ({phase_item: (dict(sorted(g_agg.items())).get(phase_item, 0)
+                                           + dict(sorted(w_agg.items())).get(phase_item, 0))}
+                             if phase_item else {}),
     }
+
+
+def _profile_args(level, fighters, team_size, raids):
+    try:
+        level, n, team = int(level), int(fighters), int(team_size)
+    except Exception:
+        return None
+    if not (1 <= level <= 100 and 1 <= n <= MAX_FIGHTERS and 1 <= team <= 6):
+        return None
+    try:
+        raids = max(1, min(MAX_RAIDS, int(raids)))
+    except Exception:
+        raids = 200
+    return level, n, team, raids
+
+
+def simulate_definition(defn, dex: int = 133, level: int = 100,
+                        fighters: int = 5, team_size: int = 6, raids: int = 200,
+                        seed: int = 0, heal_policy: str = 'none', gid=0) -> dict:
+    """Same as simulate_raids but over an explicit definition object —
+    the before/after harness for balance changes (baseline = same defn
+    with defense_mult reset to 1.0). Profile validation identical."""
+    prof = _profile_args(level, fighters, team_size, raids)
+    if prof is None:
+        return {'ok': False, 'code': 'BAD_PROFILE'}
+    level, n, team, raids = prof
+    try:
+        dex = int(dex)
+    except Exception:
+        return {'ok': False, 'code': 'UNKNOWN_DEX'}
+    template = _fighter(gid, dex, level)
+    if template is None:
+        return {'ok': False, 'code': 'UNKNOWN_DEX'}
+    heal = str(heal_policy or 'none').lower() == 'coin'
+    rep = _run(defn, template, n, team, raids, int(seed), heal, gid)
+    rep.update({'ok': True,
+                'assumptions': {'dex': dex, 'level': level, 'fighters': n,
+                                'team_size': team, 'raids': raids,
+                                'seed': int(seed),
+                                'heal_policy': 'coin' if heal else 'none',
+                                'fighter': template['name'],
+                                'fighter_maxhp': template['_maxhp']}})
+    return rep
+
+
+def simulate_raids(boss_key: str, dex: int = 133, level: int = 100,
+                   fighters: int = 5, team_size: int = 6, raids: int = 200,
+                   seed: int = 0, heal_policy: str = 'none', gid=0) -> dict:
+    """Monte-Carlo raid simulation over a registry boss. All caps
+    clamped; bad profiles rejected without running."""
+    from game.bosses.registry import registry
+    key = (boss_key or '').strip().lower()
+    defn = registry.get(key)
+    if defn is None:
+        return {'ok': False, 'code': 'UNKNOWN_BOSS'}
+    return simulate_definition(defn, dex, level, fighters, team_size, raids,
+                               seed, heal_policy, gid)

@@ -40,6 +40,11 @@ class BossPhase:
     moves: tuple              # retaliation pool (engine move dicts)
     damage_mult: float = 1.0
     display_name: str | None = None
+    # Incoming-damage scale while this phase is active (raid-only: the
+    # engine never sees it, ordinary battles are untouched). 1.0 =
+    # full damage; 0.85 = Tidecaller's raging hide. Retaliation still
+    # uses damage_mult alone — the two knobs stay independent.
+    defense_mult: float = 1.0
     # Optional engine effect (weather). Must be in KNOWN_PHASE_EFFECTS;
     # None = no effect. Mirrors the battle engine's WEATHER_LINE keys —
     # update both if the engine ever learns new weather.
@@ -94,6 +99,12 @@ def validate_definition(defn: BossDefinition) -> None:
             raise ValueError(f'{defn.key}: phase {ph.key!r} unknown effect {ph.effect_key!r}')
         if not ph.moves:
             raise ValueError(f'{defn.key}: phase {ph.key!r} needs moves')
+        try:
+            _dm = float(ph.defense_mult)
+        except Exception:
+            _dm = 0.0
+        if not (0.0 < _dm <= 2.0):
+            raise ValueError(f'{defn.key}: phase {ph.key!r} defense_mult outside (0, 2]')
         if ph.phase_reward is not None:
             pr = ph.phase_reward
             if not pr.item_id or pr.quantity_min < 0 \
@@ -130,6 +141,7 @@ def definition_from_snapshot(data: dict) -> BossDefinition:
         damage_mult=p.get('damage_mult', 1.0),
         display_name=p.get('display_name'),
         effect_key=p.get('effect_key'),
+        defense_mult=p.get('defense_mult', 1.0),
         phase_reward=(LootReward(**p['phase_reward'])
                       if p.get('phase_reward') else None))
         for p in data.get('phases') or ())

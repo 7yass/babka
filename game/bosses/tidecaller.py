@@ -39,7 +39,7 @@ TIDECALLER = BossDefinition(
                   moves=({'name': 'Hydro Pump', 'power': 80, 'acc': 85,
                           'ptype': 'water'},),
                   damage_mult=1.15, display_name='Raging Tide',
-                  effect_key='rain',
+                  effect_key='rain', defense_mult=0.85,
                   phase_reward=LootReward('tidal_scale', 1, 1)),
     ),
     loot_table=TIDECALLER_LOOT,

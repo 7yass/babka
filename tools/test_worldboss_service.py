@@ -427,7 +427,7 @@ def main() -> None:
     r2 = wb.attack_boss(G4, 'pp2', TP, rng=FakeRng(rolls=[0.5] * 8))
     s2 = _snap_hp('pp2')
     check(r1['ok'] and r2['ok'], 'phase attacks land')
-    check(r1['damage'] == r2['damage'], 'phase affects retaliation only, never the strike')
+    check(r1['damage'] == r2['damage'], '1.0 hide leaves the strike untouched')
     check((s1['max_hp'] - s1['hp']) < (s2['max_hp'] - s2['hp']),
           'enraged retaliation hits harder')
     check('Enraged' not in r2['message'], 'no transition message without crossing')
@@ -506,7 +506,14 @@ def main() -> None:
         d2 = conn.execute('SELECT max_hp - hp FROM world_boss_combat WHERE boss_id=? AND user_id=?',
                           (bidw, 'w2')).fetchone()[0]
     check(d2 == exp_wet, 'enraged retaliation carries rain through the engine')
-    check(r1['damage'] == r2['damage'], 'phase never touches the player strike')
+    # raging hide: the strike is scaled AFTER the engine (retaliation above
+    # proves the engine itself is untouched). Same rng + same stats as r1,
+    # so the raw strike is identical and only the 0.85 hide applies.
+    check(r2['damage'] == int(r1['damage'] * 0.85),
+          'raging hide scales the strike to 85%')
+    check(r2['damage'] < r1['damage'], 'hide strictly reduces')
+    check(r2['damage'] == wb.scale_incoming(TIDECALLER.phases[1], r1['damage']),
+          'strike scaling goes through the shared helper')
     check('Raging Tide' not in r2['message'], 'no transition without crossing')
 
     # crossing turn retaliates with the PRE-attack (dry) phase:
@@ -559,8 +566,19 @@ def main() -> None:
                           (bid6,)).fetchone()['max_phase']
     check(mp == 'raging', 'crossing commits the fought phase')
     r3 = _hit('u3', TP3 + 183)
+    check(r3['ok'] and r3['damage'] == int(r1['damage'] * 0.85),
+          'raging hits carry the hide')
+    # tail grind: the hide applies to overkill too (raw is post-floor),
+    # so the last HP takes extra hits — but the 1-damage floor guarantees
+    # the kill always lands, never softlocks at 1 HP.
     r5 = _hit('u1', TP3 + 244)
-    check(r5['code'] == 'DEFEATED', 'kill lands')
+    check(r5['ok'] and r5['code'] == 'ATTACK_OK', 'hide stretches the tail')
+    r6 = _hit('u2', TP3 + 305)
+    check(r6['ok'], 'tail continues')
+    r7 = _hit('u3', TP3 + 366)
+    check(r7['ok'], 'tail continues')
+    r8 = _hit('u1', TP3 + 427)
+    check(r8['code'] == 'DEFEATED' and r8['damage'] >= 1, 'floor guarantees the kill')
 
     def _qty2(u, item, _bid=bid6, _g=G6):
         with db.conn_ctx() as conn:
@@ -574,7 +592,7 @@ def main() -> None:
 
     def _claim(u):
         bar.wait()
-        cout[u] = wb.claim_rewards(G6, u, TP3 + 300)
+        cout[u] = wb.claim_rewards(G6, u, TP3 + 500)
 
     t1, t2 = _th.Thread(target=_claim, args=('u1',)), _th.Thread(target=_claim, args=('u2',))
     t1.start()
@@ -586,7 +604,7 @@ def main() -> None:
     # on top (same item, weighted), so assert the floor - never the exact.
     for u in ('u1', 'u2'):
         check(_qty2(u, 'tidal_scale') >= 1, f'{u} phase item awarded')
-    r = wb.claim_rewards(G6, 'u3', TP3 + 301)
+    r = wb.claim_rewards(G6, 'u3', TP3 + 501)
     check(r['ok'], 'third qualifier claims')
     check(_qty2('u3', 'tidal_scale') >= 1, 'u3 phase item awarded')
     import json as _json
@@ -599,10 +617,10 @@ def main() -> None:
     for u in ('u1', 'u2', 'u3'):
         scales_before[u] = _qty2(u, 'tidal_scale')
     for u in ('u1', 'u2', 'u3'):
-        r = wb.claim_rewards(G6, u, TP3 + 302)
+        r = wb.claim_rewards(G6, u, TP3 + 502)
         check(not r['ok'], f'{u} retry denied')
         check(_qty2(u, 'tidal_scale') == scales_before[u], f'{u} retry adds nothing')
-    r = wb.claim_rewards(G6, 'u4', TP3 + 303)
+    r = wb.claim_rewards(G6, 'u4', TP3 + 503)
     check(not r['ok'] and r['code'] == 'NO_REWARD', 'below threshold: no phase loot')
     with db.conn_ctx() as conn:
         norow = conn.execute('SELECT 1 FROM world_boss_rewards WHERE boss_id=? AND user_id=?',

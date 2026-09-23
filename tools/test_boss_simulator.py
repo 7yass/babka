@@ -39,6 +39,10 @@ def main() -> None:
             'INSERT INTO pk_dex (dex, name, types, hp, atk, dfn, spa, spd, spe, '
             'sprite, rate, legendary, evo_to, evo_level) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
             (133, 'eevee', '["normal"]', 55, 55, 50, 45, 65, 55, '', 45, 0, 0, 0))
+        conn.execute(
+            'INSERT INTO pk_dex (dex, name, types, hp, atk, dfn, spa, spd, spe, '
+            'sprite, rate, legendary, evo_to, evo_level) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            (25, 'pikachu', '["electric"]', 35, 55, 40, 50, 50, 90, '', 45, 0, 0, 0))
 
     import re as _re
     src = (ROOT / 'services' / 'boss_simulator.py').read_text(encoding='utf-8')
@@ -138,18 +142,93 @@ def main() -> None:
     check(sim.preview_boss('nope') == {'ok': False, 'code': 'UNKNOWN_BOSS'},
           'preview unknown boss shape')
 
+    # --- balance matrix: baseline tide vs 0.85 tide vs dreadmaw (seed 21) ---
+    # Documents the accepted direction: hide taxes the raging portion,
+    # strong teams still clear, marginal teams now fail like dreadmaw.
+    import dataclasses as _dc
+    from game.bosses.tidecaller import TIDECALLER as _TIDE
+    BASE_TIDE = _dc.replace(
+        _TIDE, phases=tuple(_dc.replace(p, defense_mult=1.0) for p in _TIDE.phases))
+    MATRIX = [
+        ('strong', {'dex': 133, 'level': 100, 'fighters': 5, 'team_size': 6}),
+        ('avg', {'dex': 133, 'level': 70, 'fighters': 5, 'team_size': 6}),
+        ('mid', {'dex': 133, 'level': 50, 'fighters': 4, 'team_size': 4}),
+        ('new', {'dex': 133, 'level': 30, 'fighters': 3, 'team_size': 3}),
+        ('electric', {'dex': 25, 'level': 100, 'fighters': 5, 'team_size': 6}),
+        ('short', {'dex': 133, 'level': 100, 'fighters': 5, 'team_size': 4}),
+    ]
+    for label, kw in MATRIX:
+        new = sim.simulate_raids('tidecaller', raids=30, seed=21, **kw)
+        base = sim.simulate_definition(BASE_TIDE, raids=30, seed=21, **kw)
+        dread = sim.simulate_raids('dreadmaw', raids=30, seed=21, **kw)
+        check(new['failed'] == new['expiries'] + new['wipes']
+              and new['kills'] + new['failed'] == 30, f'{label}: kills+failed==raids')
+        check(new['phase_item'] == 'tidal_scale', f'{label}: phase item named')
+        pt = new['loot_phase_total'].get('tidal_scale', 0)
+        check(pt == new['loot_guaranteed_total'].get('tidal_scale', 0)
+              + new['loot_weighted_total'].get('tidal_scale', 0),
+              f'{label}: phase total splits exactly')
+        print(f'  [matrix] {label}: newT {new["kills"]}/30 '
+              f'{new["avg_attacks_to_kill"]}atk | baseT {base["kills"]}/30 '
+              f'{base["avg_attacks_to_kill"]}atk | dread {dread["kills"]}/30 '
+              f'{dread["avg_attacks_to_kill"]}atk', flush=True)
+    # strong team: same clears, strictly more work, still faster than dread
+    _kw = dict(MATRIX[0][1])
+    _new = sim.simulate_raids('tidecaller', raids=30, seed=21, **_kw)
+    _base = sim.simulate_definition(BASE_TIDE, raids=30, seed=21, **_kw)
+    _dread = sim.simulate_raids('dreadmaw', raids=30, seed=21, **_kw)
+    check(_new['kills'] == _base['kills'] == 30, 'strong: hide costs no clears')
+    check(_new['avg_attacks_to_kill'] > _base['avg_attacks_to_kill'],
+          'strong: hide strictly adds attacks')
+    check(_new['avg_clear_time_s'] > _base['avg_clear_time_s'],
+          'strong: hide strictly adds clear time')
+    check(_new['avg_attacks_to_kill'] < _dread['avg_attacks_to_kill'],
+          'strong: tide still trails dreadmaw, gap narrowed')
+    check(_new['avg_attacks_all_raids'] == _new['avg_attacks_to_kill'],
+          'all-kill profile: both attack averages agree')
+    check(_new['qualifying_pct'] == 1.0, 'strong: everyone qualifies')
+    # single-type electrics shred either way (typing working as designed)
+    _kw = dict(MATRIX[4][1])
+    _new = sim.simulate_raids('tidecaller', raids=30, seed=21, **_kw)
+    _base = sim.simulate_definition(BASE_TIDE, raids=30, seed=21, **_kw)
+    check(_new['kills'] == _base['kills'] == 30, 'electric: still 30/30')
+    check(_new['avg_attacks_to_kill'] > _base['avg_attacks_to_kill'],
+          'electric: hide still taxes the raging share')
+    # average team: hide flips marginal clears into dreadmaw-like failure
+    _kw = dict(MATRIX[1][1])
+    _new = sim.simulate_raids('tidecaller', raids=30, seed=21, **_kw)
+    _base = sim.simulate_definition(BASE_TIDE, raids=30, seed=21, **_kw)
+    check(_new['kills'] <= _base['kills'], 'avg: hide never grants clears')
+    check(_new['failed'] >= _base['failed'], 'avg: failures only grow')
+    # weak teams: nothing clears anywhere (meaningful expiry risk)
+    for _i in (2, 3):
+        _kw = dict(MATRIX[_i][1])
+        for _fn in (lambda **k: sim.simulate_raids('tidecaller', raids=30, seed=21, **k),
+                    lambda **k: sim.simulate_raids('dreadmaw', raids=30, seed=21, **k)):
+            _r = _fn(**_kw)
+            check(_r['kills'] == 0 and _r['failed'] == 30,
+                  f"{MATRIX[_i][0]}: total failure everywhere")
+    # definition entry point matches the registry path exactly
+    _same = sim.simulate_definition(_TIDE, seed=11, **KW)
+    check(_same == sim.simulate_raids('tidecaller', seed=11, **KW),
+          'simulate_definition matches simulate_raids')
+
     # --- renderer smoke (headless) ---
     from cogs.worldboss import build_preview_text, build_sim_text
     txt = build_sim_text(a)
-    for needle in ('Dreadmaw', 'Eevee', 'Kills', 'attacks', 'Faints', 'Loot'):
+    for needle in ('Dreadmaw', 'Eevee', 'Kills', 'attacks', 'Faints', 'Loot',
+                   'failed', 'all raids'):
         check(needle in txt, f'sim render shows {needle}')
     txt = build_sim_text(w)
     check('No kills' in txt, 'sim render handles kill-less runs')
     txt = build_sim_text({'ok': False, 'code': 'UNKNOWN_BOSS'})
     check('UNKNOWN_BOSS' in txt, 'sim render handles failure')
     txt = build_preview_text(sim.preview_boss('tidecaller'))
-    for needle in ('Tidecaller', '7000', 'Raging Tide', 'tidal_scale', 'Loot'):
+    for needle in ('Tidecaller', '7000', 'Raging Tide', 'tidal_scale', 'Loot',
+                   'hide x0.85'):
         check(needle in txt, f'preview render shows {needle}')
+    check('hide' not in build_preview_text(sim.preview_boss('dreadmaw')),
+          'preview omits hide at 1.0')
 
     print('FAILS: %d' % len(FAILS), flush=True)
     sys.exit(1 if FAILS else 0)

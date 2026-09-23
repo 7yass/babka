@@ -249,6 +249,25 @@ def _boss_fighter(defn, hp: int, phase=None) -> dict:
             'held': '', 'moves': [dict(m) for m in phase.moves]}
 
 
+def scale_incoming(phase, raw: int) -> int:
+    """Phase hide: incoming strike damage after the engine resolved it.
+    Retaliation never passes through here (damage_mult is separate).
+    A non-zero strike always lands at least 1 — without the floor a
+    0.85 hide could never finish a 1-HP boss (int(1*0.85) == 0)."""
+    try:
+        mult = float((phase or {}).get('defense_mult', 1.0)
+                     if isinstance(phase, dict)
+                     else getattr(phase, 'defense_mult', 1.0))
+    except Exception:
+        mult = 1.0
+    if not (mult > 0):
+        mult = 1.0
+    raw = int(raw or 0)
+    if raw <= 0:
+        return 0
+    return max(1, int(raw * mult))
+
+
 def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
     """One attack: cooldown, snapshot gate, resolve via battle_service,
     persist boss HP + snapshot HP + contribution in one guarded txn.
@@ -293,7 +312,8 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
     st = {'me': me, 'wild': _boss_fighter(defn, b['hp'], phase), 'log': [],
           'weather': weather}
     _bt.resolve_turn(st, gid, 0, rng, strict_faint=True, foe_mult=phase.damage_mult)
-    dealt = max(0, b['hp'] - st['wild']['hp'])
+    raw = max(0, b['hp'] - st['wild']['hp'])
+    dealt = scale_incoming(phase, raw)
     left_hp = max(0, st['me']['hp'])
     with db.conn_ctx() as conn:
         cur = conn.execute('UPDATE world_boss SET hp=max(0, hp-?), revision=revision+1 '
