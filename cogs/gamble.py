@@ -819,7 +819,9 @@ class PokerView(discord.ui.LayoutView):
         if mult:
             profit = self.bet * mult
             if str(self.player_id) not in GOD_IDS:
-                profit = min(profit, POKER_MAX_WIN)
+                # Flat cap alone flattens big bets (40k flush -> 1.25x):
+                # always honor at least 3x the stake so high hands scale.
+                profit = min(profit, max(POKER_MAX_WIN, 3 * self.bet))
             add_cash(self.gid, self.player_id, self.bet + profit)
             msg = t(self.gid, 'eco.poker_win', hand=key.replace('_', ' '), win=cshort(profit))
         else:
