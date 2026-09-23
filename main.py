@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+import time
 
 import discord
 from discord.ext import commands, tasks
@@ -314,6 +315,7 @@ def _bar(done: int, total: int) -> str:
 
 async def main():
     db.init_db()
+    bot.boot_at = time.time()
     print(_banner())
     import logging as _lg
     try:
@@ -332,12 +334,16 @@ async def main():
     _loop_lag.start()
     async with bot:
         failed = []
+        loaded = []
         for i, cog in enumerate(COGS, start=1):
             try:
                 await bot.load_extension(cog)
+                loaded.append(cog)
                 print(f'\r  [{_bar(i, len(COGS))}] {i}/{len(COGS)} {cog}', end='', flush=True)
             except Exception as e:
                 failed.append((cog, e))
+        bot.cog_report = {'loaded': loaded,
+                          'failed': [(c, f'{type(e).__name__}: {e}') for c, e in failed]}
         print()
         for cog, e in failed:
             print(f'  [-] Failed {cog}: {e}')

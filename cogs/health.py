@@ -581,15 +581,92 @@ def _report_lines(summary, details, filt_cat=None, filt_issue=None):
     return '\n'.join(lines)
 
 
+def _uptime(bot) -> str:
+    import time as _t
+    boot = getattr(bot, 'boot_at', None) or _t.time()
+    s = max(0, int(_t.time() - boot))
+    d, s = divmod(s, 86400)
+    h, s = divmod(s, 3600)
+    m, s = divmod(s, 60)
+    if d:
+        return f'{d}d {h}h {m}m'
+    if h:
+        return f'{h}h {m}m {s}s'
+    return f'{m}m {s}s'
+
+
+def _db_line() -> str:
+    try:
+        from pathlib import Path as _P
+        p = _P(__file__).parent.parent / 'data.db'
+        kb = p.stat().st_size / 1024
+        size = f'{kb / 1024:.1f} MB' if kb > 1024 else f'{kb:.0f} KB'
+        n = len(list((_P(__file__).parent.parent / 'backups').glob('data-*.db')))
+        return f'{size} · {n} backups'
+    except Exception:
+        return 'n/a'
+
+
+def _status_embed(bot) -> discord.Embed:
+    rep = getattr(bot, 'cog_report', None) or {}
+    loaded = [str(c).split('.')[-1] for c in rep.get('loaded', [])]
+    failed = [(str(c).split('.')[-1], e) for c, e in rep.get('failed', [])]
+    if not loaded and not failed:
+        # Fallback for boots that predate cog_report: live cog set.
+        try:
+            loaded = sorted(type(c).__name__ for c in bot.cogs)
+        except Exception:
+            loaded = []
+    bad = bool(failed)
+    lag = getattr(bot, 'loop_lag_ms', None)
+    emb = discord.Embed(
+        title=f"{'🔴' if bad else '🟢'} Babka status",
+        color=0xE74C3C if bad else 0x57F085,
+    )
+    try:
+        gw = round((bot.latency or 0) * 1000)
+    except Exception:
+        gw = '?'
+    emb.add_field(name='Uptime', value=_uptime(bot), inline=True)
+    emb.add_field(name='Gateway', value=f'{gw} ms', inline=True)
+    emb.add_field(name='Loop lag', value=f'{lag} ms' if lag is not None else 'n/a', inline=True)
+    emb.add_field(name='Servers', value=str(len(getattr(bot, 'guilds', []) or [])), inline=True)
+    emb.add_field(name='Database', value=_db_line(), inline=True)
+    total = len(loaded) + len(failed)
+    emb.add_field(name='Cogs', value=f'{len(loaded)}/{total} loaded', inline=True)
+    if failed:
+        emb.add_field(name='Failed', inline=False,
+                      value='\n'.join(f'❌ `{n}` — {str(e)[:120]}' for n, e in failed)[:1024])
+    if loaded or failed:
+        marks = [f'✅ `{n}`' for n in sorted(loaded)]
+        marks += [f'❌ `{n}`' for n, _ in sorted(failed)]
+        chunk, chunks = '', []
+        for m in marks:
+            if len(chunk) + len(m) + 1 > 1000:
+                chunks.append(chunk)
+                chunk = ''
+            chunk += m + ' '
+        if chunk:
+            chunks.append(chunk)
+        for i, ch in enumerate(chunks[:4]):
+            emb.add_field(name='Loaded' if i == 0 else '…', value=ch.strip(), inline=False)
+    emb.set_footer(text='.health commands — full registry audit')
+    return emb
+
+
 class Health(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.group(name='health', description='Dev health audits')
+    @commands.group(name='health', description='Bot status')
     @staff_or('administrator')
     async def health(self, ctx):
-        await ctx.reply('.health commands [category:<mod>] [issue:<help|aliases|registry|currency|safety|config|crime>]',
-                        ephemeral=True)
+        set_ctx_lang(ctx.author)
+        try:
+            emb = _status_embed(self.bot)
+        except Exception as e:
+            return await ctx.reply(f'health broke: {type(e).__name__}: {e}', ephemeral=True)
+        await ctx.reply(embed=emb, ephemeral=True)
 
     @health.command(name='commands', description='Command registry audit')
     @staff_or('administrator')
