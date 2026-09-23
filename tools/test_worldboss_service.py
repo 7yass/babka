@@ -66,6 +66,23 @@ class FakeRng:
         return seq[0]
 
 
+class FakeRng:
+    def __init__(self, rolls=None, picks=None):
+        self._rolls = list(rolls or [])
+        self._picks = list(picks or [])
+
+    def random(self):
+        return self._rolls.pop(0) if self._rolls else 0.5
+
+    def uniform(self, a, b):
+        return 1.0
+
+    def choice(self, seq):
+        if self._picks:
+            return seq[self._picks.pop(0) % len(seq)]
+        return seq[0]
+
+
 def combat_of(boss_id, uid):
     import database as db
     with db.conn_ctx() as conn:
@@ -387,6 +404,68 @@ def main() -> None:
         gone = conn.execute('SELECT COUNT(*) c FROM world_boss_combat WHERE boss_id=?',
                             (bid3,)).fetchone()['c']
     check(left >= 0 and gone == 0, 'expiry cleans combat snapshots')
+
+    # --- pure loot rolls: deterministic, ranged, gated ---
+    from services.worldboss_service import DREADMAW_LOOT, roll_boss_loot
+    r = roll_boss_loot(DREADMAW_LOOT, 100, False, FakeRng(rolls=[0.0, 0.0]))
+    check(r == [('poke', 2)], 'base roll deterministic + qty floor')
+    r = roll_boss_loot(DREADMAW_LOOT, 100, True, FakeRng(rolls=[0.0, 0.0, 0.6, 0.0]))
+    check(r == [('poke', 2), ('great', 1)], 'top gets the extra roll')
+    r = roll_boss_loot(DREADMAW_LOOT, 100, True, FakeRng(rolls=[0.0, 0.0, 0.6, 0.0]))
+    check(r == [('poke', 2), ('great', 1)], 'same rolls, same loot')
+    r = roll_boss_loot(DREADMAW_LOOT, 10, False, FakeRng(rolls=[0.99]))
+    check(r == [('potion', 2)], 'low damage excludes scale/stone')
+    r = roll_boss_loot(DREADMAW_LOOT, 600, False, FakeRng(rolls=[0.999, 0.0]))
+    check(r == [('fire_stone', 1)], 'high damage unlocks stone')
+    for _ in range(20):
+        import random as _rr
+        for item, qty in roll_boss_loot(DREADMAW_LOOT, 600, True, _rr):
+            entry = next(e for e in DREADMAW_LOOT.entries if e.item_id == item)
+            check(entry.quantity_min <= qty <= entry.quantity_max, 'qty in range')
+            break
+
+    # --- loot claim integration: exact items, persisted outcome, no reroll ---
+    LT = T0 + 200000
+    r = wb.start_boss(GID, 'dreadmaw', LT, max_hp=150)
+    bid_loot = r['boss_id']
+    with db.conn_ctx() as conn:
+        seed_mon(conn, 'looter', level=100)
+    wb.attack_boss(GID, 'looter', LT, rng=FakeRng(rolls=[0.5] * 8))
+    wb.attack_boss(GID, 'looter', LT + 61, rng=FakeRng(rolls=[0.5] * 8))
+    with db.conn_ctx() as conn:
+        dmg = conn.execute('SELECT damage FROM world_boss_parts WHERE boss_id=? AND user_id=?',
+                           (bid_loot, 'looter')).fetchone()['damage']
+    check(dmg >= 50, 'looter clears the threshold')
+    add_cash(GID, 'looter', 0)
+    r = wb.claim_rewards(GID, 'looter', LT + 122,
+                         rng=FakeRng(rolls=[0.0, 0.0, 0.6, 0.0]))
+    check(r['ok'] and r['loot'] == [('poke', 2), ('great', 1)], 'claim rolls exact loot')
+
+    def _qty(u, item):
+        with db.conn_ctx() as conn:
+            row = conn.execute('SELECT qty FROM pk_balls WHERE guild_id=? AND user_id=? AND ball=?',
+                               (str(GID), u, item)).fetchone()
+            return row['qty'] if row else 0
+
+    check(_qty('looter', 'poke') == 2 and _qty('looter', 'great') == 1,
+          'exact quantities land in inventory')
+    import json as _json
+    with db.conn_ctx() as conn:
+        saved = conn.execute('SELECT reward_json FROM world_boss_rewards WHERE boss_id=? AND user_id=?',
+                             (bid_loot, 'looter')).fetchall()
+    check(len(saved) == 1, 'one persisted outcome row')
+    check(_json.loads(saved[0]['reward_json']) ==
+          {'coins': 6000, 'items': [['poke', 2], ['great', 1]]},
+          'persisted outcome matches payout')
+    r = wb.claim_rewards(GID, 'looter', LT + 123)
+    check(not r['ok'] and r['code'] == 'ALREADY_CLAIMED', 'duplicate claim denied')
+    check(_qty('looter', 'poke') == 2 and _qty('looter', 'great') == 1,
+          'duplicate creates no additional items')
+    with db.conn_ctx() as conn:
+        saved2 = conn.execute('SELECT reward_json FROM world_boss_rewards WHERE boss_id=? AND user_id=?',
+                              (bid_loot, 'looter')).fetchall()
+    check(len(saved2) == 1 and saved2[0]['reward_json'] == saved[0]['reward_json'],
+          'retry cannot reroll')
 
     print('FAILS: %d' % len(FAILS), flush=True)
     sys.exit(1 if FAILS else 0)

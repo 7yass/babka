@@ -10,6 +10,7 @@ init_db change). Revision-guarded HP writes + claim-guarded rewards,
 so concurrent attackers and double-claims settle exactly once.
 """
 import time
+from dataclasses import dataclass, field
 
 import database as db
 from lang import t
@@ -20,6 +21,36 @@ REWARD_BASE = 1000     # participation payout
 REWARD_TOP = 5000      # top-contributor bonus
 HEAL_COST = 1000       # coin cost, once per raid per user
 DEFAULT_DURATION = 3600
+
+
+@dataclass(frozen=True)
+class LootEntry:
+    item_id: str
+    quantity_min: int
+    quantity_max: int
+    weight: int
+    guaranteed: bool = False
+    min_damage: int = 0
+
+
+@dataclass(frozen=True)
+class BossLootTable:
+    boss_key: str
+    entries: tuple
+    rolls: int
+
+
+DREADMAW_LOOT = BossLootTable(
+    boss_key='dreadmaw',
+    rolls=1,  # +1 for the top contributor
+    entries=(
+        LootEntry('poke', 2, 5, 500),
+        LootEntry('great', 1, 2, 250),
+        LootEntry('potion', 1, 2, 150),
+        LootEntry('dreadmaw_scale', 1, 1, 80, min_damage=MIN_DAMAGE),
+        LootEntry('fire_stone', 1, 1, 20, min_damage=500),
+    ),
+)
 
 BOSS = {
     'key': 'dreadmaw',
@@ -58,6 +89,10 @@ def ensure_tables() -> None:
             user_id TEXT NOT NULL, mid INTEGER NOT NULL,
             hp INTEGER NOT NULL, max_hp INTEGER NOT NULL,
             healed INTEGER DEFAULT 0, updated_at INTEGER DEFAULT 0,
+            PRIMARY KEY (boss_id, user_id))''')
+        conn.execute('''CREATE TABLE IF NOT EXISTS world_boss_rewards (
+            boss_id INTEGER NOT NULL, user_id TEXT NOT NULL,
+            reward_json TEXT NOT NULL, claimed_at INTEGER NOT NULL,
             PRIMARY KEY (boss_id, user_id))''')
 
 
@@ -348,10 +383,46 @@ def heal_fighter(gid, uid, now: int = None) -> dict:
             'message': t(gid, 'eco.wb_healed', cost=HEAL_COST)}
 
 
-def claim_rewards(gid, uid, now: int = None) -> dict:
-    """Idempotent reward claim: base participation + top-contributor bonus.
-    Claim guard pays exactly once; thresholds enforced."""
-    from services._common import credit_cash
+def _loot_table(boss_key: str) -> BossLootTable | None:
+    if boss_key == DREADMAW_LOOT.boss_key:
+        return DREADMAW_LOOT
+    return None
+
+
+def roll_boss_loot(table: BossLootTable, damage: int, is_top: bool,
+                   rng=None) -> list:
+    """Deterministic weighted rolls: 1 base + 1 for top contributor.
+    Entries below their min_damage are ineligible. Returns [(item, qty)]."""
+    import random as _rr
+    rng = rng or _rr
+    eligible = [e for e in table.entries if damage >= e.min_damage and e.weight > 0]
+    if not eligible:
+        return []
+    out = []
+    for _ in range(table.rolls + (1 if is_top else 0)):
+        total = sum(e.weight for e in eligible)
+        pick = rng.random() * total
+        acc = 0
+        chosen = eligible[-1]
+        for e in eligible:
+            acc += e.weight
+            if pick < acc:
+                chosen = e
+                break
+        span = max(0, chosen.quantity_max - chosen.quantity_min)
+        qty = chosen.quantity_min + (int(rng.random() * (span + 1)) if span else 0)
+        out.append((chosen.item_id, max(1, qty)))
+    return out
+
+
+def claim_rewards(gid, uid, now: int = None, rng=None) -> dict:
+    """Idempotent reward claim: coins (unchanged math) + rolled loot.
+    Claim guard first; the rolled outcome is persisted before commit so a
+    retry can never reroll. One transaction throughout."""
+    import json as _json
+    import random as _rr
+    from services._common import credit_cash, upsert_item
+    rng = rng or _rr
     ensure_tables()
     now = int(now if now is not None else time.time())
     with db.conn_ctx() as conn:
@@ -377,6 +448,16 @@ def claim_rewards(gid, uid, now: int = None) -> dict:
         if (cur.rowcount or 0) != 1:
             return {'ok': False, 'code': 'ALREADY_CLAIMED',
                     'message': t(gid, 'eco.wb_already')}
+        table = _loot_table(b['boss_key'])
+        loot = roll_boss_loot(table, part['damage'], is_top, rng) if table else []
+        reward = {'coins': amount, 'items': [[i, q] for i, q in loot]}
+        conn.execute('INSERT OR REPLACE INTO world_boss_rewards '
+                     '(boss_id, user_id, reward_json, claimed_at) VALUES (?,?,?,?)',
+                     (b['id'], str(uid), _json.dumps(reward), now))
         credit_cash(conn, gid, uid, amount)
+        for item_id, qty in loot:
+            upsert_item(conn, gid, uid, item_id, qty)
+    lines = ''.join(f'\n+{q}x {i}' for i, q in loot)
     return {'ok': True, 'code': 'REWARD_CLAIMED', 'amount': amount,
-            'message': t(gid, 'eco.wb_claimed', amount=amount)}
+            'loot': loot,
+            'message': t(gid, 'eco.wb_claimed', amount=amount) + lines}
