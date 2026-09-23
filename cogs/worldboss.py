@@ -419,6 +419,23 @@ class WorldBoss(commands.Cog):
         await ctx.reply(build_leaderboard_text(ctx.guild, board, gid),
                         mention_author=False)
 
+    @worldboss.command(name='use', description='Użyj charm (heal/focus/rally)')
+    async def wb_use(self, ctx, *, item: str = ''):
+        from services import worldboss_service as _wb
+        gid = ctx.guild.id
+        key = (item or '').strip().lower().replace(' ', '_').replace('-', '_')
+        key = {'volcanic': 'volcanic_charm', 'tidal': 'tidal_charm',
+               'raid': 'raid_charm'}.get(key, key)
+        if key == 'volcanic_charm':
+            res = _wb.heal_fighter(gid, ctx.author.id, use_charm=True)
+        elif key == 'tidal_charm':
+            res = _wb.reset_cooldown(gid, ctx.author.id)
+        elif key == 'raid_charm':
+            res = _wb.use_raid_charm(gid, ctx.author.id)
+        else:
+            return await ctx.reply(t(gid, 'eco.wb_use_unknown'), ephemeral=True)
+        await ctx.reply(res['message'], mention_author=False)
+
     @worldboss.command(name='forceexpire', description='Zakończ event (staff)')
     @staff_or('administrator')
     async def wb_forceexpire(self, ctx, confirm: str = ''):

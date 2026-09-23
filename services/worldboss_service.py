@@ -388,10 +388,13 @@ def switch_mon(gid, uid, mon_id: int, now: int = None) -> dict:
             'message': t(gid, 'eco.wb_switched', name=mon_name(mon, gid))}
 
 
-def heal_fighter(gid, uid, now: int = None) -> dict:
+def heal_fighter(gid, uid, now: int = None, use_charm: bool = False) -> dict:
     """Top up the current snapshot to full: costs coins, once per raid,
-    never on a fainted mon (switch instead)."""
-    from services._common import cash_of, debit_cash
+    never on a fainted mon (switch instead). With use_charm, a
+    volcanic_charm is consumed instead of coins — same once-per-raid
+    budget, same guards (checked before anything is taken)."""
+    from services._common import (InsufficientItemError, cash_of, debit_cash,
+                                  remove_item)
     from utils.cards import short as cshort
     ensure_tables()
     now = int(now if now is not None else time.time())
@@ -416,15 +419,111 @@ def heal_fighter(gid, uid, now: int = None) -> dict:
         if snap['healed']:
             return {'ok': False, 'code': 'HEAL_USED',
                     'message': t(gid, 'eco.wb_healed_used')}
-        if cash_of(conn, gid, uid) < HEAL_COST:
-            return {'ok': False, 'code': 'INSUFFICIENT_FUNDS',
-                    'message': t(gid, 'eco.broke',
-                                 cash=cshort(cash_of(conn, gid, uid)))}
-        debit_cash(conn, gid, uid, HEAL_COST)
+        if use_charm:
+            try:
+                remove_item(conn, gid, uid, 'volcanic_charm', 1)
+            except InsufficientItemError:
+                return {'ok': False, 'code': 'NO_CHARM',
+                        'message': t(gid, 'eco.wb_no_charm', item='volcanic_charm')}
+        else:
+            if cash_of(conn, gid, uid) < HEAL_COST:
+                return {'ok': False, 'code': 'INSUFFICIENT_FUNDS',
+                        'message': t(gid, 'eco.broke',
+                                     cash=cshort(cash_of(conn, gid, uid)))}
+            debit_cash(conn, gid, uid, HEAL_COST)
         conn.execute('UPDATE world_boss_combat SET hp=max_hp, healed=1, updated_at=? '
                      'WHERE boss_id=? AND user_id=?', (now, b['id'], str(uid)))
+    if use_charm:
+        return {'ok': True, 'code': 'HEALED', 'charm': True,
+                'message': t(gid, 'eco.wb_healed_charm')}
     return {'ok': True, 'code': 'HEALED',
             'message': t(gid, 'eco.wb_healed', cost=HEAL_COST)}
+
+
+def reset_cooldown(gid, uid, now: int = None) -> dict:
+    """Consume 1 tidal_charm to end the attack cooldown now. Guards run
+    before the charm is taken: nothing to clear means the charm is kept."""
+    from services._common import InsufficientItemError, remove_item
+    ensure_tables()
+    now = int(now if now is not None else time.time())
+    with db.conn_ctx() as conn:
+        _sweep(conn, gid, now)
+        row = _active_row(conn, gid)
+        if not row:
+            return {'ok': False, 'code': 'NO_BOSS', 'message': t(gid, 'eco.wb_no_boss')}
+        b = dict(row)
+        defn = _definition(b)
+        part = conn.execute('SELECT attacks, last_action_at FROM world_boss_parts '
+                            'WHERE boss_id=? AND user_id=?',
+                            (b['id'], str(uid))).fetchone()
+        if not part or not (part['attacks'] or 0):
+            return {'ok': False, 'code': 'NO_PARTICIPATION',
+                    'message': t(gid, 'eco.wb_use_noentry')}
+        elapsed = now - int(part['last_action_at'] or 0)
+        if elapsed >= defn.attack_cooldown_seconds:
+            return {'ok': False, 'code': 'COOLDOWN_READY',
+                    'message': t(gid, 'eco.wb_cleared_ready')}
+        snap = conn.execute('SELECT hp FROM world_boss_combat WHERE boss_id=? AND user_id=?',
+                            (b['id'], str(uid))).fetchone()
+        if snap and (snap['hp'] or 0) <= 0:
+            return {'ok': False, 'code': 'FAINTED',
+                    'message': t(gid, 'eco.wb_fainted_switch')}
+        try:
+            remove_item(conn, gid, uid, 'tidal_charm', 1)
+        except InsufficientItemError:
+            return {'ok': False, 'code': 'NO_CHARM',
+                    'message': t(gid, 'eco.wb_no_charm', item='tidal_charm')}
+        conn.execute('UPDATE world_boss_parts SET last_action_at=0 '
+                     'WHERE boss_id=? AND user_id=?', (b['id'], str(uid)))
+    return {'ok': True, 'code': 'CLEARED',
+            'message': t(gid, 'eco.wb_cleared')}
+
+
+def use_raid_charm(gid, uid, now: int = None) -> dict:
+    """Consume 1 raid_charm: full heal AND cooldown clear at once. Shares
+    the once-per-raid heal budget with coin/charm heals — no double dip."""
+    from services._common import InsufficientItemError, remove_item
+    ensure_tables()
+    now = int(now if now is not None else time.time())
+    with db.conn_ctx() as conn:
+        _sweep(conn, gid, now)
+        row = _active_row(conn, gid)
+        if not row:
+            return {'ok': False, 'code': 'NO_BOSS', 'message': t(gid, 'eco.wb_no_boss')}
+        b = dict(row)
+        defn = _definition(b)
+        snap = conn.execute('SELECT hp, max_hp, healed FROM world_boss_combat '
+                            'WHERE boss_id=? AND user_id=?', (b['id'], str(uid))).fetchone()
+        if not snap:
+            return {'ok': False, 'code': 'NO_MON',
+                    'message': t(gid, 'eco.wb_use_noentry')}
+        snap = dict(snap)
+        if (snap['hp'] or 0) <= 0:
+            return {'ok': False, 'code': 'FAINTED',
+                    'message': t(gid, 'eco.wb_fainted_switch')}
+        if snap['healed']:
+            return {'ok': False, 'code': 'HEAL_USED',
+                    'message': t(gid, 'eco.wb_healed_used')}
+        part = conn.execute('SELECT last_action_at FROM world_boss_parts '
+                            'WHERE boss_id=? AND user_id=?',
+                            (b['id'], str(uid))).fetchone()
+        cd_ready = True
+        if part and (part['last_action_at'] or 0):
+            cd_ready = (now - int(part['last_action_at'])) >= defn.attack_cooldown_seconds
+        if (snap['hp'] or 0) >= (snap['max_hp'] or 0) and cd_ready:
+            return {'ok': False, 'code': 'NOTHING_TO_RESTORE',
+                    'message': t(gid, 'eco.wb_rallied_idle')}
+        try:
+            remove_item(conn, gid, uid, 'raid_charm', 1)
+        except InsufficientItemError:
+            return {'ok': False, 'code': 'NO_CHARM',
+                    'message': t(gid, 'eco.wb_no_charm', item='raid_charm')}
+        conn.execute('UPDATE world_boss_combat SET hp=max_hp, healed=1, updated_at=? '
+                     'WHERE boss_id=? AND user_id=?', (now, b['id'], str(uid)))
+        conn.execute('UPDATE world_boss_parts SET last_action_at=0 '
+                     'WHERE boss_id=? AND user_id=?', (b['id'], str(uid)))
+    return {'ok': True, 'code': 'RALLIED',
+            'message': t(gid, 'eco.wb_rallied')}
 
 
 def roll_boss_loot(table, damage: int, is_top: bool,

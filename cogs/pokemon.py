@@ -4075,7 +4075,9 @@ class Pokemon(commands.Cog):
         pots = potions_get(gid, uid)
         with db.conn_ctx() as conn:
             extra = {}
-            for it in ('candy', 'grazz', 'incense', 'repel', *HELD_ORDER):
+            for it in ('candy', 'grazz', 'incense', 'repel', *HELD_ORDER,
+                       'dreadmaw_scale', 'tidal_scale',
+                       'volcanic_charm', 'tidal_charm', 'raid_charm'):
                 row = conn.execute('SELECT qty FROM pk_balls WHERE guild_id=? AND user_id=? AND ball=?',
                                    (str(gid), str(uid), it)).fetchone()
                 extra[it] = (row['qty'] if row else 0) or 0
@@ -4085,11 +4087,20 @@ class Pokemon(commands.Cog):
                  'master': 'masterball', 'potion': 'potion', 'superpotion': 'potion',
                  'candy': 'candy', 'egg': 'egg', 'grazz': 'item_grazz',
                  'incense': 'item_incense', 'repel': 'item_repel', 'eggs': 'egg',
+                 'dreadmaw_scale': 'fire_stone', 'tidal_scale': 'water_stone',
+                 'volcanic_charm': 'fire', 'tidal_charm': 'star',
+                 'raid_charm': 'trophy',
                  **{k: v['icon'] for k, v in HELD_ITEMS.items()}}
 
         def _bag(k, v):
             ei = em(gid, icons.get(k, ''))
             lab = (HELD_ITEMS.get(k) or {}).get('name') or k
+            if lab == k:
+                try:
+                    from services.crafting_service import CRAFT_ITEMS as _CI
+                    lab = t(gid, _CI[k]['name_key']) if k in _CI else k
+                except Exception:
+                    pass
             return f"• {ei + ' ' if ei else ''}{lab} x{v}"
 
         lines = ([_bag(k, v) for k, v in b.items() if v]
