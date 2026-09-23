@@ -4,7 +4,7 @@ services.worldboss_service — status card, join/attack/claim, staff start.
 import time
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from lang import t
 from utils.checks import staff_or
@@ -19,6 +19,36 @@ def _bar(hp: int, max_hp: int, width: int = 20) -> str:
 class WorldBoss(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        try:
+            if not self._scheduler.is_running():
+                self._scheduler.start()
+        except Exception:
+            pass
+
+    def cog_unload(self):
+        try:
+            self._scheduler.cancel()
+        except Exception:
+            pass
+
+    @tasks.loop(minutes=5)
+    async def _scheduler(self):
+        import time as _t
+        try:
+            from tasks import worldboss_scheduler as _sched
+            summary = await self.bot.loop.run_in_executor(
+                None, _sched.tick, list(getattr(self.bot, 'guilds', []) or []),
+                int(_t.time()))
+        except Exception as e:
+            print(f'[wbsched] tick failed: {type(e).__name__}: {e}')
+            return
+        try:
+            acted = {g: v for g, v in summary.items()
+                     if v.get('started') or v.get('expired') or v.get('error')}
+            if acted:
+                print(f'[wbsched] {acted}', flush=True)
+        except Exception:
+            pass
 
     def _status_text(self, gid, v: dict, uid=None) -> str:
         title = f"☠️ **{v['name']}**"
@@ -107,6 +137,44 @@ class WorldBoss(commands.Cog):
         from services import worldboss_service as _wb
         res = _wb.start_boss(ctx.guild.id, boss, int(time.time()))
         await ctx.reply(res['message'], mention_author=False)
+
+    @worldboss.command(name='auto', description='Auto-start rajdu (staff)')
+    @staff_or('administrator')
+    async def wb_auto(self, ctx, mode: str = ''):
+        from tasks import worldboss_scheduler as _sched
+        mode = (mode or '').lower()
+        if mode not in ('on', 'off'):
+            cur = _sched.get_settings(ctx.guild.id)
+            return await ctx.reply(
+                t(ctx.guild.id, 'eco.wb_auto_state',
+                  state='on' if cur['auto'] else 'off'), ephemeral=True)
+        _sched.set_setting(ctx.guild.id, 'auto', '1' if mode == 'on' else '0')
+        await ctx.reply(t(ctx.guild.id, 'eco.wb_auto_set', state=mode), ephemeral=True)
+
+    @worldboss.command(name='channel', description='Kanał rajdu (staff)')
+    @staff_or('administrator')
+    async def wb_channel(self, ctx, channel: str = ''):
+        from tasks import worldboss_scheduler as _sched
+        gid = ctx.guild.id
+        arg = (channel or '').strip().lower()
+        if not arg:
+            cur = _sched.get_settings(gid)
+            return await ctx.reply(
+                t(gid, 'eco.wb_channel_state',
+                  ch=(f'<#{cur["channel"]}>' if cur['channel'] else '—')),
+                ephemeral=True)
+        if arg in ('off', 'none', 'clear'):
+            _sched.set_setting(gid, 'channel', '')
+            return await ctx.reply(t(gid, 'eco.wb_channel_cleared'), ephemeral=True)
+        cid = ''.join(c for c in arg if c.isdigit())
+        try:
+            ok = cid and ctx.guild.get_channel(int(cid)) is not None
+        except Exception:
+            ok = False
+        if not ok:
+            return await ctx.reply(t(gid, 'eco.wb_channel_bad'), ephemeral=True)
+        _sched.set_setting(gid, 'channel', cid)
+        await ctx.reply(t(gid, 'eco.wb_channel_set', ch=f'<#{cid}>'), ephemeral=True)
 
 
 async def setup(bot):

@@ -336,6 +336,25 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
                          max_hp=left['max_hp']) + ping + '\n' + tail}
 
 
+def expire_event(gid, now: int = None) -> dict:
+    """Scheduler hook: expire one overdue ACTIVE event, sweep its combat
+    snapshots, keep parts/claims. Guarded: second call is a NOOP."""
+    ensure_tables()
+    now = int(now if now is not None else time.time())
+    with db.conn_ctx() as conn:
+        row = conn.execute("SELECT id FROM world_boss WHERE guild_id=? AND status='ACTIVE' "
+                           "AND expires_at<=? ORDER BY id DESC LIMIT 1",
+                           (str(gid), now)).fetchone()
+        if not row:
+            return {'ok': False, 'code': 'NOOP'}
+        cur = conn.execute("UPDATE world_boss SET status='EXPIRED' WHERE id=? AND status='ACTIVE'",
+                           (row['id'],))
+        if (cur.rowcount or 0) != 1:
+            return {'ok': False, 'code': 'NOOP'}
+        conn.execute('DELETE FROM world_boss_combat WHERE boss_id=?', (row['id'],))
+    return {'ok': True, 'code': 'EXPIRED', 'boss_id': row['id']}
+
+
 def switch_mon(gid, uid, mon_id: int, now: int = None) -> dict:
     """Send out another mon (full snapshot HP). Same-mon switch is a
     no-op — otherwise it would be a free heal."""
