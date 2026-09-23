@@ -2,7 +2,7 @@
 configs through one service. Water type, roomier HP pool, higher phase
 threshold, gentler enrage, own loot (tidal_scale + water_stone)."""
 from game.bosses.models import (BossDefinition, BossLootTable, BossPhase,
-                                LootEntry)
+                                LootEntry, LootReward)
 
 TIDECALLER_LOOT = BossLootTable(
     boss_key='tidecaller',
@@ -39,7 +39,8 @@ TIDECALLER = BossDefinition(
                   moves=({'name': 'Hydro Pump', 'power': 80, 'acc': 85,
                           'ptype': 'water'},),
                   damage_mult=1.15, display_name='Raging Tide',
-                  effect_key='rain'),
+                  effect_key='rain',
+                  phase_reward=LootReward('tidal_scale', 1, 1)),
     ),
     loot_table=TIDECALLER_LOOT,
     enabled=True,

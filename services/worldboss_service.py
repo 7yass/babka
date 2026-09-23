@@ -51,9 +51,14 @@ def ensure_tables() -> None:
             hp INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE',
             revision INTEGER NOT NULL DEFAULT 0,
             started_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
-            defeated_at INTEGER DEFAULT 0, config_json TEXT DEFAULT '')''')
+            defeated_at INTEGER DEFAULT 0, config_json TEXT DEFAULT '',
+            max_phase TEXT DEFAULT '')''')
         try:
             conn.execute('ALTER TABLE world_boss ADD COLUMN config_json TEXT DEFAULT \'\'')
+        except Exception:
+            pass  # already migrated
+        try:
+            conn.execute('ALTER TABLE world_boss ADD COLUMN max_phase TEXT DEFAULT \'\'')
         except Exception:
             pass  # already migrated
         conn.execute('''CREATE TABLE IF NOT EXISTS world_boss_parts (
@@ -139,11 +144,15 @@ def boss_status(gid, now: int = None) -> dict | None:
             'attacks': p['attacks']} for p in parts[:3]]
     defn = _definition(b)
     phase = resolve_boss_phase(defn.phases, b['hp'], b['max_hp'])
+    reached = (b.get('max_phase') or '')
+    reached_name = next((p.display_name for p in defn.phases if p.key == reached), None)
     return {'boss_id': b['id'], 'boss_key': b['boss_key'],
             'name': defn.display_name,
             'hp': b['hp'], 'max_hp': b['max_hp'], 'revision': b['revision'],
             'phase': phase.key, 'phase_name': phase.display_name,
             'weather': _phase_weather(phase),
+            'max_phase': reached or None, 'max_phase_name': reached_name,
+            'reward_threshold': defn.participation_damage,
             'ends_in': max(0, b['expires_at'] - now),
             'participants': len(parts), 'top': top,
             'by_user': {p['user_id']: p for p in parts}}
@@ -306,9 +315,14 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
         if defeated:
             conn.execute('UPDATE world_boss SET status=\'COMPLETED\', defeated_at=? '
                          'WHERE id=? AND status=\'ACTIVE\'', (now, b['id']))
+        # fought-phase memory: only when the boss SURVIVED into the phase.
+        # A one-shot from full HP never fought it — no bonus. Same txn.
+        new_phase = resolve_boss_phase(defn.phases, left['hp'], left['max_hp'])
+        if left['hp'] > 0 and new_phase.key != defn.phases[0].key:
+            conn.execute('UPDATE world_boss SET max_phase=? WHERE id=?',
+                         (new_phase.key, b['id']))
     tail = t(gid, 'eco.wb_fainted', name=me['name']) if left_hp <= 0 \
         else t(gid, 'eco.wb_self_hp', name=me['name'], hp=left_hp, max_hp=me['_maxhp'])
-    new_phase = resolve_boss_phase(defn.phases, left['hp'], left['max_hp'])
     crossed = (new_phase.key != phase.key and (new_phase.display_name or ''))
     ping = ('\n' + t(gid, 'eco.wb_phase', name=defn.display_name,
                      phase=new_phase.display_name)) if crossed else ''
@@ -457,14 +471,30 @@ def claim_rewards(gid, uid, now: int = None, rng=None) -> dict:
                     'message': t(gid, 'eco.wb_already')}
         table = defn.loot_table
         loot = roll_boss_loot(table, part['damage'], is_top, rng) if table else []
-        reward = {'coins': amount, 'items': [[i, q] for i, q in loot]}
+        # phase bonus: the raid must have FOUGHT the phase (recorded on
+        # the event); one-shots from full HP leave max_phase empty.
+        phase_bonus = None
+        reached = (b.get('max_phase') or '')
+        if reached:
+            hit = next((p for p in defn.phases if p.key == reached), None)
+            if hit is not None and hit.phase_reward is not None:
+                phase_bonus = (hit.phase_reward.item_id,
+                               max(1, hit.phase_reward.quantity_min))
+        items = [[i, q] for i, q in loot]
+        if phase_bonus is not None:
+            items.append([phase_bonus[0], phase_bonus[1]])
+        reward = {'coins': amount, 'items': items,
+                  'phase': reached or None}
         conn.execute('INSERT OR REPLACE INTO world_boss_rewards '
                      '(boss_id, user_id, reward_json, claimed_at) VALUES (?,?,?,?)',
                      (b['id'], str(uid), _json.dumps(reward), now))
         credit_cash(conn, gid, uid, amount)
-        for item_id, qty in loot:
+        for item_id, qty in items:
             upsert_item(conn, gid, uid, item_id, qty)
     lines = ''.join(f'\n+{q}x {i}' for i, q in loot)
+    if phase_bonus is not None:
+        lines += '\n' + t(gid, 'eco.wb_phase_loot', qty=phase_bonus[1],
+                          item=phase_bonus[0])
     return {'ok': True, 'code': 'REWARD_CLAIMED', 'amount': amount,
-            'loot': loot,
+            'loot': loot, 'phase_loot': list(phase_bonus) if phase_bonus else None,
             'message': t(gid, 'eco.wb_claimed', amount=amount) + lines}

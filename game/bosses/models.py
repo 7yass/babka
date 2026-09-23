@@ -27,6 +27,13 @@ class BossLootTable:
 
 
 @dataclass(frozen=True)
+class LootReward:
+    item_id: str
+    quantity_min: int
+    quantity_max: int
+
+
+@dataclass(frozen=True)
 class BossPhase:
     key: str
     min_hp_ratio: float       # active while hp/max_hp is ABOVE this
@@ -37,6 +44,9 @@ class BossPhase:
     # None = no effect. Mirrors the battle engine's WEATHER_LINE keys —
     # update both if the engine ever learns new weather.
     effect_key: str | None = None
+    # Optional guaranteed bonus for raids that actually FOUGHT this phase
+    # (survived into it — a one-shot from full HP does not count).
+    phase_reward: LootReward | None = None
 
 
 KNOWN_PHASE_EFFECTS = ('rain', 'sun')
@@ -84,6 +94,11 @@ def validate_definition(defn: BossDefinition) -> None:
             raise ValueError(f'{defn.key}: phase {ph.key!r} unknown effect {ph.effect_key!r}')
         if not ph.moves:
             raise ValueError(f'{defn.key}: phase {ph.key!r} needs moves')
+        if ph.phase_reward is not None:
+            pr = ph.phase_reward
+            if not pr.item_id or pr.quantity_min < 0 \
+                    or pr.quantity_max < pr.quantity_min:
+                raise ValueError(f'{defn.key}: phase {ph.key!r} bad reward')
         for mv in ph.moves:
             if not mv.get('name') or (mv.get('power') or 0) <= 0 \
                     or (mv.get('acc') or 0) <= 0 or not mv.get('ptype'):
@@ -114,7 +129,10 @@ def definition_from_snapshot(data: dict) -> BossDefinition:
         moves=tuple(dict(m) for m in p['moves']),
         damage_mult=p.get('damage_mult', 1.0),
         display_name=p.get('display_name'),
-        effect_key=p.get('effect_key')) for p in data.get('phases') or ())
+        effect_key=p.get('effect_key'),
+        phase_reward=(LootReward(**p['phase_reward'])
+                      if p.get('phase_reward') else None))
+        for p in data.get('phases') or ())
     lt = data.get('loot_table')
     data['loot_table'] = BossLootTable(
         boss_key=lt['boss_key'], rolls=lt.get('rolls', 1),

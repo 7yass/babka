@@ -20,7 +20,7 @@ class WorldBoss(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    def _status_text(self, gid, v: dict) -> str:
+    def _status_text(self, gid, v: dict, uid=None) -> str:
         title = f"☠️ **{v['name']}**"
         if v.get('phase_name'):
             title += f" — {v['phase_name']}"
@@ -32,6 +32,12 @@ class WorldBoss(commands.Cog):
             lines.append(t(gid, 'eco.wb_weather_rain'))
         elif v.get('weather'):
             lines.append(t(gid, 'eco.wb_weather', name=v['weather']))
+        if v.get('max_phase_name'):
+            lines.append(t(gid, 'eco.wb_phase_reached', phase=v['max_phase_name']))
+            if uid is not None:
+                mine = (v.get('by_user') or {}).get(str(uid)) or {}
+                if (mine.get('damage') or 0) >= (v.get('reward_threshold') or 0):
+                    lines.append(t(gid, 'eco.wb_phase_eligible'))
         for i, p in enumerate(v['top'], start=1):
             try:
                 mbr = self.bot.get_guild(int(gid)).get_member(int(p['user_id']))
@@ -48,7 +54,7 @@ class WorldBoss(commands.Cog):
         v = _wb.boss_status(ctx.guild.id)
         if not v:
             return await ctx.reply(t(ctx.guild.id, 'eco.wb_no_boss'))
-        await ctx.reply(self._status_text(ctx.guild.id, v), mention_author=False)
+        await ctx.reply(self._status_text(ctx.guild.id, v, ctx.author.id), mention_author=False)
 
     @worldboss.command(name='join', description='Dołącz do polowania')
     async def wb_join(self, ctx):
@@ -68,7 +74,7 @@ class WorldBoss(commands.Cog):
         v = _wb.boss_status(ctx.guild.id)
         if not v:
             return await ctx.reply(t(ctx.guild.id, 'eco.wb_no_boss'))
-        await ctx.reply(self._status_text(ctx.guild.id, v), mention_author=False)
+        await ctx.reply(self._status_text(ctx.guild.id, v, ctx.author.id), mention_author=False)
 
     @worldboss.command(name='rewards', description='Odbierz nagrodę')
     async def wb_rewards(self, ctx):

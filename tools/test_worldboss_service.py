@@ -524,6 +524,85 @@ def main() -> None:
             'SELECT * FROM pk_mons WHERE guild_id=? ORDER BY id', (str(G5),)).fetchall()]
     check(after_mons == before_mons, 'combat never touches collection rows')
 
+    # --- phase loot: fought-phase bonus, one-shot exclusion, raced claims ---
+    # NOTE: level-100 STAB electric vs water/flying hits ~453, so size the
+    # boss for a real 3-hit arc (crossing -> enraged -> kill).
+    G6 = 9095
+    TP3 = T0 + 500000
+    with db.conn_ctx() as conn:
+        for u in ('ga', 'gb', 'gc'):
+            conn.execute(
+                'INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, '
+                'active, ivs, evs, locked, fav, held) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                (str(G6), u, 25, 100, 0, 0, '', 1, '', '', 0, 0, ''))
+    r = wb.start_boss(G6, 'tidecaller', TP3, max_hp=950)
+    bid6 = r['boss_id']
+    ra = wb.attack_boss(G6, 'ga', TP3, rng=FakeRng(rolls=[0.5] * 8))
+    rb = wb.attack_boss(G6, 'gb', TP3 + 61, rng=FakeRng(rolls=[0.5] * 8))
+    rc = wb.attack_boss(G6, 'gc', TP3 + 122, rng=FakeRng(rolls=[0.5] * 8))
+    check(rc['code'] == 'DEFEATED', 'three-hit kill')
+
+    def _qty2(u, item, _bid=bid6, _g=G6):
+        with db.conn_ctx() as conn:
+            row = conn.execute('SELECT qty FROM pk_balls WHERE guild_id=? AND user_id=? AND ball=?',
+                               (str(_g), u, item)).fetchone()
+            return row['qty'] if row else 0
+
+    import threading as _th
+    bar = _th.Barrier(2)
+    cout = {}
+
+    def _claim(u):
+        bar.wait()
+        cout[u] = wb.claim_rewards(G6, u, TP3 + 200)
+
+    t1, t2 = _th.Thread(target=_claim, args=('ga',)), _th.Thread(target=_claim, args=('gb',))
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+    check(cout['ga']['ok'] and cout['gb']['ok'], 'racing claims both succeed')
+    for u in ('ga', 'gb'):
+        check(_qty2(u, 'tidal_scale') == 1, f'{u} phase item exactly once')
+    import json as _json
+    with db.conn_ctx() as conn:
+        rows = conn.execute('SELECT user_id, reward_json FROM world_boss_rewards WHERE boss_id=?',
+                            (bid6,)).fetchall()
+    check(sorted(_json.loads(x['reward_json'])['phase'] for x in rows) == ['raging', 'raging'],
+          'phase recorded in persisted outcomes')
+    for u in ('ga', 'gb'):
+        r = wb.claim_rewards(G6, u, TP3 + 201)
+        check(not r['ok'], f'{u} retry denied')
+        check(_qty2(u, 'tidal_scale') == 1, f'{u} retry adds nothing')
+    r = wb.claim_rewards(G6, 'gc', TP3 + 202)
+    check(not r['ok'] and r['code'] == 'NO_REWARD', 'below threshold: no phase loot')
+    with db.conn_ctx() as conn:
+        norow = conn.execute('SELECT 1 FROM world_boss_rewards WHERE boss_id=? AND user_id=?',
+                             (bid6, 'gc')).fetchone()
+    check(norow is None, 'no outcome row without reward')
+
+    # one-shot from full HP never fought the phase: no bonus
+    G7 = 9096
+    with db.conn_ctx() as conn:
+        conn.execute(
+            'INSERT INTO pk_mons (guild_id, owner_id, dex, level, xp, shiny, nick, '
+            'active, ivs, evs, locked, fav, held) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            (str(G7), 'go', 25, 100, 0, 0, '', 1, '', '', 0, 0, ''))
+    r = wb.start_boss(G7, 'tidecaller', TP3, max_hp=90)
+    bid7 = r['boss_id']
+    r = wb.attack_boss(G7, 'go', TP3, rng=FakeRng(rolls=[0.5] * 8))
+    check(r['code'] == 'DEFEATED', 'one-shot kill')
+    with db.conn_ctx() as conn:
+        mp = conn.execute('SELECT max_phase FROM world_boss WHERE id=?', (bid7,)).fetchone()['max_phase']
+    check(not mp, 'one-shot records no phase')
+    r = wb.claim_rewards(G7, 'go', TP3 + 61)
+    check(r['ok'], 'one-shot still pays normal rewards')
+    with db.conn_ctx() as conn:
+        jj = conn.execute('SELECT reward_json FROM world_boss_rewards WHERE boss_id=? AND user_id=?',
+                          (bid7, 'go')).fetchone()['reward_json']
+    check(_json.loads(jj)['phase'] is None, 'no phase in one-shot outcome')
+    check(_qty2('go', 'tidal_scale', bid7, G7) == 0, 'no phase item without the fight')
+
     # --- per-guild isolation + expiry cleanup ---
     G2 = 9091
     with db.conn_ctx() as conn:
@@ -597,7 +676,7 @@ def main() -> None:
                              (bid_loot, 'looter')).fetchall()
     check(len(saved) == 1, 'one persisted outcome row')
     check(_json.loads(saved[0]['reward_json']) ==
-          {'coins': 6000, 'items': [['poke', 2], ['great', 1]]},
+          {'coins': 6000, 'items': [['poke', 2], ['great', 1]], 'phase': 'enraged'},
           'persisted outcome matches payout')
     r = wb.claim_rewards(GID, 'looter', LT + 123)
     check(not r['ok'] and r['code'] == 'ALREADY_CLAIMED', 'duplicate claim denied')

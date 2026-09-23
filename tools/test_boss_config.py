@@ -49,7 +49,7 @@ def main() -> None:
 
     from game.bosses.dreadmaw import DREADMAW
     from game.bosses.models import (BossDefinition, BossLootTable,
-                                    BossPhase, LootEntry,
+                                    BossPhase, LootEntry, LootReward,
                                     definition_from_snapshot,
                                     snapshot_definition, validate_definition)
     from game.bosses.registry import BOSSES, registry
@@ -105,6 +105,10 @@ def main() -> None:
             key='a', min_hp_ratio=0.0,
             moves=({'name': 'M', 'power': 10, 'acc': 100, 'ptype': 'normal'},),
             effect_key='lava'),)}),
+        ('bad phase reward', {'phases': (BossPhase(
+            key='a', min_hp_ratio=0.0,
+            moves=({'name': 'M', 'power': 10, 'acc': 100, 'ptype': 'normal'},),
+            phase_reward=LootReward('', -1, 0)),)}),
     ]:
         try:
             validate_definition(bad(**kwargs))
@@ -124,7 +128,12 @@ def main() -> None:
           'second snapshot roundtrips')
     check(all(p.effect_key is None for p in DREADMAW.phases),
           'dreadmaw stays effect-free')
+    check(all(p.phase_reward is None for p in DREADMAW.phases),
+          'dreadmaw has no phase reward')
     check(TIDECALLER.phases[1].effect_key == 'rain', 'tidecaller enraged rains')
+    check(TIDECALLER.phases[1].phase_reward == LootReward('tidal_scale', 1, 1),
+          'tidecaller enraged pays a scale')
+    check(TIDECALLER.phases[0].phase_reward is None, 'normal has no bonus')
     legacy = __import__('json').loads(snap2)
     for p in legacy['phases']:
         del p['effect_key']
