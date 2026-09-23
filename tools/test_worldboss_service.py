@@ -384,11 +384,13 @@ def main() -> None:
     check(not r['ok'] and r['code'] == 'INSUFFICIENT_FUNDS', 'broke healer rejected')
 
     # --- phases: derived, deterministic, retaliation-only ---
-    from services.worldboss_service import DREADMAW_PHASES, resolve_boss_phase
-    check(resolve_boss_phase(3000, 5000).key == 'normal', 'above threshold: phase 1')
-    check(resolve_boss_phase(2500, 5000).key == 'enraged', 'exactly at threshold: phase 2')
-    check(resolve_boss_phase(100, 5000).key == 'enraged', 'below threshold: phase 2')
-    check(resolve_boss_phase(3000, 5000) is resolve_boss_phase(3000, 5000),
+    from game.bosses.dreadmaw import DREADMAW
+    from services.worldboss_service import resolve_boss_phase
+    _ph = DREADMAW.phases
+    check(resolve_boss_phase(_ph, 3000, 5000).key == 'normal', 'above threshold: phase 1')
+    check(resolve_boss_phase(_ph, 2500, 5000).key == 'enraged', 'exactly at threshold: phase 2')
+    check(resolve_boss_phase(_ph, 100, 5000).key == 'enraged', 'below threshold: phase 2')
+    check(resolve_boss_phase(_ph, 3000, 5000) is resolve_boss_phase(_ph, 3000, 5000),
           'phase selection deterministic')
 
     G4 = 9093
@@ -428,7 +430,7 @@ def main() -> None:
     check(r1['damage'] == r2['damage'], 'phase affects retaliation only, never the strike')
     check((s1['max_hp'] - s1['hp']) < (s2['max_hp'] - s2['hp']),
           'enraged retaliation hits harder')
-    check('ENRAGED' not in r2['message'], 'no transition message without crossing')
+    check('Enraged' not in r2['message'], 'no transition message without crossing')
     check(_monrows('pp1') == before_p1 and _monrows('pp2') == before_p2,
           'permanent rows byte-identical in both phases')
 
@@ -436,7 +438,7 @@ def main() -> None:
     with db.conn_ctx() as conn:
         conn.execute('UPDATE world_boss SET hp=? WHERE id=?', (2600, bidp))
     rx = wb.attack_boss(G4, 'px', TP, rng=FakeRng(rolls=[0.5] * 8))
-    check(rx['ok'] and 'ENRAGED' in rx['message'], 'crossing attack announces')
+    check(rx['ok'] and 'Enraged' in rx['message'], 'crossing attack announces')
     with db.conn_ctx() as conn:
         hpx = conn.execute('SELECT hp FROM world_boss WHERE id=?', (bidp,)).fetchone()['hp']
     check(hpx <= 2500, 'crossing commits with the announcement')
@@ -482,7 +484,8 @@ def main() -> None:
     check(left >= 0 and gone == 0, 'expiry cleans combat snapshots')
 
     # --- pure loot rolls: deterministic, ranged, gated ---
-    from services.worldboss_service import DREADMAW_LOOT, roll_boss_loot
+    from game.bosses.dreadmaw import DREADMAW_LOOT
+    from services.worldboss_service import roll_boss_loot
     r = roll_boss_loot(DREADMAW_LOOT, 100, False, FakeRng(rolls=[0.0, 0.0]))
     check(r == [('poke', 2)], 'base roll deterministic + qty floor')
     r = roll_boss_loot(DREADMAW_LOOT, 100, True, FakeRng(rolls=[0.0, 0.0, 0.6, 0.0]))

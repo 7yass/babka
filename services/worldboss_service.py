@@ -10,92 +10,37 @@ init_db change). Revision-guarded HP writes + claim-guarded rewards,
 so concurrent attackers and double-claims settle exactly once.
 """
 import time
-from dataclasses import dataclass, field
 
 import database as db
+from game.bosses.models import (BossDefinition, definition_from_snapshot,
+                                snapshot_definition)
+from game.bosses.registry import registry
 from lang import t
 
-ATTACK_CD = 60         # seconds between attacks per user
-MIN_DAMAGE = 50        # reward threshold
-REWARD_BASE = 1000     # participation payout
-REWARD_TOP = 5000      # top-contributor bonus
-HEAL_COST = 1000       # coin cost, once per raid per user
-DEFAULT_DURATION = 3600
+HEAL_COST = 1000       # coin cost, once per raid per user (format-wide)
 
 
-@dataclass(frozen=True)
-class BossPhase:
-    key: str
-    min_hp_ratio: float       # active while hp/max_hp is ABOVE this
-    moves: tuple              # retaliation pool (engine move dicts)
-    damage_mult: float = 1.0
-    display_name: str | None = None
-
-
-DREADMAW_PHASES = (
-    BossPhase(key='normal', min_hp_ratio=0.50,
-              moves=({'name': 'Tackle', 'power': 40, 'acc': 100,
-                      'ptype': 'normal'},),
-              damage_mult=1.0, display_name=None),
-    BossPhase(key='enraged', min_hp_ratio=0.00,
-              moves=({'name': 'Ember', 'power': 50, 'acc': 100,
-                      'ptype': 'fire'},),
-              damage_mult=1.2, display_name='Enraged'),
-)
-
-
-def resolve_boss_phase(hp: int, max_hp: int) -> BossPhase:
-    """Phase from HP ratio. Exactly-at-threshold counts as the lower
-    phase (50% hp = enraged). Pure + deterministic."""
+def resolve_boss_phase(phases, hp: int, max_hp: int):
+    """Phase from HP ratio over the DEFINITION's phases. Exactly-at-
+    threshold counts as the lower phase. Pure + deterministic."""
     ratio = (hp or 0) / max(1, max_hp or 1)
-    for phase in DREADMAW_PHASES:
+    for phase in phases:
         if ratio > phase.min_hp_ratio:
             return phase
-    return DREADMAW_PHASES[-1]
+    return phases[-1]
 
 
-@dataclass(frozen=True)
-class LootEntry:
-    item_id: str
-    quantity_min: int
-    quantity_max: int
-    weight: int
-    guaranteed: bool = False
-    min_damage: int = 0
-
-
-@dataclass(frozen=True)
-class BossLootTable:
-    boss_key: str
-    entries: tuple
-    rolls: int
-
-
-DREADMAW_LOOT = BossLootTable(
-    boss_key='dreadmaw',
-    rolls=1,  # +1 for the top contributor
-    entries=(
-        LootEntry('poke', 2, 5, 500),
-        LootEntry('great', 1, 2, 250),
-        LootEntry('potion', 1, 2, 150),
-        LootEntry('dreadmaw_scale', 1, 1, 80, min_damage=MIN_DAMAGE),
-        LootEntry('fire_stone', 1, 1, 20, min_damage=500),
-    ),
-)
-
-BOSS = {
-    'key': 'dreadmaw',
-    'name': 'Dreadmaw',
-    'dex': 248,
-    'level': 70,
-    'types': ['rock', 'dark'],
-    'stats': {'atk': 120, 'spa': 100, 'dfn': 110, 'spd': 90, 'spe': 30,
-              'maxhp': 10 ** 9},
-    'max_hp': 5000,
-    'duration': DEFAULT_DURATION,
-}
-
-BOSSES = {BOSS['key']: BOSS}
+def _definition(row) -> BossDefinition:
+    """Live snapshot from the event row (back-compat: pre-snapshot rows
+    resolve from the registry). Never silently substitutes another boss."""
+    raw = row['config_json'] if 'config_json' in row.keys() else ''
+    if raw:
+        import json as _json
+        return definition_from_snapshot(_json.loads(raw))
+    defn = registry.get(row['boss_key'])
+    if defn is None:
+        raise RuntimeError(f"unknown boss {row['boss_key']!r}")
+    return defn
 
 
 def ensure_tables() -> None:
@@ -106,7 +51,11 @@ def ensure_tables() -> None:
             hp INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE',
             revision INTEGER NOT NULL DEFAULT 0,
             started_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
-            defeated_at INTEGER DEFAULT 0)''')
+            defeated_at INTEGER DEFAULT 0, config_json TEXT DEFAULT '')''')
+        try:
+            conn.execute('ALTER TABLE world_boss ADD COLUMN config_json TEXT DEFAULT \'\'')
+        except Exception:
+            pass  # already migrated
         conn.execute('''CREATE TABLE IF NOT EXISTS world_boss_parts (
             boss_id INTEGER NOT NULL, guild_id TEXT NOT NULL,
             user_id TEXT NOT NULL, damage INTEGER DEFAULT 0,
@@ -142,28 +91,35 @@ def _active_row(conn, gid):
 
 def start_boss(gid, boss_key: str, now: int = None, max_hp: int = None,
                duration: int = None) -> dict:
-    """Staff: open a boss event. One active per guild."""
+    """Staff: open a boss event. One active per guild. The definition is
+    snapshotted onto the row: later balance edits affect future events."""
+    import dataclasses as _dc
     ensure_tables()
     now = int(now if now is not None else time.time())
-    cfg = BOSSES.get((boss_key or '').lower())
-    if not cfg:
+    cfg = registry.get(boss_key)
+    if cfg is None:
         return {'ok': False, 'code': 'UNKNOWN_BOSS',
                 'message': t(gid, 'eco.wb_unknown')}
+    if not cfg.enabled:
+        return {'ok': False, 'code': 'DISABLED',
+                'message': t(gid, 'eco.wb_disabled')}
     with db.conn_ctx() as conn:
         _sweep(conn, gid, now)
         if _active_row(conn, gid):
             return {'ok': False, 'code': 'ALREADY_ACTIVE',
                     'message': t(gid, 'eco.wb_active')}
-        hp = int(max_hp or cfg['max_hp'])
-        dur = int(duration or cfg['duration'])
+        hp = int(max_hp or cfg.max_hp)
+        dur = int(duration or cfg.duration_seconds)
+        snap = snapshot_definition(_dc.replace(
+            cfg, max_hp=hp, duration_seconds=dur))
         cur = conn.execute(
             'INSERT INTO world_boss (guild_id, boss_key, max_hp, hp, status, '
-            'revision, started_at, expires_at) VALUES (?,?,?,?,?,?,?,?)',
-            (str(gid), cfg['key'], hp, hp, 'ACTIVE', 0, now, now + dur))
+            'revision, started_at, expires_at, config_json) VALUES (?,?,?,?,?,?,?,?,?)',
+            (str(gid), cfg.key, hp, hp, 'ACTIVE', 0, now, now + dur, snap))
         bid = cur.lastrowid
     return {'ok': True, 'code': 'BOSS_STARTED',
-            'message': t(gid, 'eco.wb_started', name=cfg['name'], hp=hp),
-            'boss_id': bid, 'boss_key': cfg['key'], 'max_hp': hp}
+            'message': t(gid, 'eco.wb_started', name=cfg.display_name, hp=hp),
+            'boss_id': bid, 'boss_key': cfg.key, 'max_hp': hp}
 
 
 def boss_status(gid, now: int = None) -> dict | None:
@@ -181,9 +137,10 @@ def boss_status(gid, now: int = None) -> dict | None:
             'WHERE boss_id=? ORDER BY damage DESC', (b['id'],)).fetchall()]
     top = [{'user_id': p['user_id'], 'damage': p['damage'],
             'attacks': p['attacks']} for p in parts[:3]]
-    phase = resolve_boss_phase(b['hp'], b['max_hp'])
+    defn = _definition(b)
+    phase = resolve_boss_phase(defn.phases, b['hp'], b['max_hp'])
     return {'boss_id': b['id'], 'boss_key': b['boss_key'],
-            'name': BOSSES.get(b['boss_key'], {}).get('name', b['boss_key']),
+            'name': defn.display_name,
             'hp': b['hp'], 'max_hp': b['max_hp'], 'revision': b['revision'],
             'phase': phase.key, 'phase_name': phase.display_name,
             'ends_in': max(0, b['expires_at'] - now),
@@ -206,7 +163,7 @@ def join_boss(gid, uid, now: int = None) -> dict:
                      (b['id'], str(gid), str(uid), now))
     return {'ok': True, 'code': 'JOINED',
             'message': t(gid, 'eco.wb_joined',
-                         name=BOSSES.get(b['boss_key'], {}).get('name', b['boss_key']))}
+                         name=_definition(b).display_name)}
 
 
 def _fighter_from_mon(gid, mon: dict, hp: int | None = None) -> dict:
@@ -266,10 +223,10 @@ def _load_combat(conn, gid, uid, boss_id):
     return snap, live
 
 
-def _boss_fighter(hp: int, phase=None) -> dict:
-    phase = phase or DREADMAW_PHASES[0]
-    return {'name': BOSS['name'], 'level': BOSS['level'], 'hp': hp,
-            'stats': dict(BOSS['stats']), 'types': list(BOSS['types']),
+def _boss_fighter(defn, hp: int, phase=None) -> dict:
+    phase = phase or defn.phases[0]
+    return {'name': defn.display_name, 'level': defn.level, 'hp': hp,
+            'stats': dict(defn.base_stats), 'types': list(defn.types),
             'held': '', 'moves': [dict(m) for m in phase.moves]}
 
 
@@ -294,7 +251,8 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
                             'WHERE boss_id=? AND user_id=?',
                             (b['id'], str(uid))).fetchone()
         part = dict(part)
-        wait = ATTACK_CD - (now - (part['last_action_at'] or 0))
+        defn = _definition(b)
+        wait = defn.attack_cooldown_seconds - (now - (part['last_action_at'] or 0))
         if wait > 0:
             return {'ok': False, 'code': 'COOLDOWN',
                     'message': t(gid, 'eco.wb_cooldown', s=wait)}
@@ -311,8 +269,8 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
         # resolves atomically, so a mid-turn pool swap would fork turn order
         # into the service (or push boss concepts into the engine). The
         # crossing hit still announces + commits in the same txn below.
-        phase = resolve_boss_phase(b['hp'], b['max_hp'])
-    st = {'me': me, 'wild': _boss_fighter(b['hp'], phase), 'log': [], 'weather': None}
+        phase = resolve_boss_phase(defn.phases, b['hp'], b['max_hp'])
+    st = {'me': me, 'wild': _boss_fighter(defn, b['hp'], phase), 'log': [], 'weather': None}
     _bt.resolve_turn(st, gid, 0, rng, strict_faint=True, foe_mult=phase.damage_mult)
     dealt = max(0, b['hp'] - st['wild']['hp'])
     left_hp = max(0, st['me']['hp'])
@@ -338,9 +296,10 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
                          'WHERE id=? AND status=\'ACTIVE\'', (now, b['id']))
     tail = t(gid, 'eco.wb_fainted', name=me['name']) if left_hp <= 0 \
         else t(gid, 'eco.wb_self_hp', name=me['name'], hp=left_hp, max_hp=me['_maxhp'])
-    crossed = (phase.key == 'normal'
-               and resolve_boss_phase(left['hp'], left['max_hp']).key != 'normal')
-    ping = ('\n' + t(gid, 'eco.wb_enraged')) if crossed else ''
+    new_phase = resolve_boss_phase(defn.phases, left['hp'], left['max_hp'])
+    crossed = (new_phase.key != phase.key and (new_phase.display_name or ''))
+    ping = ('\n' + t(gid, 'eco.wb_phase', name=defn.display_name,
+                     phase=new_phase.display_name)) if crossed else ''
     if defeated:
         return {'ok': True, 'code': 'DEFEATED', 'damage': dealt,
                 'boss_hp': 0, 'max_hp': left['max_hp'],
@@ -423,13 +382,7 @@ def heal_fighter(gid, uid, now: int = None) -> dict:
             'message': t(gid, 'eco.wb_healed', cost=HEAL_COST)}
 
 
-def _loot_table(boss_key: str) -> BossLootTable | None:
-    if boss_key == DREADMAW_LOOT.boss_key:
-        return DREADMAW_LOOT
-    return None
-
-
-def roll_boss_loot(table: BossLootTable, damage: int, is_top: bool,
+def roll_boss_loot(table, damage: int, is_top: bool,
                    rng=None) -> list:
     """Deterministic weighted rolls: 1 base + 1 for top contributor.
     Entries below their min_damage are ineligible. Returns [(item, qty)]."""
@@ -473,22 +426,24 @@ def claim_rewards(gid, uid, now: int = None, rng=None) -> dict:
             return {'ok': False, 'code': 'NO_REWARD',
                     'message': t(gid, 'eco.wb_no_reward')}
         b = dict(row)
+        defn = _definition(b)
         part = conn.execute('SELECT damage, attacks, reward_claimed FROM world_boss_parts '
                             'WHERE boss_id=? AND user_id=?', (b['id'], str(uid))).fetchone()
-        if not part or not (part['attacks'] or 0) or (part['damage'] or 0) < MIN_DAMAGE:
+        if not part or not (part['attacks'] or 0) \
+                or (part['damage'] or 0) < defn.participation_damage:
             return {'ok': False, 'code': 'NO_REWARD',
                     'message': t(gid, 'eco.wb_no_reward')}
         top = conn.execute('SELECT user_id FROM world_boss_parts WHERE boss_id=? '
                            'ORDER BY damage DESC LIMIT 1', (b['id'],)).fetchone()
         is_top = bool(top and str(top['user_id']) == str(uid))
-        amount = REWARD_BASE + (REWARD_TOP if is_top else 0)
+        amount = defn.participation_coins + (defn.top_bonus_coins if is_top else 0)
         cur = conn.execute('UPDATE world_boss_parts SET reward_claimed=1 '
                            'WHERE boss_id=? AND user_id=? AND reward_claimed=0',
                            (b['id'], str(uid)))
         if (cur.rowcount or 0) != 1:
             return {'ok': False, 'code': 'ALREADY_CLAIMED',
                     'message': t(gid, 'eco.wb_already')}
-        table = _loot_table(b['boss_key'])
+        table = defn.loot_table
         loot = roll_boss_loot(table, part['damage'], is_top, rng) if table else []
         reward = {'coins': amount, 'items': [[i, q] for i, q in loot]}
         conn.execute('INSERT OR REPLACE INTO world_boss_rewards '
