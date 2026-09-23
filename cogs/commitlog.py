@@ -70,7 +70,11 @@ def _parse_commits(limit):
 
 async def _run_once(bot):
     try:
-        commits = _parse_commits(MAX_COMMITS)
+        import asyncio
+        # _parse_commits shells out to git: blocking. Never run it on the
+        # event-loop thread — a slow shared disk stalls heartbeats here.
+        commits = await asyncio.get_running_loop().run_in_executor(
+            None, _parse_commits, MAX_COMMITS)
         seen = _load_seen()
 
         channel = bot.get_channel(CHANNEL_ID)

@@ -213,6 +213,14 @@ async def on_ready():
               '"Unknown interaction".' % (_READY['n'], int(_t.time() - _READY['first'])))
 
 
+@_daily_backup.before_loop
+async def _before_backup():
+    # The loop body runs immediately at startup by default. A full DB copy
+    # on a slow shared disk stalls the gateway handshake, so let the bot
+    # get online first.
+    await asyncio.sleep(180)
+
+
 @tasks.loop(seconds=15)
 async def _loop_lag():
     """Process-freeze watchdog. Every PIL render already runs in an executor and
