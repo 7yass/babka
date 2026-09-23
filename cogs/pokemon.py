@@ -1799,6 +1799,10 @@ class Pokemon(commands.Cog):
         from discord.ui import LayoutView, Container, TextDisplay, MediaGallery
         from discord.ui.media_gallery import MediaGalleryItem
         from cogs.gamble import foot
+        # Same 4000-char LayoutView cap as _game_layout: clamp here too so a
+        # runaway string degrades instead of 50035ing the encounter.
+        if len(desc or '') > 3500:
+            desc = (desc or '')[:3500] + '…'
         layout = LayoutView(timeout=300)
         box = Container(accent_color=accent)
         box.add_item(TextDisplay(f'**{title}**\n{desc}'))

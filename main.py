@@ -276,6 +276,10 @@ async def on_command_error(ctx, error):
     for e in (error, orig):
         if isinstance(e, discord.HTTPException) and getattr(e, 'code', None) == 50035:
             try:
+                print(f'[!] 50035 in {ctx.command}: {getattr(e, "text", e)!r}'[:1000], flush=True)
+            except Exception:
+                pass
+            try:
                 await ctx.reply('Too big to display — try a category view.', ephemeral=True)
             except Exception:
                 pass
