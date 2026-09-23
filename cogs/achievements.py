@@ -55,6 +55,38 @@ def unlocked(gid, uid) -> set:
     return {r['akey'] for r in rows}
 
 
+# Medal metals (CoD-style medallions on the profile card).
+BRONZE = (176, 124, 72)
+SILVER = (190, 190, 200)
+GOLD_M = (250, 200, 60)
+
+# key -> (glyph, metal). Glyphs are DejaVu-safe (no color emoji on PIL).
+MEDALS = {
+    'first_job': ('✦', BRONZE),
+    'grinder': ('⚒', BRONZE),
+    'lifer': ('⚙', SILVER),
+    'lvl10': ('★', BRONZE),
+    'lvl25': ('★', SILVER),
+    'lvl50': ('★', GOLD_M),
+    'rich100k': ('◆', BRONZE),
+    'rich1m': ('◆', SILVER),
+    'rich5m': ('♛', GOLD_M),
+    'highroller': ('✹', SILVER),
+    'famous': ('❦', SILVER),
+    'region_kanto': ('K', GOLD_M),
+    'region_johto': ('J', GOLD_M),
+    'region_hoenn': ('H', GOLD_M),
+    'region_sinnoh': ('S', GOLD_M),
+    'npc_champ': ('☠', GOLD_M),
+}
+
+
+def badge_medals(gid, uid) -> list:
+    """(glyph, metal_rgb) medals for the profile card, in BADGES order."""
+    have = unlocked(gid, uid)
+    return [MEDALS[k] for k in BADGES if k in have and k in MEDALS]
+
+
 def badge_shorts(gid, uid) -> list:
     """Short ASCII badge names for the profile card, in BADGES order."""
     have = unlocked(gid, uid)

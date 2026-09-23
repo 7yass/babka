@@ -47,10 +47,11 @@ def profile_card(name: str, level: int, xp: int, need: int, rank: int,
         f_lab = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 15)
         f_val = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 26)
         f_sub = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 22)
+        f_medal = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 22)
         f_badge = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 13)
         f_xp = _F.truetype(str(_a / 'DejaVuSans.ttf'), 17)
     except Exception:
-        f_name = f_pill = f_lab = f_val = f_sub = f_xp = _F.load_default()
+        f_name = f_pill = f_lab = f_val = f_sub = f_medal = f_xp = _F.load_default()
         f_badge = f_xp
 
     def tracked(xy, text, font, fill, tracking=3):
@@ -140,23 +141,34 @@ def profile_card(name: str, level: int, xp: int, need: int, rank: int,
     tracked((dx + half, 296), 'TOP ROLE', f_lab, FAINT)
     d.text((dx + half, 318), fit(role_txt, f_sub, W - 40 - (dx + half)), font=f_sub, fill=INK)
 
-    # badges strip
-    tracked((dx, 350), 'BADGES', f_lab, FAINT)
-    _bx = dx
-    for _b in (badges or [])[:5]:
+    # medals strip — CoD-style medallions: metal ring, dark disc, glyph.
+    # badges = [(glyph, (r, g, b)), ...] in unlock order.
+    tracked((dx, 350), 'MEDALS', f_lab, FAINT)
+    _mx, _md, _my = dx, 44, 368
+    _shown = 0
+    for _item in (badges or [])[:8]:
         try:
-            _tw = d.textlength(_b, font=f_badge) + 18
+            _g, _mc = _item
         except Exception:
-            _tw = len(_b) * 8 + 18
-        if _bx + _tw > W - 120:
+            continue
+        if _mx + _md > W - 40:
             break
-        d.rounded_rectangle([_bx, 368, _bx + _tw, 368 + 24], radius=12,
-                            outline=(250, 200, 60), width=1, fill=(26, 24, 16))
-        d.text((_bx + 9, 372), _b, font=f_badge, fill=(250, 200, 60))
-        _bx += _tw + 8
-    _extra = len(badges or []) - 5
+        _cx, _cy = _mx + _md // 2, _my + _md // 2
+        d.ellipse([_mx, _my, _mx + _md, _my + _md], fill=(24, 24, 28),
+                  outline=(70, 70, 78), width=2)
+        d.ellipse([_mx + 3, _my + 3, _mx + _md - 3, _my + _md - 3],
+                  outline=tuple(_mc), width=3)
+        d.arc([_mx + 8, _my + 5, _mx + _md - 8, _my + _md - 5],
+              start=200, end=340, fill=(90, 90, 98), width=2)
+        try:
+            d.text((_cx, _cy), _g, font=f_medal, fill=tuple(_mc), anchor='mm')
+        except Exception:
+            d.text((_cx - 8, _cy - 12), _g, font=f_medal, fill=tuple(_mc))
+        _mx += _md + 10
+        _shown += 1
+    _extra = len(badges or []) - _shown
     if _extra > 0:
-        d.text((_bx, 372), f'+{_extra}', font=f_badge, fill=DIM)
+        d.text((_mx, _my + 12), f'+{_extra}', font=f_badge, fill=DIM)
 
     # xp bar
     bx, bw, bh, by = dx, W - dx - 40, 12, 420
@@ -340,7 +352,7 @@ class Profile(commands.Cog):
         from cogs.levels import get_user, get_rank, xp_needed, TIER_COLORS, _tier_key
         from cogs.gamble import bal
         from cogs.jobs import get_job, JOBS, JOB_ALIAS, job_title, ladder_of
-        from cogs.achievements import badge_shorts, maybe_award
+        from cogs.achievements import badge_medals, maybe_award
         from utils.cards import tier_for, get_tier_names
         try:
             maybe_award(gid, member.id)
@@ -366,7 +378,7 @@ class Profile(commands.Cog):
         role_txt = roles[0].name if roles else '—'
         is_staff = any(str(r.id) == STAFF_ROLE_ID for r in getattr(member, 'roles', []))
         try:
-            badges = badge_shorts(gid, member.id)
+            badges = badge_medals(gid, member.id)
         except Exception:
             badges = []
 
