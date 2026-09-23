@@ -27,6 +27,75 @@ ITEMS = {
     'bail': {'price': SHOP_PRICES['bail'].amount, 'use': 'shop.u_bail'},
     'vip': {'price': SHOP_PRICES['vip'].amount, 'use': 'shop.u_vip'},
 }
+# common misspellings / shortcuts -> canonical economy key
+ALIASES = {
+    'highroler': 'highroller',
+    'high roller': 'highroller',
+    'high-roller': 'highroller',
+    'highrollerpass': 'highroller',
+    'high roller pass': 'highroller',
+    'hr': 'highroller',
+    'higroller': 'highroller',
+    'highrooler': 'highroller',
+    'xp boost': 'xpboost',
+    'xp': 'xpboost',
+    'nicktoken': 'nick',
+    'nick token': 'nick',
+    'forcescroll': 'force',
+    'force scroll': 'force',
+    'robshield': 'shield',
+    'rob shield': 'shield',
+    'curses': 'curse',
+    'cursescroll': 'curse',
+    'curse scroll': 'curse',
+    'megaboxes': 'megabox',
+    'mega box': 'megabox',
+    'loot box': 'lootbox',
+}
+
+
+def resolve_economy_key(raw: str, id_map: dict | None = None) -> str:
+    """Fuzzy economy key: id, exact, alias, normalized, close match, substring."""
+    import difflib
+    key = (raw or '').lower().strip()
+    if not key:
+        return ''
+    if key.isdigit() and id_map is not None:
+        return id_map.get(int(key), '')
+    if key in ITEMS:
+        return key
+    if key in ALIASES:
+        return ALIASES[key]
+    flat = key.replace(' ', '').replace('_', '').replace('-', '')
+    if flat in ITEMS:
+        return flat
+    flat_aliases = {k.replace(' ', '').replace('_', '').replace('-', ''): v
+                    for k, v in ALIASES.items()}
+    if flat in flat_aliases:
+        return flat_aliases[flat]
+    flat_display = {v.lower().replace(' ', ''): k for k, v in DISPLAY.items()}
+    if flat in flat_display:
+        return flat_display[flat]
+    candidates = list(ITEMS) + list(DISPLAY.values())
+    cand_low = [c.lower() for c in candidates]
+    hit = difflib.get_close_matches(key, cand_low, n=1, cutoff=0.6)
+    if not hit:
+        hit = difflib.get_close_matches(flat, [c.lower().replace(' ', '') for c in candidates],
+                                        n=1, cutoff=0.6)
+    if hit:
+        h = hit[0]
+        for k in ITEMS:
+            if k.lower() == h:
+                return k
+        for k, v in DISPLAY.items():
+            if v.lower() == h or v.lower().replace(' ', '') == h:
+                return k
+    for k in ITEMS:
+        if flat in k or k in flat:
+            return k
+    return ''
+
+
 # buy -> (inventory item, duration seconds) for stashable goods.
 BUY_MAP = {
     'nick': ('nick', 0),
@@ -280,9 +349,13 @@ class Shop(commands.Cog):
         from utils.cards import short as cshort
         gid = ctx.guild.id
         key = (item or '').lower().strip()
+        raw_n = (n or '').strip()
+        # `.shop buy high roller`: second word lands in `n` — fold it back.
         try:
-            n = max(1, min(99, int(n or 1)))
+            n = max(1, min(99, int(raw_n or 1)))
         except (ValueError, TypeError):
+            if raw_n:
+                key = f'{key} {raw_n}'.strip()
             n = 1
         if (ctx.prefix or '') == ';':
             # Pokemon storefront only on the pokemon prefix.
@@ -294,10 +367,7 @@ class Shop(commands.Cog):
         # Economy first on the guild prefix: the `.shop` board's own
         # numbers/names win. Pokemon ids overlap numerically, so resolving
         # pokemon first hijacked e.g. `.shop buy 8` (xpboost) into candy.
-        ekey = self.id_map().get(int(key), '') if key.isdigit() else key
-        if ekey not in ITEMS:
-            flat = key.replace(' ', '').replace('_', '')
-            ekey = {v.lower().replace(' ', ''): k for k, v in DISPLAY.items()}.get(flat, ekey)
+        ekey = resolve_economy_key(key, self.id_map())
         if ekey in ITEMS:
             return await self._buy_economy(ctx, ekey, n)
         # ...otherwise the pokemon catalog (names + its own ids).
@@ -351,7 +421,7 @@ class Shop(commands.Cog):
         await ctx.reply(view=layout, ephemeral=True)
 
     @shop.command(name='info', description='Opis przedmiotu')
-    async def item_info(self, ctx, item: str = ''):
+    async def item_info(self, ctx, *, item: str = ''):
         gid = ctx.guild.id
         key = (item or '').lower().strip()
         if (ctx.prefix or '') == ';':
@@ -379,6 +449,8 @@ class Shop(commands.Cog):
                 f'-# `[{num_of.get(key, "?")}]` {sec}'), ephemeral=True)
         if key.isdigit():
             key = self.id_map().get(int(key), '')
+        else:
+            key = resolve_economy_key(key, self.id_map())
         if key not in ITEMS:
             return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
         num_of = {k: i for i, k in self.id_map().items()}
