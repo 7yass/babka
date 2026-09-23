@@ -2156,7 +2156,10 @@ class Pokemon(commands.Cog):
         counts = balls_get(gid, uid)
         for ball in ('poke', 'great', 'ultra', 'master'):
             qty = counts.get(ball, 0)
-            bb = discord.ui.Button(label='',
+            # Label is required by the API: empty-string labels only passed
+            # while the fleet emoji was deployed (icon carried the button).
+            # Fresh hosts have no registry, so the name IS the button.
+            bb = discord.ui.Button(label=f'{ball.upper()} {qty}',
                                    style=discord.ButtonStyle.success if qty
                                    else discord.ButtonStyle.secondary,
                                    custom_id=f'pkball:{uid}:{ball}',
