@@ -78,6 +78,7 @@ COGS = [
     'cogs.valorant',
     'cogs.pokemon',
     'cogs.exploration',
+    'cogs.worldboss',
     'cogs.emojis',
     'cogs.ping',
     'cogs.health',
