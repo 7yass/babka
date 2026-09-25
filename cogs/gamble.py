@@ -9,7 +9,9 @@ import database as db
 from utils.cards import short as cshort
 from utils.economy import (CASINO_BASE_MAX_BET, CASINO_MAX_BET_PER_LEVEL,
                            CASINO_MAX_BET_CAP, CASINO_BJ_PAYOUT, CASINO_BJ_GOD_PAYOUT,
-                           CRIME_ROB)
+                           CASINO_POKER_CAP_MULT, CASINO_POKER_HR_CAP_MULT,
+                           CASINO_SLOTS_CAP_MULT, CASINO_ROU_CAP_MULT,
+                           CASINO_BJ_CAP_MULT, CRIME_ROB)
 from lang import t, set_ctx_lang
 from utils.embeds import foot
 
@@ -24,16 +26,16 @@ BJ_MAX_WIN = 15000  # max profit per hand for mortals
 SLOTS_MAX_WIN = 25000    # max slots payout for mortals
 ROU_MAX_WIN = 25000      # max roulette profit for mortals
 POKER_MAX_WIN = 50000    # max poker profit for mortals
-# gambling is limited to 10 plays per hour (shared across all games); gods exempt
-GAMBLES_PER_HOUR = 10
+# gambling is limited to 15 plays per hour (shared across all games); gods exempt
+GAMBLES_PER_HOUR = 15
 SUITS = ['♠', '♥', '♦', '♣']
 RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 SLOTS = ['7', '★', '♦', '♣', '●']
 # European roulette reds; 0 is green, rest black
 ROU_REDS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
-# mortals keep 70% of the spins they'd fairly win (~68% RTP uniform
-# across bet kinds); gods tilt every 4th round instead
-ROU_RIG = 0.38
+# mortals keep 85% of the spins they'd fairly win; gods tilt every
+# 4th round instead
+ROU_RIG = 0.15
 # single-zero wheel order (clockwise)
 WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30,
                8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7,
@@ -737,11 +739,12 @@ class PokerView(discord.ui.LayoutView):
         from discord.ui import Container, TextDisplay, ActionRow, MediaGallery
         from discord.ui.media_gallery import MediaGalleryItem
         self.clear_items()
-        box = Container(accent_color=0xFFFFFF)
+        box = Container(accent_color=0xFAC43C)
         txt = f'## {t(self.gid, "eco.poker_title", bet=cshort(self.bet))}'
         if result:
             txt += f'\n{result}'
         box.add_item(TextDisplay(txt))
+        box.add_item(TextDisplay(f'-# {t(self.gid, "eco.paytable_poker")}'))
         box.add_item(MediaGallery(MediaGalleryItem(media='attachment://poker.png')))
         row = ActionRow()
         for i in range(5):
@@ -805,13 +808,21 @@ class PokerView(discord.ui.LayoutView):
         key, mult = poker_eval(self.hand)
         b = bal(self.gid, self.player_id)
         if mult:
-            profit = self.bet * mult
+            raw = self.bet * mult
             if str(self.player_id) not in GOD_IDS:
-                # Flat cap alone flattens big bets (40k flush -> 1.25x):
-                # always honor at least 3x the stake so high hands scale.
-                profit = min(profit, max(POKER_MAX_WIN, 3 * self.bet))
+                # Caps scale with stake (5x, 10x on High Roller) so big
+                # bets and big hands both matter; notice when it binds.
+                sm = (CASINO_POKER_HR_CAP_MULT
+                      if has_highroller(self.gid, self.player_id)
+                      else CASINO_POKER_CAP_MULT)
+                profit, capped = self.cog._cap_profit(
+                    raw, POKER_MAX_WIN, sm, self.bet)
+            else:
+                profit, capped = raw, False
             add_cash(self.gid, self.player_id, self.bet + profit)
             msg = t(self.gid, 'eco.poker_win', hand=key.replace('_', ' '), win=cshort(profit))
+            if capped:
+                msg += '\n' + t(self.gid, 'eco.cap_hit', win=cshort(profit))
         else:
             msg = t(self.gid, 'eco.poker_lose', bet=cshort(self.bet))
             hr = highroller_refund(self.gid, self.player_id, self.bet)
@@ -901,13 +912,18 @@ class BJView(discord.ui.LayoutView):
                 msg += '\n' + hr
         elif dv > 21 or pv > dv:
             if pv == 21 and len(self.phand) == 2:
-                profit = int(self.bet * (1.5 if god else 1.0))  # mortals get even money
+                raw = int(self.bet * (1.5 if god else 1.0))  # mortals get even money
             else:
-                profit = self.bet
+                raw = self.bet
             if not god:
-                profit = min(profit, BJ_MAX_WIN)
+                profit, capped = self.cog._cap_profit(raw, BJ_MAX_WIN,
+                                                      CASINO_BJ_CAP_MULT, self.bet)
+            else:
+                profit, capped = raw, False
             add_cash(self.gid, self.player_id, self.bet + profit)
             msg = t(self.gid, 'eco.bj_win', pv=pv, dv=dv, win=cshort(profit))
+            if capped:
+                msg += '\n' + t(self.gid, 'eco.cap_hit', win=cshort(profit))
         elif pv == dv:
             add_cash(self.gid, self.player_id, self.bet)  # push refunds stake
             msg = t(self.gid, 'eco.bj_push', pv=pv)
@@ -1082,7 +1098,11 @@ class Gamble(commands.Cog):
             h, rem = divmod(left, 3600)
             m, _ = divmod(rem, 60)
             return await ctx.reply(t(gid, 'eco.daily_wait', h=h, m=m), ephemeral=True)
-        streak = (b.get('daily_streak') or 0) + 1
+        last = b.get('last_daily') or 0
+        if last and now - last > 2 * DAILY_CD:
+            streak = 1  # missed a day: streak resets (as the help says)
+        else:
+            streak = (b.get('daily_streak') or 0) + 1
         bonus = min((streak - 1) * 50, 500)
         add_cash(gid, ctx.author.id, DAILY_CASH + bonus)
         with db.conn_ctx() as conn:
@@ -1186,14 +1206,13 @@ class Gamble(commands.Cog):
                 return await ctx.reply(t(gid, 'eco.dep_use'), ephemeral=True)
         if amount < 10:
             return await ctx.reply(t(gid, 'eco.pay_min'), ephemeral=True)
-        if amount > b['cash']:
+        if not take_cash(gid, ctx.author.id, amount):
+            b = bal(gid, ctx.author.id)
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
         now = int(time.time())
         with db.conn_ctx() as conn:
-            conn.execute('UPDATE eco SET cash=? WHERE guild_id=? AND user_id=?',
-                         (b['cash'] - amount, str(gid), str(ctx.author.id)))
-            conn.execute('UPDATE eco SET bank=?, bank_at=? WHERE guild_id=? AND user_id=?',
-                         (bank + amount, now, str(gid), str(owner)))
+            conn.execute('UPDATE eco SET bank=bank+?, bank_at=? WHERE guild_id=? AND user_id=?',
+                         (amount, now, str(gid), str(owner)))
         await ctx.reply(t(gid, 'eco.dep_ok', amount=cshort(amount), bank=cshort(bank + amount))
                         + _wallet_line(gid, ctx.author.id), ephemeral=True)
 
@@ -1212,13 +1231,13 @@ class Gamble(commands.Cog):
                 return await ctx.reply(t(gid, 'eco.dep_use'), ephemeral=True)
         if amount < 10:
             return await ctx.reply(t(gid, 'eco.pay_min'), ephemeral=True)
-        if amount > bank:
-            return await ctx.reply(t(gid, 'eco.bank_poor', bank=cshort(bank)), ephemeral=True)
         with db.conn_ctx() as conn:
-            conn.execute('UPDATE eco SET cash=? WHERE guild_id=? AND user_id=?',
-                         (b['cash'] + amount, str(gid), str(ctx.author.id)))
-            conn.execute('UPDATE eco SET bank=? WHERE guild_id=? AND user_id=?',
-                         (bank - amount, str(gid), str(owner)))
+            cur = conn.execute('UPDATE eco SET bank=bank-? WHERE guild_id=? AND user_id=? AND bank>=?',
+                               (amount, str(gid), str(owner), amount))
+            if (cur.rowcount or 0) != 1:
+                bank, _ = self._bank_accrue(gid, owner)
+                return await ctx.reply(t(gid, 'eco.bank_poor', bank=cshort(bank)), ephemeral=True)
+        add_cash(gid, ctx.author.id, amount)
         await ctx.reply(t(gid, 'eco.with_ok', amount=cshort(amount)) + _wallet_line(gid, ctx.author.id),
                         ephemeral=True)
 
@@ -1278,14 +1297,19 @@ class Gamble(commands.Cog):
             phand = [deck.pop(), deck.pop()]
         dhand = [deck.pop(), deck.pop()]
         if hand_value(phand) == 21:
-            win = int(bet * (CASINO_BJ_GOD_PAYOUT if god else CASINO_BJ_PAYOUT))  # mortals get even money
+            raw = int(bet * (CASINO_BJ_GOD_PAYOUT if god else CASINO_BJ_PAYOUT))  # mortals get even money
             if not god:
-                win = min(win, BJ_MAX_WIN)
+                win, capped = self._cap_profit(raw, BJ_MAX_WIN, CASINO_BJ_CAP_MULT, bet)
+            else:
+                win, capped = raw, False
             nb = bal(gid, ctx.author.id)
             add_cash(gid, ctx.author.id, bet + win)
+            extra = t(gid, 'eco.bj_natural', win=cshort(win))
+            if capped:
+                extra += '\n' + t(gid, 'eco.cap_hit', win=cshort(win))
             view = BJView(self, ctx.author.id, bet, deck, phand, dhand, gid)
             view.done = True
-            view._build(hide=False, extra=t(gid, 'eco.bj_natural', win=cshort(win)))
+            view._build(hide=False, extra=extra)
             return await ctx.reply(view=view, files=[await view._table_file(False)])
         view = BJView(self, ctx.author.id, bet, deck, phand, dhand, gid)
         view.message = await ctx.reply(view=view, files=[await view._table_file(True)])
@@ -1310,14 +1334,24 @@ class Gamble(commands.Cog):
 
     def _win_chance(self, gid, user_id, bet: int) -> float:
         """House-tilted casino: gods catch a forced win every 4th game,
-        mortals hit ~24% with small payouts (pairs mostly, sevens rarely)."""
+        mortals hit ~30% with small payouts (pairs mostly, sevens rarely).
+        Bet scaling is gentle now — big bets don't get secretly punished."""
         if str(user_id) in GOD_IDS and god_forced(gid, user_id):
             return 1.0
-        base_chance = 0.24  # ~1 win in 4 (small wins mostly)
-        # Higher bet = lower chance. Scale logarithmically.
+        base_chance = 0.30
+        # Higher bet = slightly lower chance. Scale logarithmically.
         import math
-        bet_factor = 1 - min(0.90, math.log10(max(1, bet)) * 0.12)
+        bet_factor = 1 - min(0.90, math.log10(max(1, bet)) * 0.08)
         return base_chance * bet_factor
+
+    @staticmethod
+    def _cap_profit(raw: int, flat_cap: int, stake_mult: int, bet: int) -> tuple:
+        """Win caps scale with stake: profit = min(raw, max(flat, mult*bet)).
+        Returns (profit, was_capped) so callers can show the cap notice."""
+        cap = max(flat_cap, stake_mult * bet)
+        if raw > cap:
+            return cap, True
+        return raw, False
 
     @commands.hybrid_command(name='slots', description='Maszynka')
     async def slots(self, ctx, bet: str):
@@ -1352,11 +1386,17 @@ class Gamble(commands.Cog):
                 odd = random.choice([s for s in SLOTS if s != sym])
                 reels, mult = [sym, sym, odd], 1
                 random.shuffle(reels)
-            win = bet * mult
+            raw = bet * mult
             if str(ctx.author.id) not in GOD_IDS:
-                win = min(win, SLOTS_MAX_WIN)
+                win, capped = self._cap_profit(raw, SLOTS_MAX_WIN,
+                                               CASINO_SLOTS_CAP_MULT, bet)
+            else:
+                win, capped = raw, False
             msg = (t(gid, 'eco.slots_jackpot', mult=mult, win=cshort(win)) if mult >= 3
                    else t(gid, 'eco.slots_small', win=cshort(win)))
+            if capped:
+                msg += '\n' + t(gid, 'eco.cap_hit', win=cshort(win))
+            msg += '\n-# ' + t(gid, 'eco.paytable_slots')
         else:
             reels = random.sample(SLOTS, 3)  # guaranteed no pair — matches the loss
             win = 0
@@ -1411,8 +1451,11 @@ class Gamble(commands.Cog):
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
         _gamble_use(gid, ctx.author.id)
-        win_chance = self._win_chance(gid, ctx.author.id, bet)
-        won = random.random() < win_chance
+        # Coinflip is fair 50/50 (gods keep their forced wins).
+        if str(ctx.author.id) in GOD_IDS and god_forced(gid, ctx.author.id):
+            won = True
+        else:
+            won = random.random() < 0.5
         result = pick if won else ('R' if pick == 'O' else 'O')
         if won:
             nb = bal(gid, ctx.author.id)
@@ -1542,12 +1585,17 @@ class Gamble(commands.Cog):
         label = str(num) if kind == 'number' else kind
         mult = ROU_PAY.get(kind, 1)
         if _rou_wins(n, kind, num):
-            profit = bet * mult
+            raw = bet * mult
             if str(uid) not in GOD_IDS:
-                profit = min(profit, ROU_MAX_WIN)
+                profit, capped = self._cap_profit(raw, ROU_MAX_WIN,
+                                                  CASINO_ROU_CAP_MULT, bet)
+            else:
+                profit, capped = raw, False
             nb = bal(gid, uid)
             add_cash(gid, uid, bet + profit)
             msg = t(gid, 'eco.rou_win', ball=ball, choice=label, win=cshort(profit))
+            if capped:
+                msg += '\n' + t(gid, 'eco.cap_hit', win=cshort(profit))
         else:
             msg = t(gid, 'eco.rou_lose', ball=ball, choice=label, bet=cshort(bet))
             hr = highroller_refund(gid, uid, bet)
@@ -1690,6 +1738,18 @@ class Gamble(commands.Cog):
             conn.execute('UPDATE eco SET cash=0, bank=0 WHERE guild_id=?', (str(gid),))
             conn.execute('DELETE FROM bounties WHERE guild_id=?', (str(gid),))
         await ctx.reply(t(gid, 'eco.reset_done'))
+
+    @commands.hybrid_command(name='casino', description='Kasyno', aliases=['kasyno'])
+    async def casino(self, ctx):
+        from cogs.levels import get_user
+        gid = ctx.guild.id
+        cap = max_bet_for(get_user(gid, ctx.author.id).get('level', 0))
+        hr = has_highroller(gid, ctx.author.id)
+        await ctx.reply(view=_game_layout(
+            t(gid, 'eco.casino_title'),
+            t(gid, 'eco.casino_body', maxbet=cshort(cap), limit=GAMBLES_PER_HOUR,
+              hr=t(gid, 'eco.casino_hr_on') if hr else t(gid, 'eco.casino_hr_off'))),
+            ephemeral=True)
 
     @commands.hybrid_command(name='rich', description='Najbogatsi', aliases=['baltop'])
     async def rich(self, ctx):

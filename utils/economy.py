@@ -98,6 +98,13 @@ CASINO_MAX_BET_PER_LEVEL = 2000
 CASINO_MAX_BET_CAP = 100000
 CASINO_BJ_PAYOUT = 1.0          # blackjack pays even money
 CASINO_BJ_GOD_PAYOUT = 1.3      # house edge, kept deniable
+# Win caps scale with stake so big bets matter: profit = min(raw,
+# max(FLAT_CAP, STAKE_MULT * bet)). Poker HR mult doubles the scaling.
+CASINO_POKER_CAP_MULT = 5
+CASINO_POKER_HR_CAP_MULT = 10
+CASINO_SLOTS_CAP_MULT = 4
+CASINO_ROU_CAP_MULT = 5
+CASINO_BJ_CAP_MULT = 2
 
 # ---- crime ----
 # Stakes and multipliers per heist target. Chances (base 0.30 + 0.07/crew,
