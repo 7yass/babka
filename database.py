@@ -510,6 +510,27 @@ def init_db():
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL, npc TEXT NOT NULL,
             day INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id, npc))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS anime_sets (
+            id TEXT PRIMARY KEY, name TEXT DEFAULT '', total_cards INTEGER DEFAULT 0)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS anime_cards (
+            id TEXT PRIMARY KEY, set_id TEXT NOT NULL, code TEXT NOT NULL,
+            rarity TEXT NOT NULL, print_total INTEGER DEFAULT 0,
+            image_url TEXT DEFAULT '', is_animated INTEGER DEFAULT 0,
+            name TEXT DEFAULT '')''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_anime_cards_set ON anime_cards(set_id)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_anime_cards_rarity ON anime_cards(rarity)')
+        c.execute('''CREATE TABLE IF NOT EXISTS anime_collection (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, card_id TEXT NOT NULL,
+            print_no INTEGER DEFAULT 0, obtained_at INTEGER DEFAULT 0, qty INTEGER DEFAULT 1,
+            PRIMARY KEY (guild_id, user_id, card_id, print_no))''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_anime_collection_user ON anime_collection(guild_id, user_id)')
+        c.execute('''CREATE TABLE IF NOT EXISTS anime_pity (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL,
+            pulls_without_sr INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS anime_dust (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, dust INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id))''')
         c.execute('''CREATE TABLE IF NOT EXISTS pk_codes (
             code TEXT PRIMARY KEY, kind TEXT DEFAULT 'cash',
             amount INTEGER DEFAULT 0, uses_left INTEGER DEFAULT 1)''')

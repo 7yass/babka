@@ -26,6 +26,9 @@ ITEMS = {
     'highroller': {'price': SHOP_PRICES['highroller'].amount, 'use': 'shop.u_highroller'},
     'bail': {'price': SHOP_PRICES['bail'].amount, 'use': 'shop.u_bail'},
     'vip': {'price': SHOP_PRICES['vip'].amount, 'use': 'shop.u_vip'},
+    'card_pack_std': {'price': SHOP_PRICES['card_pack_std'].amount, 'use': 'shop.u_card_std'},
+    'card_pack_mono': {'price': SHOP_PRICES['card_pack_mono'].amount, 'use': 'shop.u_card_mono'},
+    'card_pack_animated': {'price': SHOP_PRICES['card_pack_animated'].amount, 'use': 'shop.u_card_animated'},
 }
 # common misspellings / shortcuts -> canonical economy key
 ALIASES = {
@@ -134,6 +137,9 @@ DISPLAY = {
     'pardon': 'Pardon', 'curse': 'Curse Scroll', 'megabox': 'Megabox',
     'force': 'Force Scroll', 'highroller': 'High Roller', 'bail': 'Bail',
     'vip': 'VIP',
+    'card_pack_std': 'Card Pack',
+    'card_pack_mono': 'Monochroma Pack',
+    'card_pack_animated': 'Animated Pack',
 }
 ITEM_EMOJI = {
     'cookie': 'candy', 'scratch': 'price_tag', 'lootbox': 'box_box',
@@ -141,11 +147,12 @@ ITEM_EMOJI = {
     'pardon': 'check', 'curse': 'check_cross', 'megabox': 'box_done',
     'force': 'quest_scroll', 'highroller': 'medal_gold', 'bail': 'lock_open',
     'vip': 'trophy',
+    'card_pack_std': 'box_box', 'card_pack_mono': 'box_done', 'card_pack_animated': 'star',
 }
 SECTION_EMOJI = {
     'Cheap thrills': 'candy', 'Identity': 'lock', 'Protection': 'shield',
     'Power': 'bolt', 'Boxes': 'box_box', 'Freedom': 'lock_open',
-    'Prestige': 'trophy',
+    'Prestige': 'trophy', 'Cards': 'star',
 }
 
 
@@ -160,6 +167,7 @@ class Shop(commands.Cog):
         ('Protection', ['shield', 'curse']),
         ('Power', ['xpboost']),
         ('Boxes', ['lootbox', 'megabox']),
+        ('Cards', ['card_pack_std', 'card_pack_mono', 'card_pack_animated']),
         ('Freedom', ['bail']),
         ('Prestige', ['highroller', 'vip']),
     ]
@@ -315,6 +323,8 @@ class Shop(commands.Cog):
             wait = _gamble_gate(gid, ctx.author.id)
             if wait is not None:
                 return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
+        if key in self.CARD_PACKS:
+            return await self._buy_card_pack(ctx, key, n, price)
         if key in ('lootbox', 'megabox'):
             return await self._open_box(ctx, key, price)
         if key == 'vip':
@@ -474,6 +484,7 @@ class Shop(commands.Cog):
     }
     # instant shop gambles share the hourly play limit with casino games
     GAMBLE_ITEMS = {'lootbox', 'megabox', 'scratch', 'cookie'}
+    CARD_PACKS = {'card_pack_std', 'card_pack_mono', 'card_pack_animated'}
 
     async def _open_box(self, ctx, box: str, price: int):
         """Instant-open gambling box driven by BOX_TABLES."""
@@ -697,6 +708,37 @@ class Shop(commands.Cog):
         add_cash(gid, ctx.author.id, -BAIL_COST)
         db.unjail(gid, ctx.author.id)
         await ctx.reply(t(gid, 'shop.free'))
+
+    async def _buy_card_pack(self, ctx, key: str, n: int, price: int):
+        """Card packs: coin sink → anime pull (scalable to 2000+ cards)."""
+        from cogs.gamble import bal, add_cash
+        from utils.cards import short as cshort
+        gid = ctx.guild.id
+        b = bal(gid, ctx.author.id)
+        total = price * n
+        if b['cash'] < total:
+            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
+        add_cash(gid, ctx.author.id, -total)
+        try:
+            from services.card_service import open_pack
+            pulls = []
+            for _ in range(n):
+                res = open_pack(gid, ctx.author.id, key)
+                pulls.extend(res.get('cards', []))
+        except Exception as e:
+            add_cash(gid, ctx.author.id, total)
+            return await ctx.reply(t(gid, 'err.generic', e=str(e)), ephemeral=True)
+        if not pulls:
+            return await ctx.reply(t(gid, 'shop.card_empty'), ephemeral=True)
+        lines = []
+        for c in pulls[:10]:
+            rar = c.get('rarity', '?')
+            code = c.get('code', c.get('id', '?'))
+            pn = f" #{c['print_no']}/{c['print_total']}" if c.get('print_no') else ""
+            lines.append(f"• **{code}** [{rar}]{pn}")
+        if len(pulls) > 10:
+            lines.append(f"... +{len(pulls)-10} more")
+        await ctx.reply(f"{t(gid, 'shop.card_open', n=len(pulls))}\n" + "\n".join(lines), ephemeral=True)
 
     async def _buy_bail(self, ctx, price: int):
         """Buy your way out through the shop (same as .bail)."""

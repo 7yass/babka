@@ -44,6 +44,9 @@ SHOP_PRICES: dict[str, ShopPrice] = {
     'highroller': ShopPrice('highroller', 2000000),
     'bail': ShopPrice('bail', 40000),
     'vip': ShopPrice('vip', 5000000),
+    'card_pack_std': ShopPrice('card_pack_std', 25000),
+    'card_pack_mono': ShopPrice('card_pack_mono', 75000),
+    'card_pack_animated': ShopPrice('card_pack_animated', 150000),
 }
 
 # ---- pokemon adventure shop (`;shop`, `;balls`): keys are the pokemon
