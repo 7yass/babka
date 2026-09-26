@@ -52,13 +52,17 @@ def ensure_tables() -> None:
             revision INTEGER NOT NULL DEFAULT 0,
             started_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
             defeated_at INTEGER DEFAULT 0, config_json TEXT DEFAULT '',
-            max_phase TEXT DEFAULT '')''')
+            max_phase TEXT DEFAULT '', shield_hp INTEGER DEFAULT 0)''')
         try:
             conn.execute('ALTER TABLE world_boss ADD COLUMN config_json TEXT DEFAULT \'\'')
         except Exception:
             pass  # already migrated
         try:
             conn.execute('ALTER TABLE world_boss ADD COLUMN max_phase TEXT DEFAULT \'\'')
+        except Exception:
+            pass  # already migrated
+        try:
+            conn.execute('ALTER TABLE world_boss ADD COLUMN shield_hp INTEGER DEFAULT 0')
         except Exception:
             pass  # already migrated
         conn.execute('''CREATE TABLE IF NOT EXISTS world_boss_parts (
@@ -149,6 +153,7 @@ def boss_status(gid, now: int = None) -> dict | None:
     return {'boss_id': b['id'], 'boss_key': b['boss_key'],
             'name': defn.display_name,
             'hp': b['hp'], 'max_hp': b['max_hp'], 'revision': b['revision'],
+            'shield': int(b.get('shield_hp') or 0),
             'phase': phase.key, 'phase_name': phase.display_name,
             'weather': _phase_weather(phase),
             'max_phase': reached or None, 'max_phase_name': reached_name,
@@ -268,6 +273,14 @@ def scale_incoming(phase, raw: int) -> int:
     return max(1, int(raw * mult))
 
 
+def absorb_shield(damage: int, shield_hp: int) -> tuple:
+    """Barrier math: (absorbed, remaining_damage, remaining_shield).
+    Nothing goes negative; a fully absorbed hit deals zero HP damage
+    (the nonzero floor lives in scale_incoming, upstream of the shield)."""
+    absorbed = min(max(int(damage or 0), 0), max(int(shield_hp or 0), 0))
+    return absorbed, max(int(damage or 0) - absorbed, 0), max(int(shield_hp or 0) - absorbed, 0)
+
+
 def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
     """One attack: cooldown, snapshot gate, resolve via battle_service,
     persist boss HP + snapshot HP + contribution in one guarded txn.
@@ -313,12 +326,18 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
           'weather': weather}
     _bt.resolve_turn(st, gid, 0, rng, strict_faint=True, foe_mult=phase.damage_mult)
     raw = max(0, b['hp'] - st['wild']['hp'])
-    dealt = scale_incoming(phase, raw)
+    scaled = scale_incoming(phase, raw)
+    # Barrier first: absorbs the scaled strike before boss HP. The absorb
+    # is computed from this attack's own row read and committed under the
+    # same revision guard below — a lost race goes STALE with HP+shield
+    # both untouched. Contribution credits HP damage (remainder) only, so
+    # "damage" keeps one meaning across claims, history and leaderboards.
+    absorbed, dealt, new_shield = absorb_shield(scaled, b.get('shield_hp') or 0)
     left_hp = max(0, st['me']['hp'])
     with db.conn_ctx() as conn:
-        cur = conn.execute('UPDATE world_boss SET hp=max(0, hp-?), revision=revision+1 '
+        cur = conn.execute('UPDATE world_boss SET hp=max(0, hp-?), shield_hp=?, revision=revision+1 '
                            'WHERE id=? AND status=\'ACTIVE\' AND revision=?',
-                           (dealt, b['id'], b['revision']))
+                           (dealt, new_shield, b['id'], b['revision']))
         if (cur.rowcount or 0) != 1:
             return {'ok': False, 'code': 'STALE',
                     'message': t(gid, 'eco.wb_stale')}
@@ -328,7 +347,7 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
         conn.execute('UPDATE world_boss_parts SET damage=damage+?, attacks=attacks+1, '
                      'last_action_at=? WHERE boss_id=? AND user_id=?',
                      (dealt, now, b['id'], str(uid)))
-        left = conn.execute('SELECT hp, max_hp FROM world_boss WHERE id=?',
+        left = conn.execute('SELECT hp, max_hp, shield_hp FROM world_boss WHERE id=?',
                             (b['id'],)).fetchone()
         left = dict(left)
         defeated = left['hp'] <= 0
@@ -337,20 +356,35 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
                          'WHERE id=? AND status=\'ACTIVE\'', (now, b['id']))
         # fought-phase memory: only when the boss SURVIVED into the phase.
         # A one-shot from full HP never fought it — no bonus. Same txn.
+        # The barrier is granted here too, AFTER the transition: the
+        # crossing hit never meets it, the next attack does. Grant fires on
+        # phase ENTRY (boss HP never rises, so entries happen once).
         new_phase = resolve_boss_phase(defn.phases, left['hp'], left['max_hp'])
+        granted = 0
         if left['hp'] > 0 and new_phase.key != defn.phases[0].key:
-            conn.execute('UPDATE world_boss SET max_phase=? WHERE id=?',
-                         (new_phase.key, b['id']))
+            old_max = b.get('max_phase') or ''
+            if old_max != new_phase.key and int(new_phase.shield_hp or 0) > 0:
+                granted = int(new_phase.shield_hp)
+            conn.execute('UPDATE world_boss SET max_phase=?, shield_hp=shield_hp+? WHERE id=?',
+                         (new_phase.key, granted, b['id']))
     tail = t(gid, 'eco.wb_fainted', name=me['name']) if left_hp <= 0 \
         else t(gid, 'eco.wb_self_hp', name=me['name'], hp=left_hp, max_hp=me['_maxhp'])
     crossed = (new_phase.key != phase.key and (new_phase.display_name or ''))
     ping = ('\n' + t(gid, 'eco.wb_phase', name=defn.display_name,
                      phase=new_phase.display_name)) if crossed else ''
+    if granted:
+        ping += '\n' + t(gid, 'eco.wb_shield_up', n=granted)
+    if absorbed:
+        ping += '\n' + t(gid, 'eco.wb_shield_hit', absorbed=absorbed,
+                         left=new_shield + granted)
+    final_shield = new_shield + granted
     if defeated:
         return {'ok': True, 'code': 'DEFEATED', 'damage': dealt,
+                'absorbed': absorbed, 'shield': final_shield,
                 'boss_hp': 0, 'max_hp': left['max_hp'],
                 'message': t(gid, 'eco.wb_defeated', dmg=dealt) + ping + '\n' + tail}
     return {'ok': True, 'code': 'ATTACK_OK', 'damage': dealt,
+            'absorbed': absorbed, 'shield': final_shield,
             'boss_hp': left['hp'], 'max_hp': left['max_hp'],
             'message': t(gid, 'eco.wb_hit', dmg=dealt, hp=left['hp'],
                          max_hp=left['max_hp']) + ping + '\n' + tail}

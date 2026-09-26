@@ -40,6 +40,7 @@ TIDECALLER = BossDefinition(
                           'ptype': 'water'},),
                   damage_mult=1.15, display_name='Raging Tide',
                   effect_key='rain', defense_mult=0.85,
+                  shield_hp=500, shield_once=True,
                   phase_reward=LootReward('tidal_scale', 1, 1)),
     ),
     loot_table=TIDECALLER_LOOT,

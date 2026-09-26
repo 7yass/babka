@@ -45,6 +45,12 @@ class BossPhase:
     # full damage; 0.85 = Tidecaller's raging hide. Retaliation still
     # uses damage_mult alone — the two knobs stay independent.
     defense_mult: float = 1.0
+    # Barrier granted when the raid ENTERS this phase (0 = none).
+    # Absorbs incoming strikes before boss HP; never touches retaliation.
+    # Granted once per entry (boss HP never rises, so entries happen once;
+    # shield_once documents the intent for future heal mechanics).
+    shield_hp: int = 0
+    shield_once: bool = True
     # Optional engine effect (weather). Must be in KNOWN_PHASE_EFFECTS;
     # None = no effect. Mirrors the battle engine's WEATHER_LINE keys —
     # update both if the engine ever learns new weather.
@@ -105,6 +111,14 @@ def validate_definition(defn: BossDefinition) -> None:
             _dm = 0.0
         if not (0.0 < _dm <= 2.0):
             raise ValueError(f'{defn.key}: phase {ph.key!r} defense_mult outside (0, 2]')
+        try:
+            _sh = int(ph.shield_hp)
+        except Exception:
+            _sh = -1
+        if _sh < 0:
+            raise ValueError(f'{defn.key}: phase {ph.key!r} shield_hp must be >= 0')
+        if not isinstance(ph.shield_once, bool):
+            raise ValueError(f'{defn.key}: phase {ph.key!r} shield_once must be bool')
         if ph.phase_reward is not None:
             pr = ph.phase_reward
             if not pr.item_id or pr.quantity_min < 0 \
@@ -142,6 +156,8 @@ def definition_from_snapshot(data: dict) -> BossDefinition:
         display_name=p.get('display_name'),
         effect_key=p.get('effect_key'),
         defense_mult=p.get('defense_mult', 1.0),
+        shield_hp=p.get('shield_hp', 0),
+        shield_once=p.get('shield_once', True),
         phase_reward=(LootReward(**p['phase_reward'])
                       if p.get('phase_reward') else None))
         for p in data.get('phases') or ())

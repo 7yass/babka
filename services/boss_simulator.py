@@ -88,6 +88,7 @@ def _one_raid(gid, defn, template: dict, n: int, team: int, cooldown: int,
     Fainted fighters send the next mon (switch_mon) until the team runs
     dry — a wipe needs every fighter out of mons."""
     boss_hp = defn.max_hp
+    shield, granted, absorbed_total, break_at = 0, False, 0, None
     fs = [{'hp': template['_maxhp'], 'mons': team, 'dmg': 0, 'attacks': 0,
            'healed': False, 'out': False,
            'next': i * (cooldown / max(1, n))} for i in range(n)]
@@ -106,8 +107,10 @@ def _one_raid(gid, defn, template: dict, n: int, team: int, cooldown: int,
         wild = _boss_fighter(defn, boss_hp, phase)
         _bt.resolve_turn({'me': me, 'wild': wild, 'log': []}, gid, 0, rng,
                          strict_faint=True, foe_mult=phase.damage_mult)
-        dealt = _wb.scale_incoming(phase, max(0, boss_hp - wild['hp']))
+        scaled = _wb.scale_incoming(phase, max(0, boss_hp - wild['hp']))
+        absorbed, dealt, shield = _wb.absorb_shield(scaled, shield)
         boss_hp = max(0, boss_hp - dealt)
+        absorbed_total += absorbed
         f['dmg'] += dealt
         f['attacks'] += 1
         f['next'] = t + cooldown
@@ -125,9 +128,14 @@ def _one_raid(gid, defn, template: dict, n: int, team: int, cooldown: int,
             if heal and not f['healed'] and boss_hp > 0 \
                     and f['hp'] <= template['_maxhp'] / 2:
                 f['hp'], f['healed'], heals = template['_maxhp'], True, heals + 1
+        if granted and shield == 0 and break_at is None:
+            break_at = attacks
         if boss_hp > 0:
             new_phase = _wb.resolve_boss_phase(defn.phases, boss_hp, defn.max_hp)
             if new_phase.key != defn.phases[0].key:
+                if max_phase != new_phase.key and int(new_phase.shield_hp or 0) > 0:
+                    shield += int(new_phase.shield_hp)
+                    granted = True
                 max_phase = new_phase.key
         else:
             break
@@ -139,7 +147,9 @@ def _one_raid(gid, defn, template: dict, n: int, team: int, cooldown: int,
         outcome = 'expiry'
     return {'outcome': outcome, 'attacks': attacks, 'time_s': min(t, duration),
             'damage': [f['dmg'] for f in fs], 'faints': faints, 'heals': heals,
-            'switches': switches, 'max_phase': max_phase}
+            'switches': switches, 'max_phase': max_phase, 'granted': granted,
+            'absorbed': absorbed_total, 'break_at': break_at,
+            'shield_left': shield}
 
 
 def _raid_loot(defn, damage_list, max_phase, rng) -> tuple:
@@ -168,6 +178,7 @@ def _run(defn, template: dict, n: int, team: int, raids: int, seed: int,
     outcomes = {'kill': 0, 'expiry': 0, 'wipe': 0}
     atk_to_kill, atk_all, clear_times = [], [], []
     faints, heals, switches = 0, 0, 0
+    grants, absorbed, breaks, left_on_kill = 0, 0, [], []
     all_dmg, all_atk, part_dmgs = 0, 0, []
     phase_hits: dict = {}
     w_agg: dict = {}
@@ -179,6 +190,10 @@ def _run(defn, template: dict, n: int, team: int, raids: int, seed: int,
         faints += r['faints']
         heals += r['heals']
         switches += r['switches']
+        grants += 1 if r['granted'] else 0
+        absorbed += r['absorbed']
+        if r['break_at'] is not None:
+            breaks.append(r['break_at'])
         all_dmg += sum(r['damage'])
         all_atk += r['attacks']
         atk_all.append(r['attacks'])
@@ -186,6 +201,7 @@ def _run(defn, template: dict, n: int, team: int, raids: int, seed: int,
             part_dmgs.extend(r['damage'])
             atk_to_kill.append(r['attacks'])
             clear_times.append(r['time_s'])
+            left_on_kill.append(r['shield_left'])
             phase_hits[r['max_phase']] = phase_hits.get(r['max_phase'], 0) + 1
             w_rows, g_rows = _raid_loot(
                 defn, r['damage'], r['max_phase'],

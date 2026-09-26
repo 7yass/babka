@@ -236,6 +236,8 @@ class WorldBoss(commands.Cog):
                  f"**{v['hp']}/{v['max_hp']}**"]
         m, s = divmod(int(v['ends_in']), 60)
         lines.append(f"Ends in {m}m {s}s · {v['participants']} hunters")
+        if v.get('shield'):
+            lines.append(t(gid, 'eco.wb_barrier', n=v['shield']))
         if v.get('weather') == 'rain':
             lines.append(t(gid, 'eco.wb_weather_rain'))
         elif v.get('weather'):

@@ -1,8 +1,9 @@
 ﻿"""Voice Master: join-to-create rooms, panel in room chat. Hybrid setup."""
 import re
+import time
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 import database as db
 from lang import t
@@ -232,14 +233,87 @@ def _owns_channel(guild: discord.Guild, user_id: int, channel_id) -> bool:
     return bool(member and member.guild_permissions.administrator)
 
 
+async def _drop_temp(guild: discord.Guild, channel_id, reason: str) -> bool:
+    """Delete a human-less temp VC and clear its row.
+
+    The row only goes away once the channel is confirmed gone (or already
+    missing): a failed delete keeps the row so the sweeper retries it —
+    a channel without a row would leak forever. Bots alone never keep a
+    room alive (the panel counts humans only, too).
+    """
+    with db.conn_ctx() as conn:
+        rec = conn.execute('SELECT 1 FROM temp_vcs WHERE channel_id=?', (str(channel_id),)).fetchone()
+    if not rec:
+        return True
+    ch = guild.get_channel(int(channel_id))
+    if ch is None:  # already gone -> just clear the stale row
+        with db.conn_ctx() as conn:
+            conn.execute('DELETE FROM temp_vcs WHERE channel_id=?', (str(channel_id),))
+        return True
+    if any(not m.bot for m in ch.members):  # humans still inside
+        return False
+    try:
+        await ch.delete(reason=reason)
+    except discord.NotFound:
+        pass
+    except Exception as e:
+        print(f'[voice] delete failed for {channel_id}: {e}')
+        return False
+    with db.conn_ctx() as conn:
+        conn.execute('DELETE FROM temp_vcs WHERE channel_id=?', (str(channel_id),))
+    return True
+
+
 class Voice(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.sweeper.start()
+
+    def cog_unload(self):
+        self.sweeper.cancel()
+
+    @tasks.loop(minutes=1)
+    async def sweeper(self):
+        """Safety net for temp VC cleanup.
+
+        Voice events missed while the bot was offline are never replayed,
+        and a transiently failed channel delete must be retried — both used
+        to strand human-less rooms forever. Also clears rows whose channel
+        was already deleted elsewhere.
+        """
+        await self.bot.wait_until_ready()
+        for guild in self.bot.guilds:
+            try:
+                with db.conn_ctx() as conn:
+                    rows = conn.execute('SELECT channel_id FROM temp_vcs WHERE guild_id=?',
+                                        (str(guild.id),)).fetchall()
+                now = time.time()
+                for r in rows:
+                    ch = guild.get_channel(int(r['channel_id']))
+                    if ch is None:
+                        with db.conn_ctx() as conn:
+                            conn.execute('DELETE FROM temp_vcs WHERE channel_id=?', (r['channel_id'],))
+                        continue
+                    # grace period: creation inserts the row before the owner
+                    # is moved in — never race a room that is seconds old
+                    if now - discord.utils.snowflake_time(ch.id).timestamp() < 120:
+                        continue
+                    await _drop_temp(guild, ch.id, 'temp vc sweep')
+            except Exception as e:
+                print(f'[voice] sweep failed for {guild.id}: {e}')
+
+    @sweeper.before_loop
+    async def _before(self):
+        await self.bot.wait_until_ready()
 
     # ---------- join-to-create + cleanup ----------
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
         guild = member.guild
+        # empty-room cleanup runs FIRST: the vault branch below returns early
+        # and must not skip it (an empty room fires no further events ever)
+        if before.channel:
+            await _drop_temp(guild, before.channel.id, 'temp vc emptied')
         # vault: only the house stays inside, everyone else gets yanked
         try:
             if after.channel and not member.bot and not db.is_house(member.id):
@@ -276,18 +350,6 @@ class Voice(commands.Cog):
                                  (str(panel_msg.id), str(temp.id)))
             except Exception as e:
                 print(f'[voice] create failed: {e}')
-        if before.channel:
-            with db.conn_ctx() as conn:
-                rec = conn.execute('SELECT * FROM temp_vcs WHERE channel_id=?', (str(before.channel.id),)).fetchone()
-            if rec:
-                ch = guild.get_channel(before.channel.id)
-                if ch and len(ch.members) == 0:
-                    try:
-                        await ch.delete()
-                    except Exception:
-                        pass
-                    with db.conn_ctx() as conn:
-                        conn.execute('DELETE FROM temp_vcs WHERE channel_id=?', (str(before.channel.id),))
 
     # ---------- button/select handling (restart-proof via listener) ----------
     @commands.Cog.listener()
@@ -422,12 +484,17 @@ class Voice(commands.Cog):
         if ns == 'vm_trust':
             return await interaction.response.send_modal(TrustModal(arg, gid))
         if ns == 'vm_delete':
-            with db.conn_ctx() as conn:
-                conn.execute('DELETE FROM temp_vcs WHERE channel_id=?', (arg,))
+            # delete the channel FIRST: clearing the row before the delete
+            # attempt would orphan a channel nothing tracks anymore
             try:
                 await channel.delete()
-            except Exception:
+            except discord.NotFound:
                 pass
+            except Exception as e:
+                print(f'[voice] delete failed for {arg}: {e}')
+                return await interaction.response.send_message(t(gid, 'vm.fail'), ephemeral=True)
+            with db.conn_ctx() as conn:
+                conn.execute('DELETE FROM temp_vcs WHERE channel_id=?', (arg,))
             try:
                 await interaction.response.send_message(t(gid, 'vm.deleted'), ephemeral=True)
             except Exception:
