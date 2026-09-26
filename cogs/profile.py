@@ -369,6 +369,13 @@ class Profile(commands.Cog):
         roles.sort(key=lambda r: r.position, reverse=True)
         role_txt = roles[0].name if roles else '—'
         is_staff = any(str(r.id) == STAFF_ROLE_ID for r in getattr(member, 'roles', []))
+        if not is_staff:
+            try:
+                from utils.checks import get_staff_roles
+                _sr = set(get_staff_roles(gid))
+                is_staff = any(str(r.id) in _sr for r in getattr(member, 'roles', []))
+            except Exception:
+                pass
         try:
             badges = badge_medals(gid, member.id)
         except Exception:
