@@ -9,6 +9,7 @@ import database as db
 from utils.cards import short as cshort
 from utils.economy import (CASINO_BASE_MAX_BET, CASINO_MAX_BET_PER_LEVEL,
                            CASINO_MAX_BET_CAP, CASINO_BJ_PAYOUT, CASINO_BJ_GOD_PAYOUT,
+                           CASINO_COINFLIP_RETURN,
                            CASINO_POKER_CAP_MULT, CASINO_POKER_HR_CAP_MULT,
                            CASINO_SLOTS_CAP_MULT, CASINO_ROU_CAP_MULT,
                            CASINO_BJ_CAP_MULT, CRIME_ROB)
@@ -33,9 +34,10 @@ RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 SLOTS = ['7', '★', '♦', '♣', '●']
 # European roulette reds; 0 is green, rest black
 ROU_REDS = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
-# mortals keep 85% of the spins they'd fairly win; gods tilt every
-# 4th round instead
-ROU_RIG = 0.15
+# Fair wheel: no outcome manipulation. The single zero is the entire
+# house edge (even-money bets win 18/37 = 48.6%). Gods tilt every 4th
+# round instead.
+ROU_RIG = 0.0
 # single-zero wheel order (clockwise)
 WHEEL_ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30,
                8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7,
@@ -1452,15 +1454,17 @@ class Gamble(commands.Cog):
             return await ctx.reply(err_msg, ephemeral=True)
         _gamble_use(gid, ctx.author.id)
         # Coinflip is fair 50/50 (gods keep their forced wins).
+        # Pays 1.9x back, not 2x — the 5% gap is the whole edge, stated.
         if str(ctx.author.id) in GOD_IDS and god_forced(gid, ctx.author.id):
             won = True
         else:
             won = random.random() < 0.5
         result = pick if won else ('R' if pick == 'O' else 'O')
         if won:
+            profit = int(bet * (CASINO_COINFLIP_RETURN - 1.0))
             nb = bal(gid, ctx.author.id)
-            add_cash(gid, ctx.author.id, bet * 2)
-            msg = t(gid, 'eco.cf_win', win=cshort(bet))
+            add_cash(gid, ctx.author.id, bet + profit)
+            msg = t(gid, 'eco.cf_win', win=cshort(profit))
         else:
             msg = t(gid, 'eco.cf_lose', bet=cshort(bet))
             hr = highroller_refund(gid, ctx.author.id, bet)

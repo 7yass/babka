@@ -98,6 +98,8 @@ CASINO_MAX_BET_PER_LEVEL = 2000
 CASINO_MAX_BET_CAP = 100000
 CASINO_BJ_PAYOUT = 1.0          # blackjack pays even money
 CASINO_BJ_GOD_PAYOUT = 1.3      # house edge, kept deniable
+CASINO_COINFLIP_RETURN = 1.9    # fair 50/50 coin, 1.9x back: the 5% gap
+                                # is the whole edge, stated in help
 # Win caps scale with stake so big bets matter: profit = min(raw,
 # max(FLAT_CAP, STAKE_MULT * bet)). Poker HR mult doubles the scaling.
 CASINO_POKER_CAP_MULT = 5

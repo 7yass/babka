@@ -993,7 +993,7 @@
     ],
     "coinflip": [
       "economy",
-      "HOW TO PLAY: `.coinflip <bet> <heads|tails>` (alias `.moneta`, O = orzeł, R = reszka). Win = double back (profit = bet). Fair 50/50. 15 plays/hour shared. Bets accept 1k / 2.5k / 1m / all.",
+      "HOW TO PLAY: `.coinflip <bet> <heads|tails>` (alias `.moneta`, O = orzeł, R = reszka). Win = 1.9x back (profit = 0.9x bet). Fair 50/50, the 5% gap is the edge. 15 plays/hour shared. Bets accept 1k / 2.5k / 1m / all.",
       [
         "moneta"
       ],
