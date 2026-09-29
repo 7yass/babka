@@ -374,23 +374,30 @@ def stock_chart(sym: str, name: str, pts: list, tf: str, w: int = 900, h: int = 
 
 # ---------- portfolio card ----------
 
+CASH_COL = (148, 163, 184)
+
+
 def portfolio_card(name: str, avatar_bytes: bytes, cash: int, total: int,
                    day_pnl: int, total_pnl: int, alloc: list) -> bytes:
-    """Allocation card: header tiles + donut + position legend.
-    alloc = [(sym, qty, value, pnl)] sorted desc."""
+    """Allocation card: header + 3 tiles, divider, donut (cash included so a
+    single position never renders as a solid ring) + column-aligned legend.
+    alloc = [(sym, qty, value, pnl)] sorted desc; ('CASH', 0, cash, 0) optional."""
     import io as _io
     from PIL import ImageDraw as _Dr
-    npos = len(alloc)
-    rows = min(max(npos, 1), 6)
-    W, H = 900, 300 + rows * 44
+    positions = [a for a in alloc if a[0] != 'CASH']
+    npos = len(positions)
+    rows = min(max(len(alloc), 1), 7)
+    top_h, row_h = 210, 52
+    W, H = 900, top_h + rows * row_h + 30
     img = cs.base(W, H)
     d = _Dr.Draw(img, 'RGBA')
     cs.edge_bars(d, W, H)
-    if not (avatar_bytes and cs.avatar(img, avatar_bytes, (42, 30, 92), cs.GOLD, 3)):
-        cs.fallback(img, (42, 30, 92), name)
+    if not (avatar_bytes and cs.avatar(img, avatar_bytes, (42, 28, 92), cs.GOLD, 3)):
+        cs.fallback(img, (42, 28, 92), name)
     d = _Dr.Draw(img, 'RGBA')
-    d.text((150, 30), cs.safe_img(name).upper()[:16], font=cs.f(32), fill=cs.INK)
-    cs.tracked(d, (150, 70), f'{npos} POSITIONS  •  CASH {cshort(cash)}', cs.f(15), cs.FAINT)
+    d.text((150, 28), cs.safe_img(name).upper()[:16], font=cs.f(32), fill=cs.INK)
+    word = 'POSITION' if npos == 1 else 'POSITIONS'
+    cs.tracked(d, (150, 68), f'{npos} {word}  •  CASH {cshort(cash)}', cs.f(15), cs.FAINT)
     tiles = [('TOTAL VALUE', cshort(total), cs.GOLD),
              ('DAY P/L', f'{"+" if day_pnl >= 0 else ""}{cshort(day_pnl)}',
               UP if day_pnl >= 0 else DOWN),
@@ -400,41 +407,54 @@ def portfolio_card(name: str, avatar_bytes: bytes, cash: int, total: int,
     cw = (tw_all - 24) / 3
     for i, (lab, val, col) in enumerate(tiles):
         cx = 150 + i * (cw + 12)
-        cs.glass(d, [cx, 108, cx + cw, 172], radius=12)
-        cs.tracked(d, (cx + 14, 116), lab, cs.f(14), cs.FAINT)
-        d.text((cx + 14, 134), cs.safe_img(val)[:14], font=cs.f(26), fill=col)
+        cs.glass(d, [cx, 104, cx + cw, 168], radius=12)
+        cs.tracked(d, (cx + 14, 112), lab, cs.f(14), cs.FAINT)
+        d.text((cx + 14, 130), cs.safe_img(val)[:14], font=cs.f(26), fill=col)
+    d.line([(42, top_h - 16), (W - 42, top_h - 16)], fill=cs.HAIR, width=1)
     # donut
-    dcx, dcy, dr = 190, 172 + (H - 172) // 2 + 10, 104
-    tot = max(1, sum(v for _, _, v, _ in alloc))
+    dcx, dcy, dr = 185, top_h + (H - top_h) // 2, 88
+    tot = max(1, sum(v for _, _, v, _ in alloc if v > 0))
     ang = -90.0
-    for i, (sym, _q, v, _p) in enumerate(alloc[:6]):
-        frac = max(0.02, v / tot) if v > 0 else 0
-        if frac <= 0:
+    for i, (sym, _q, v, _p) in enumerate(alloc[:7]):
+        if v <= 0:
             continue
+        frac = max(0.035, v / tot)
+        col = CASH_COL if sym == 'CASH' else PAL[i % len(PAL)]
         d.pieslice([dcx - dr, dcy - dr, dcx + dr, dcy + dr], ang, ang + frac * 360,
-                   fill=PAL[i % len(PAL)], outline=(10, 10, 14), width=2)
+                   fill=col, outline=(10, 10, 14), width=2)
         ang += frac * 360
-    d.ellipse([dcx - 62, dcy - 62, dcx + 62, dcy + 62], fill=(13, 16, 30))
-    d.ellipse([dcx - 62, dcy - 62, dcx + 62, dcy + 62], outline=cs.HAIR, width=2)
+    d.ellipse([dcx - 54, dcy - 54, dcx + 54, dcy + 54], fill=(13, 16, 30))
+    d.ellipse([dcx - 54, dcy - 54, dcx + 54, dcy + 54], outline=cs.HAIR, width=2)
     try:
-        d.text((dcx, dcy - 2), f'{npos}', font=cs.f(40), fill=cs.INK, anchor='mm')
+        d.text((dcx, dcy - 2), f'{npos}', font=cs.f(38), fill=cs.INK, anchor='mm')
     except Exception:
         pass
-    # legend
-    lx, ly = 340, 196
-    if not alloc:
-        d.text((lx, ly + 40), 'no positions — .stock buy to start', font=cs.f(20), fill=cs.DIM)
-    for i, (sym, qty, val, pnl) in enumerate(alloc[:6]):
-        y = ly + i * 44
-        d.ellipse([lx, y + 4, lx + 18, y + 22], fill=PAL[i % len(PAL)])
-        d.text((lx + 28, y), sym, font=cs.f(22), fill=cs.INK)
-        d.text((lx + 130, y), f'x{qty:,}', font=cs.f(20), fill=cs.DIM)
+    # legend: dot | SYM qty .... value .... pnl
+    lx = 350
+    val_edge, pnl_edge = W - 190, W - 42
+    shown = alloc[:7] if alloc else []
+    if not shown:
+        d.text((lx, top_h + 30), 'no positions — .stock buy to start', font=cs.f(20), fill=cs.DIM)
+    for i, (sym, qty, val, pnl) in enumerate(shown):
+        y = top_h + i * row_h + 6
+        col = CASH_COL if sym == 'CASH' else PAL[i % len(PAL)]
+        d.ellipse([lx, y + 6, lx + 18, y + 24], fill=col)
+        d.text((lx + 30, y), sym, font=cs.f(22), fill=cs.INK)
+        qty_txt = '' if sym == 'CASH' else f'x{qty:,}'
+        if qty_txt:
+            try:
+                sw = d.textlength(sym, font=cs.f(22))
+            except Exception:
+                sw = len(sym) * 13
+            d.text((lx + 30 + sw + 12, y + 2), qty_txt, font=cs.f(19), fill=cs.DIM)
         try:
             vw = d.textlength(cshort(val), font=cs.f(22))
-            d.text((W - 42 - vw - 110, y), cshort(val), font=cs.f(22), fill=cs.INK)
-            pv = f'{"+" if pnl >= 0 else ""}{cshort(pnl)}'
-            d.text((W - 42 - 100, y), pv[:12], font=cs.f(20),
-                   fill=UP if pnl >= 0 else DOWN)
+            d.text((val_edge - vw, y), cshort(val), font=cs.f(22), fill=cs.INK)
+            if sym != 'CASH':
+                pv = f'{"+" if pnl >= 0 else ""}{cshort(pnl)}'
+                pw = d.textlength(pv[:12], font=cs.f(20))
+                d.text((pnl_edge - pw, y + 2), pv[:12], font=cs.f(20),
+                       fill=UP if pnl >= 0 else DOWN)
         except Exception:
             pass
     buf = _io.BytesIO()
@@ -782,13 +802,15 @@ class Stocks(commands.Cog):
             invested += r['spent'] or 0
             alloc.append((r['symbol'], r['qty'], val, pnl))
         alloc.sort(key=lambda a: -a[2])
+        cash = bal(gid, member.id)['cash']
+        alloc.append(('CASH', 0, cash, 0))
         try:
             av = await _aio.wait_for(member.display_avatar.read(), timeout=4)
         except Exception:
             av = None
         png = await self.bot.loop.run_in_executor(
             None, portfolio_card, member.display_name, av,
-            bal(gid, member.id)['cash'], total, day_pnl, total - invested, alloc)
+            cash, total, day_pnl, total - invested, alloc)
         await ctx.reply(file=discord.File(__import__('io').BytesIO(png), 'portfolio.png'),
                         mention_author=False)
 

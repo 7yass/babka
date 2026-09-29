@@ -302,6 +302,7 @@ def rank_card(member: discord.Member, data: dict, rank: int, lang: str = 'en', a
     lvl_num = str(data['level'])
     rank_num = f'#{rank}'
     pct_num = str(round((data['xp'] / need * 100) if need else 0))
+    total_xp = sum(xp_needed(l) for l in range(max(0, data['level']))) + max(0, data['xp'])
     xp_txt = L('cv.xp', '{xp} / {need} XP • {pct}%').replace('{xp}', cshort(data['xp'])).replace('{need}', cshort(need)).replace('{pct}', pct_num)
     if layout == 'center':
         if custom_bg or style.get('bg_url') or style.get('bg_color'):
@@ -369,7 +370,7 @@ def rank_card(member: discord.Member, data: dict, rank: int, lang: str = 'en', a
                             outline=tier_c, width=2, fill=(16, 19, 34))
         d.text((px + 14, 40), tier_txt, font=cs.f(19), fill=tier_c)
     d.line([(dx, 92), (W - 44, 92)], fill=cs.HAIR, width=1)
-    cols = [('LEVEL', lvl_num), ('RANK', rank_num), ('PROGRESS', f'{pct_num}%')]
+    cols = [('TOTAL XP', cshort(total_xp)), ('RANK', rank_num), ('PROGRESS', f'{pct_num}%')]
     tw_all = W - dx - 44
     cw, gap = (tw_all - 24) / 3, 12
     for i, (lab, val) in enumerate(cols):
