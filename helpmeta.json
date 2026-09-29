@@ -1307,7 +1307,7 @@
     ],
     "stocks": [
       "economy",
-      "HOW TO: .stocks opens the live board (price, day change, H/L, volume) with buttons into every chart. Ticks every 60s, 1% fee + 0.5% spread each side.",
+      "HOW TO: .stocks opens the live market board (NVDA/AAPL/TSLA/AMD/GME/PLTR + BTC/ETH/SOL/BNB) with sparklines and buttons into every chart. 30s ticks, momentum + news events, 1% fee + 0.5% spread each side.",
       [],
       "",
       "Everyone"

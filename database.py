@@ -466,6 +466,10 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS stock_hist (
             guild_id TEXT NOT NULL, symbol TEXT NOT NULL, price INTEGER DEFAULT 0,
             ts INTEGER DEFAULT 0)''')
+        try:
+            c.execute('ALTER TABLE stock_hist ADD COLUMN vol INTEGER DEFAULT 0')
+        except Exception:
+            pass  # already there
         c.execute('''CREATE TABLE IF NOT EXISTS portfolio (
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL, symbol TEXT NOT NULL,
             qty INTEGER DEFAULT 0, spent INTEGER DEFAULT 0,

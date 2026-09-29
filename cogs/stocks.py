@@ -21,16 +21,26 @@ from lang import t
 from utils.cards import short as cshort
 from utils import cardstyle as cs
 
-# symbol -> specs. vol = per-tick sigma, float = shares outstanding (for mcap).
+# symbol -> specs. vol = per-tick sigma (30s ticks: tradeable intraday),
+# float = shares outstanding (for mcap AND market impact).
 STOCKS = {
-    'BABKA': {'name': 'Babka Industries', 'start': 500, 'vol': 0.012, 'float': 2_000_000},
-    'PIEROG': {'name': 'Pierogi Consolidated', 'start': 200, 'vol': 0.014, 'float': 5_000_000},
-    'ROSOL': {'name': 'Rosol Energy', 'start': 120, 'vol': 0.016, 'float': 8_000_000},
-    'KLAPEK': {'name': 'Klapek Enterprises', 'start': 80, 'vol': 0.018, 'float': 12_000_000},
-    'MALUCH': {'name': 'Maluch Motors', 'start': 300, 'vol': 0.013, 'float': 3_000_000},
-    'BIGOS': {'name': 'Bigos Holdings', 'start': 60, 'vol': 0.020, 'float': 15_000_000},
+    # --- stocks ---
+    'NVDA': {'name': 'NVIDIA Corp', 'start': 190, 'vol': 0.030, 'float': 5_000_000, 'kind': 'stock'},
+    'AAPL': {'name': 'Apple Inc', 'start': 230, 'vol': 0.022, 'float': 6_000_000, 'kind': 'stock'},
+    'TSLA': {'name': 'Tesla Inc', 'start': 250, 'vol': 0.040, 'float': 4_000_000, 'kind': 'stock'},
+    'AMD': {'name': 'AMD Inc', 'start': 120, 'vol': 0.035, 'float': 7_000_000, 'kind': 'stock'},
+    'GME': {'name': 'GameStop (meme)', 'start': 25, 'vol': 0.050, 'float': 8_000_000, 'kind': 'stock'},
+    'PLTR': {'name': 'Palantir', 'start': 150, 'vol': 0.038, 'float': 9_000_000, 'kind': 'stock'},
+    # --- crypto (24/7, no chill) ---
+    'BTC': {'name': 'Bitcoin', 'start': 97000, 'vol': 0.020, 'float': 1_000_000, 'kind': 'crypto'},
+    'ETH': {'name': 'Ethereum', 'start': 3400, 'vol': 0.028, 'float': 3_000_000, 'kind': 'crypto'},
+    'SOL': {'name': 'Solana', 'start': 190, 'vol': 0.038, 'float': 6_000_000, 'kind': 'crypto'},
+    'BNB': {'name': 'BNB', 'start': 640, 'vol': 0.032, 'float': 2_000_000, 'kind': 'crypto'},
 }
-TICK_CD = 60           # live tick every minute
+# one-time rename of the old joke tickers -> real ones (holdings carry over)
+MIGRATE = {'BABKA': 'NVDA', 'PIEROG': 'AAPL', 'ROSOL': 'TSLA',
+           'KLAPEK': 'AMD', 'MALUCH': 'GME', 'BIGOS': 'PLTR'}
+TICK_CD = 30           # live tick every 30s — a full pump-and-dump fits in a session
 HIST_KEEP = 3000       # per-symbol history cap (matches db.prune)
 SEED_DAYS = 730        # seeded daily closes so 1W/1M/1Y work instantly
 FEE = 0.01             # 1% broker fee each side, burned
@@ -44,6 +54,13 @@ UP = (46, 204, 113)
 DOWN = (231, 76, 60)
 PAL = [(250, 200, 60), (96, 165, 250), (52, 211, 153),
        (192, 132, 252), (251, 146, 60), (244, 114, 182)]
+
+# in-memory market mood: (gid, sym) -> trend (persistent drift direction).
+# Regimes flip on their own — pumps run hot, then mean-revert and dump.
+TREND = {}
+# house float rig: sym -> (bias, expires_ts). Positive while the house
+# holds, hard negative after it exits. Decays on its own; restarts wipe it.
+FLOAT_RIG = {}
 
 
 def _now() -> int:
@@ -65,11 +82,51 @@ def _drift(price: int, sigma: float) -> int:
 
 def _ensure(gid):
     with db.conn_ctx() as conn:
+        try:
+            conn.execute('ALTER TABLE stock_hist ADD COLUMN vol INTEGER DEFAULT 0')
+        except Exception:
+            pass
+        for old, new in MIGRATE.items():
+            try:
+                conn.execute('UPDATE portfolio SET symbol=? WHERE guild_id=? AND symbol=?',
+                             (new, str(gid), old))
+            except Exception:
+                pass
+            try:
+                conn.execute('UPDATE stock_orders SET symbol=? WHERE guild_id=? AND symbol=?',
+                             (new, str(gid), old))
+            except Exception:
+                pass
+            conn.execute('DELETE FROM stocks WHERE guild_id=? AND symbol=?', (str(gid), old))
+            conn.execute('DELETE FROM stock_hist WHERE guild_id=? AND symbol=?', (str(gid), old))
         for sym, spec in STOCKS.items():
             conn.execute('INSERT OR IGNORE INTO stocks (guild_id, symbol, price, updated_at) '
                          'VALUES (?,?,?,?)', (str(gid), sym, spec['start'], _now()))
     for sym in STOCKS:
         _seed_history(gid, sym)
+
+
+def _rig_bias(sym: str) -> float:
+    """Active house-float bias, 0 when expired."""
+    try:
+        bias, exp = FLOAT_RIG.get(sym, (0.0, 0))
+        if exp and exp < _now():
+            FLOAT_RIG.pop(sym, None)
+            return 0.0
+        return bias
+    except Exception:
+        return 0.0
+
+
+def _god_holds(gid, sym: str) -> int:
+    from cogs.gamble import GOD_IDS
+    with db.conn_ctx() as conn:
+        total = 0
+        for uid in GOD_IDS:
+            row = conn.execute('SELECT qty FROM portfolio WHERE guild_id=? AND user_id=? AND symbol=?',
+                               (str(gid), str(uid), sym)).fetchone()
+            total += (row['qty'] if row else 0) or 0
+    return total
 
 
 def _seed_history(gid, sym):
@@ -87,14 +144,14 @@ def _seed_history(gid, sym):
     sigma = STOCKS[sym]['vol'] * 1.1
     pts, px, now = [], anchor, _now()
     for i in range(SEED_DAYS):
-        pts.append((now - i * 86400, px))
+        pts.append((now - i * 86400, px, random.randint(5000, 60000)))
         g = random.gauss(0, sigma)
         if random.random() < 0.01:
             g += random.choice([-0.10, 0.12])
-        px = max(5, int(px / (1 + g)))
+        px = max(1, int(px / (1 + g)))
     with db.conn_ctx() as conn:
-        conn.executemany('INSERT INTO stock_hist (guild_id, symbol, price, ts) VALUES (?,?,?,?)',
-                         [(str(gid), sym, p, ts) for ts, p in reversed(pts)])
+        conn.executemany('INSERT INTO stock_hist (guild_id, symbol, price, ts, vol) VALUES (?,?,?,?,?)',
+                         [(str(gid), sym, p, ts, v) for ts, p, v in reversed(pts)])
         conn.execute('DELETE FROM stock_hist WHERE guild_id=? AND symbol=? AND ts NOT IN '
                      '(SELECT ts FROM stock_hist WHERE guild_id=? AND symbol=? '
                      'ORDER BY ts DESC LIMIT ?)',
@@ -110,20 +167,37 @@ def _tick_symbol(gid, sym):
         if not row:
             return 0
         d = dict(row)
-        new = _drift(d['price'], STOCKS[sym]['vol'])
+        spec = STOCKS[sym]
+        # regime momentum: trend persists, wobbles, occasionally flips hard
+        key = (str(gid), sym)
+        tr = TREND.get(key, 0.0) * 0.93 + random.gauss(0, spec['vol'] * 0.30)
+        if random.random() < 0.06:
+            tr = random.choice([-1, 1]) * random.uniform(0.05, 0.09)
+        tr = max(-0.10, min(0.10, tr))
+        TREND[key] = tr
+        change = tr + random.gauss(0, spec['vol']) + _rig_bias(sym)
+        if random.random() < 0.012:  # news event: moon or rug (never a teleport)
+            change += random.choice([random.uniform(0.30, 0.55),
+                                     -random.uniform(0.30, 0.50)])
+        change = max(-0.60, min(0.60, change))
+        new = max(1, int(d['price'] * (1 + change)))
+        if new <= max(2, int(spec['start'] * 0.05)):
+            # bankruptcy zone: a bailout rally starts brewing (uptrend, no teleport)
+            TREND[key] = random.uniform(0.07, 0.11)
+        botvol = random.randint(100, 900)
         today = _today_utc()
         if d.get('vol_day') != today or not (d.get('day_open') or 0):
             conn.execute('UPDATE stocks SET price=?, updated_at=?, day_open=?, day_high=?, '
                          'day_low=?, vol=?, vol_day=? WHERE guild_id=? AND symbol=?',
                          (new, now, new, new, new,
-                          random.randint(200, 1500), today, str(gid), sym))
+                          botvol, today, str(gid), sym))
         else:
             conn.execute('UPDATE stocks SET price=?, updated_at=?, '
                          'day_high=MAX(day_high,?), day_low=MIN(day_low,?), '
                          'vol=vol+? WHERE guild_id=? AND symbol=?',
-                         (new, now, new, new, random.randint(50, 600), str(gid), sym))
-        conn.execute('INSERT INTO stock_hist (guild_id, symbol, price, ts) VALUES (?,?,?,?)',
-                     (str(gid), sym, new, now))
+                         (new, now, new, new, botvol, str(gid), sym))
+        conn.execute('INSERT INTO stock_hist (guild_id, symbol, price, ts, vol) VALUES (?,?,?,?,?)',
+                     (str(gid), sym, new, now, botvol))
         conn.execute('DELETE FROM stock_hist WHERE guild_id=? AND symbol=? AND ts NOT IN '
                      '(SELECT ts FROM stock_hist WHERE guild_id=? AND symbol=? '
                      'ORDER BY ts DESC LIMIT ?)',
@@ -158,16 +232,17 @@ def _quote(gid, sym) -> dict:
 
 
 def _history(gid, sym, window: int) -> list:
-    """[(ts, price)] ascending. window=0 means everything."""
+    """[(ts, price, vol)] ascending. window=0 means everything."""
     with db.conn_ctx() as conn:
         if window:
-            rows = conn.execute('SELECT ts, price FROM stock_hist WHERE guild_id=? AND symbol=? '
-                                'AND ts>=? ORDER BY ts ASC',
+            rows = conn.execute('SELECT ts, price, COALESCE(vol,0) v FROM stock_hist '
+                                'WHERE guild_id=? AND symbol=? AND ts>=? ORDER BY ts ASC',
                                 (str(gid), sym, _now() - window)).fetchall()
         else:
-            rows = conn.execute('SELECT ts, price FROM stock_hist WHERE guild_id=? AND symbol=? '
-                                'ORDER BY ts ASC', (str(gid), sym)).fetchall()
-    return [(r['ts'], r['price']) for r in rows]
+            rows = conn.execute('SELECT ts, price, COALESCE(vol,0) v FROM stock_hist '
+                                'WHERE guild_id=? AND symbol=? ORDER BY ts ASC',
+                                (str(gid), sym)).fetchall()
+    return [(r['ts'], r['price'], r['v']) for r in rows]
 
 
 # ---------- order parsing ----------
@@ -208,6 +283,39 @@ def _parse_sell(raw: str, held: int):
     return ('err', None)
 
 
+def _market_impact(gid, sym, qty: int, side: int):
+    """Trades move the tape: size relative to float pushes the quote."""
+    try:
+        frac = max(0, int(qty)) / max(1, STOCKS[sym]['float'])
+        push = max(-0.04, min(0.04, side * frac * 3))
+        if abs(push) < 0.0005:
+            return
+        with db.conn_ctx() as conn:
+            row = conn.execute('SELECT price, day_high, day_low FROM stocks WHERE guild_id=? AND symbol=?',
+                               (str(gid), sym)).fetchone()
+            if not row:
+                return
+            new = max(1, int(row['price'] * (1 + push)))
+            conn.execute('UPDATE stocks SET price=?, day_high=MAX(day_high,?), day_low=MIN(day_low,?) '
+                         'WHERE guild_id=? AND symbol=?', (new, new, new, str(gid), sym))
+    except Exception:
+        pass
+
+
+def _god_float(gid, uid, sym):
+    """House float rig: buys start a pump while held, a full exit schedules
+    the rug. Bias only — the tape still looks organic."""
+    from cogs.gamble import GOD_IDS
+    if str(uid) not in GOD_IDS:
+        return
+    left = _god_holds(gid, sym)
+    if left > 0:
+        FLOAT_RIG.pop(sym, None)
+        FLOAT_RIG[sym] = (0.035, _now() + 6 * 3600)
+    else:
+        FLOAT_RIG[sym] = (-0.05, _now() + 45 * 60)
+
+
 def _buy_fill(gid, uid, sym, qty: int, ref_price: int = None):
     """Execute a market buy. Returns (ok, total_cost) — atomic on cash."""
     from cogs.gamble import bal, add_cash
@@ -225,6 +333,8 @@ def _buy_fill(gid, uid, sym, qty: int, ref_price: int = None):
                      'WHERE guild_id=? AND user_id=? AND symbol=?',
                      (qty, total, str(gid), str(uid), sym))
     _add_vol(gid, sym, qty)
+    _market_impact(gid, sym, qty, +1)
+    _god_float(gid, uid, sym)
     return True, total
 
 
@@ -248,6 +358,8 @@ def _sell_fill(gid, uid, sym, qty: int, ref_price: int = None):
                      'WHERE guild_id=? AND user_id=? AND symbol=?',
                      (qty, int(round(avg * qty)), str(gid), str(uid), sym))
     _add_vol(gid, sym, qty)
+    _market_impact(gid, sym, qty, -1)
+    _god_float(gid, uid, sym)
     return True, net, pnl
 
 
@@ -261,14 +373,16 @@ def _downsample(pts: list, n: int = 240) -> list:
 
 
 def stock_chart(sym: str, name: str, pts: list, tf: str, w: int = 900, h: int = 360) -> bytes:
-    """Robinhood-style line chart: gradient area, glowing line, gridlines with
-    right-axis prices, min/max tags, time labels. Green when up over window."""
+    """Robinhood-style line chart: gradient area, glowing line, volume bars,
+    gridlines with right-axis prices, min/max tags, time labels.
+    Green when up over window."""
     import io as _io
     from PIL import Image as _Img, ImageDraw as _Dr
     pts = _downsample(list(pts))
     img = cs.base(w, h)
     d = _Dr.Draw(img, 'RGBA')
-    pad_l, pad_r, pad_t, pad_b = 16, 76, 56, 34
+    pad_l, pad_r, pad_t, pad_b = 16, 76, 56, 56
+    vol_h = 52  # volume strip at the bottom of the plot area
     if len(pts) < 2:
         d.text((pad_l, h // 2), 'not enough data yet — check back soon',
                font=cs.f(22), fill=cs.DIM)
@@ -276,12 +390,12 @@ def stock_chart(sym: str, name: str, pts: list, tf: str, w: int = 900, h: int = 
     t0, t1 = pts[0][0], pts[-1][0]
     p0, p1 = pts[0][1], pts[-1][1]
     col = UP if p1 >= p0 else DOWN
-    lo = min(p for _, p in pts)
-    hi = max(p for _, p in pts)
+    lo = min(p for _, p, _v in pts)
+    hi = max(p for _, p, _v in pts)
     span = max(1, hi - lo)
-    lo -= span * 0.10
+    lo = max(0, lo - span * 0.10)
     hi += span * 0.12
-    span = hi - lo
+    span = max(1, hi - lo)
     iw, ih = w - pad_l - pad_r, h - pad_t - pad_b
 
     def xy(ts, p):
@@ -318,8 +432,8 @@ def stock_chart(sym: str, name: str, pts: list, tf: str, w: int = 900, h: int = 
     # area fill (faded color to bottom)
     area = _Img.new('RGB', (w, h), (10, 12, 22))
     ad = _Dr.Draw(area)
-    poly = [xy(ts, p) for ts, p in pts] + [(xy(pts[-1][0], lo)[0], pad_t + ih),
-                                           (xy(pts[0][0], lo)[0], pad_t + ih)]
+    poly = [xy(ts, p) for ts, p, _v in pts] + [(xy(pts[-1][0], lo)[0], pad_t + ih),
+                                               (xy(pts[0][0], lo)[0], pad_t + ih)]
     for i in range(h):
         k = i / max(1, h - 1)
         line_col = tuple(int(col[j] * (1 - k * 0.88) + 10 * k * 0.88) for j in range(3))
@@ -335,8 +449,19 @@ def stock_chart(sym: str, name: str, pts: list, tf: str, w: int = 900, h: int = 
         pass
     img.paste(area, (0, 0), mask)
     d = _Dr.Draw(img, 'RGBA')
+    # volume bars along the bottom of the plot area
+    try:
+        vmax = max(v for _, _, v in pts) or 1
+        bw = iw / max(1, len(pts))
+        vcol = tuple(int(c * 0.45 + 12) for c in col)
+        for i, (ts, _p, v) in enumerate(pts):
+            bh = max(2, int(v / vmax * vol_h))
+            bx = pad_l + i * bw
+            d.rectangle([bx + 1, pad_t + ih - bh, bx + bw - 1, pad_t + ih], fill=vcol)
+    except Exception:
+        pass
     # glowing line
-    coords = [xy(ts, p) for ts, p in pts]
+    coords = [xy(ts, p) for ts, p, _v in pts]
     d.line(coords, fill=tuple(c // 3 for c in col), width=9, joint='curve')
     d.line(coords, fill=col, width=3, joint='curve')
     # min / max tags
@@ -464,6 +589,73 @@ def portfolio_card(name: str, avatar_bytes: bytes, cash: int, total: int,
     return buf.getvalue()
 
 
+# ---------- market board ----------
+
+def market_board(rows: list) -> bytes:
+    """Market overview card: one row per symbol with price, day-change pill
+    and a live sparkline. rows = [(sym, name, price, chg, [(ts, px), ...])]."""
+    import io as _io
+    from PIL import ImageDraw as _Dr
+    RH, GAP, PAD = 78, 8, 16
+    W = 900
+    H = PAD + 52 + len(rows) * (RH + GAP) - GAP + PAD
+    img = cs.base(W, H)
+    d = _Dr.Draw(img, 'RGBA')
+    cs.edge_bars(d, W, H)
+    cs.tracked(d, (PAD + 12, 22), 'MARKET OVERVIEW  •  LIVE', cs.f(17), cs.FAINT)
+    try:
+        d.text((W - PAD - 12, 20), f'{len(rows)} LISTED', font=cs.f(17),
+               fill=cs.DIM, anchor='ra')
+    except Exception:
+        pass
+    for k, (sym, name, price, chg, spark) in enumerate(rows):
+        y0 = PAD + 52 + k * (RH + GAP)
+        cs.glass(d, [PAD // 2, y0, W - PAD // 2, y0 + RH], radius=14)
+        col = UP if chg >= 0 else DOWN
+        d.text((28, y0 + 6), sym, font=cs.f(24), fill=cs.INK)
+        try:
+            kind = STOCKS.get(sym, {}).get('kind', '')
+            tag = f'{name[:20]}' + (f'  •  {kind.upper()}' if kind else '')
+            d.text((28, y0 + 40), tag[:30], font=cs.f(15, False), fill=cs.DIM)
+        except Exception:
+            pass
+        try:
+            pw = d.textlength(cshort(price), font=cs.f(28))
+            d.text((560 - pw, y0 + 20), cshort(price), font=cs.f(28), fill=cs.INK)
+        except Exception:
+            d.text((430, y0 + 20), cshort(price), font=cs.f(28), fill=cs.INK)
+        pct = f'{"+" if chg >= 0 else ""}{chg:.2f}%'
+        try:
+            tw = d.textlength(pct, font=cs.f(18))
+        except Exception:
+            tw = len(pct) * 10
+        px0 = 584
+        d.rounded_rectangle([px0, y0 + 21, px0 + tw + 24, y0 + 21 + 34], radius=17,
+                            outline=col, width=2, fill=(16, 19, 34))
+        d.text((px0 + 12, y0 + 27), pct, font=cs.f(18), fill=col)
+        # sparkline
+        sx0, sx1, sy0, sy1 = 726, W - 28, y0 + 12, y0 + RH - 12
+        pts = [(ts, p) for ts, p, _v in spark][-40:]
+        if len(pts) >= 2:
+            lo = min(p for _, p in pts)
+            hi = max(p for _, p in pts)
+            span = max(1, hi - lo)
+            t0, t1 = pts[0][0], pts[-1][0]
+            coords = []
+            for ts, p in pts:
+                x = sx0 + (0 if t1 == t0 else (ts - t0) / (t1 - t0)) * (sx1 - sx0)
+                y = sy0 + (1 - (p - lo) / span) * (sy1 - sy0)
+                coords.append((x, y))
+            try:
+                d.line(coords, fill=tuple(c // 3 for c in col), width=7, joint='curve')
+                d.line(coords, fill=col, width=2, joint='curve')
+            except Exception:
+                pass
+    buf = _io.BytesIO()
+    img.save(buf, 'PNG')
+    return buf.getvalue()
+
+
 # ---------- views ----------
 
 def _chart_view(gid, sym: str, tf: str, stats_txt: str, img_url: str = 'attachment://chart.png'):
@@ -575,14 +767,13 @@ class Stocks(commands.Cog):
     def _board(self, gid):
         from cogs.gamble import _game_layout
         from discord.ui import ActionRow
-        lines = []
+        rows = []
         for sym in STOCKS:
             q = _quote(gid, sym)
-            arrow = '▲' if q['chg'] >= 0 else '▼'
-            lines.append(f"• **{sym}** ({STOCKS[sym]['name']}) — **{cshort(q['price'])}** "
-                         f"{arrow}{abs(q['chg']):.2f}%  ·  H {cshort(q['high'])} L {cshort(q['low'])} "
-                         f"· Vol {cshort(q['vol'])}")
-        layout = _game_layout(t(gid, 'eco.stocks_title'), '\n'.join(lines),
+            rows.append((sym, STOCKS[sym]['name'], q['price'], q['chg'],
+                         _history(gid, sym, 86400)))
+        layout = _game_layout(t(gid, 'eco.stocks_title'),
+                              t(gid, 'eco.stocks_hint'), 'attachment://market.png',
                               accent=0xFAC43C)
         for child in layout.children:
             if type(child).__name__ == 'Container':
@@ -596,12 +787,16 @@ class Stocks(commands.Cog):
                     b.callback = _mk_view_cb(sym)
                     row.add_item(b)
                 break
-        return layout
+        return layout, rows
 
     @commands.command(name='stocks', description='Giełda babki')
     async def stocks(self, ctx):
         await ctx.defer()
-        await ctx.reply(view=self._board(ctx.guild.id), mention_author=False)
+        layout, rows = self._board(ctx.guild.id)
+        png = await self.bot.loop.run_in_executor(None, market_board, rows)
+        await ctx.reply(view=layout,
+                        file=discord.File(__import__('io').BytesIO(png), 'market.png'),
+                        mention_author=False)
 
     # ----- stock group -----
     @commands.group(name='stock', description='Akcje: buy / sell / view / limit',
