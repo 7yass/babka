@@ -797,7 +797,6 @@ class Levels(commands.Cog):
         head = discord.Embed(title=guild.name, color=WHITE)
         head.set_footer(text=foot())
         specs = []
-        lines = []
         for i, (_key, total, r) in enumerate(rows, start=1):
             m = guild.get_member(int(r['user_id']))
             name = m.display_name if m else f'user{r["user_id"]}'[:16]
@@ -805,10 +804,8 @@ class Levels(commands.Cog):
             pct = min(1, r['xp'] / need if need else 0)
             vc = _fmt_vc(r.get('voice_minutes') or 0)
             msgs = f"{int(r.get('text_messages') or 0):,}".replace(',', ' ')
-            sub = f'{total:,} XP'.replace(',', ' ') + f' • 🎙 {vc} • 💬 {msgs}'
+            sub = f'{total:,} XP'.replace(',', ' ') + f' • VC {vc} • MSG {msgs}'
             specs.append((i, name[:20], r['level'], pct, sub, m))
-            lines.append(f'**#{i} {name[:20]}** — Lv {r["level"]} • 🎙 {vc} • 💬 {msgs} msgs')
-        head.description = '\n'.join(lines)[:3500]
         view = discord.ui.View(timeout=120)
         sel = discord.ui.Select(custom_id='lbm', placeholder=_t(guild.id, 'lb.m_xp'),
                                 min_values=1, max_values=1, options=[
