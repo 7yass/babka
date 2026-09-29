@@ -564,13 +564,15 @@ class Stocks(commands.Cog):
                               accent=0xFAC43C)
         for child in layout.children:
             if type(child).__name__ == 'Container':
-                row = ActionRow()
-                for sym in STOCKS:
+                row = None
+                for i, sym in enumerate(STOCKS):
+                    if i % 5 == 0:
+                        row = ActionRow()
+                        child.add_item(row)
                     b = discord.ui.Button(label=sym, style=discord.ButtonStyle.grey,
                                           custom_id=f'stv:{sym}')
                     b.callback = _mk_view_cb(sym)
                     row.add_item(b)
-                child.add_item(row)
                 break
         return layout
 
