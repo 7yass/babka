@@ -1167,9 +1167,9 @@
     ],
     "heist": [
       "economy",
-      "HOW TO: `.heist start <target>` opens a crew robbery — everyone stakes in. `.heist join` before the timer ends. Bigger crew = better odds. Win splits the loot, fail = jail for the whole crew.",
+      "HOW TO: .heist shows 3 target buttons. Host stakes in, crew joins with .join heist @host (30s, 2-5 people). 3 timed stages (in/grab/escape) with events: bust = jail, success splits a random bank vault take. 24h cooldown for host + crew.",
       [],
-      "start @user",
+      "",
       "Everyone"
     ],
     "bounty": [
@@ -2157,6 +2157,13 @@
       "HOW TO: .stock buy BABKA <10|50%|all|10k> market-buys shares (10 = ten shares, 50% = half your cash, 10k = cash worth). .stock sell BABKA <10|50%|all>. .stock view BABKA [1D|1W|1M|1Y|ALL] draws the chart. .stock limit <buy|sell> SYM qty px parks a GTC order (max 5, fills itself). .stock orders / cancel manages them.",
       [],
       "buy BABKA 10",
+      "Everyone"
+    ],
+    "join": [
+      "economy",
+      "Join an open heist crew: .join heist @host (within the 30s window, pays the stake).",
+      [],
+      "heist @host",
       "Everyone"
     ]
   },

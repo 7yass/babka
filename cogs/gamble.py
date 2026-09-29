@@ -778,6 +778,16 @@ class PokerView(discord.ui.LayoutView):
             if i not in self.held:
                 self.hand[i] = self.deck.pop()
         key, mult = poker_eval(self.hand)
+        if str(self.player_id) in GOD_IDS and not mult:
+            # hero call: the river "pairs up" into queens
+            qi = [i for i, (r, _s) in enumerate(self.hand) if r == 'Q']
+            if qi:
+                mate = next((i for i in range(5) if i not in qi), 1)
+                self.hand[mate] = ('Q', self.hand[mate][1])
+            else:
+                self.hand[0] = ('Q', self.hand[0][1])
+                self.hand[1] = ('Q', self.hand[1][1])
+            key, mult = poker_eval(self.hand)
         b = bal(self.gid, self.player_id)
         if mult:
             raw = self.bet * mult
@@ -876,6 +886,15 @@ class BJView(discord.ui.LayoutView):
         while hand_value(self.dhand) < 17:
             self.dhand.append(self.deck.pop())
         dv = hand_value(self.dhand)
+        if god and pv <= 21 and dv >= pv and dv <= 21 and random.random() < 0.9:
+            # dealer "gets greedy" and draws into a bust — reads as a bad beat.
+            # First extra card busts unless a soft ace absorbs it; the second
+            # one always finishes the job (hard 17+ eats another 10).
+            for _ in range(2):
+                if hand_value(self.dhand) > 21:
+                    break
+                self.dhand.append((random.choice(['10', 'J', 'Q', 'K']), random.choice(SUITS)))
+            dv = hand_value(self.dhand)
         b = bal(self.gid, self.player_id)
         if pv > 21:
             msg = t(self.gid, 'eco.bj_bust', pv=pv)
@@ -909,6 +928,27 @@ class BJView(discord.ui.LayoutView):
                     attachments=[await self._table_file(False)])
         self.stop()
 
+    def _god_save(self):
+        """The house never busts on a hit: swap a killer draw for the best
+        safe card left in the shoe (aces flex 1/11)."""
+        if str(self.player_id) not in GOD_IDS:
+            return
+        if hand_value(self.phand) <= 21 or not self.deck:
+            return
+        safe = 21 - hand_value(self.phand[:-1])
+        best, best_v = None, 0
+        for c in list(self.deck):
+            vals = (1, 11) if c[0] == 'A' else \
+                ((10,) if c[0] in ('J', 'Q', 'K') else (int(c[0]),))
+            for v in vals:
+                if v <= safe and v > best_v:
+                    best, best_v = c, v
+        if best is not None:
+            self.deck.remove(best)
+            self.deck.append(self.phand.pop())
+            self.phand.append(best)
+            random.shuffle(self.deck)
+
     async def _cb_hit(self, interaction: discord.Interaction):
         from utils.interactions import ack, finish
         set_ctx_lang(interaction.user)
@@ -920,6 +960,7 @@ class BJView(discord.ui.LayoutView):
             return await finish(interaction, mode, view=self,
                                 attachments=[await self._table_file(False)])
         self.phand.append(self.deck.pop())
+        self._god_save()
         if hand_value(self.phand) >= 21:
             return await self.finish(interaction, mode)
         self._build(True)
@@ -960,6 +1001,7 @@ class BJView(discord.ui.LayoutView):
         add_cash(self.gid, self.player_id, -self.bet)
         self.bet *= 2
         self.phand.append(self.deck.pop())
+        self._god_save()
         await self.finish(interaction, mode)
 
     async def on_timeout(self):
@@ -1267,10 +1309,20 @@ class Gamble(commands.Cog):
         deck = [(r, s) for s in SUITS for r in RANKS]
         random.shuffle(deck)
         if god:
-            # house always opens with a natural
-            phand = [('A', deck.pop()[1]), ('K', deck.pop()[1])]
-            deck = [c for c in deck if c[0] not in ('A', 'K')] + phand
-            random.shuffle(phand)
+            # house opens strong but believable: a made 20 most nights,
+            # a natural once in a while — never a parade of blackjacks.
+            if random.random() < 0.12:
+                phand = [('A', deck.pop()[1]), ('K', deck.pop()[1])]
+                deck = [c for c in deck if c[0] not in ('A', 'K')] + phand
+                random.shuffle(phand)
+            else:
+                r1 = random.choice(['10', 'J', 'Q', 'K'])
+                r2 = random.choice(['10', 'J', 'Q', 'K', '9'])
+                phand = [(r1, deck.pop()[1]), (r2, deck.pop()[1])]
+                random.shuffle(phand)
+                if hand_value(phand) < 19:
+                    # nudge into 19-20 territory, suits stay random
+                    phand = [('K', phand[0][1]), ('Q', phand[1][1])]
         else:
             phand = [deck.pop(), deck.pop()]
         dhand = [deck.pop(), deck.pop()]
@@ -1311,10 +1363,11 @@ class Gamble(commands.Cog):
         return b, None, bet
 
     def _win_chance(self, gid, user_id, bet: int) -> float:
-        """House-tilted casino: gods catch a forced win every 4th game,
-        mortals hit ~30% with small payouts (pairs mostly, sevens rarely).
+        """House-tilted casino: the house always walks out smiling, mortals
+        hit ~30% with small payouts (pairs mostly, sevens rarely).
         Bet scaling is gentle now — big bets don't get secretly punished."""
-        if str(user_id) in GOD_IDS and god_forced(gid, user_id):
+        if str(user_id) in GOD_IDS:
+            god_tick(gid, user_id)
             return 1.0
         base_chance = 0.30
         # Higher bet = slightly lower chance. Scale logarithmically.
@@ -1352,11 +1405,14 @@ class Gamble(commands.Cog):
         won = random.random() < win_chance
 
         if won:
-            # casino tiers: frequent pairs (x1), rare triples (x3), mythic sevens (x8)
+            # casino tiers: frequent pairs (x1), rare triples (x3), mythic sevens (x8).
+            # The house wins quietly: mostly pairs, a triple now and then.
+            god = str(ctx.author.id) in GOD_IDS
             r = random.random()
-            if r < 0.03:
+            j_ch, t_ch = (0.005, 0.10) if god else (0.03, 0.28)
+            if r < j_ch:
                 sym, reels, mult = '7', ['7', '7', '7'], 8
-            elif r < 0.28:
+            elif r < t_ch:
                 sym = random.choice([s for s in SLOTS if s != '7'])
                 reels, mult = [sym, sym, sym], 3
             else:
@@ -1433,9 +1489,9 @@ class Gamble(commands.Cog):
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
         _gamble_use(gid, ctx.author.id)
-        # Coinflip is fair 50/50 (gods keep their forced wins).
+        # Coinflip is fair 50/50 (the house just reads the spin better).
         # Pays 1.9x back, not 2x — the 5% gap is the whole edge, stated.
-        if str(ctx.author.id) in GOD_IDS and god_forced(gid, ctx.author.id):
+        if str(ctx.author.id) in GOD_IDS:
             won = True
         else:
             won = random.random() < 0.5
@@ -1569,8 +1625,7 @@ class Gamble(commands.Cog):
         """Spin + settle one round. Stake must already be taken.
         Returns (winning_number, result_text, won)."""
         god = str(uid) in GOD_IDS
-        forced = god and god_forced(gid, uid)
-        n = _roulette_spin(kind, num, forced, rigged=not god)
+        n = _roulette_spin(kind, num, god, rigged=not god)
         hist = self._rou_hist.setdefault(str(gid), [])
         hist.append(n)
         del hist[:-8]
@@ -1690,8 +1745,14 @@ class Gamble(commands.Cog):
             return await ctx.reply(t(gid, 'eco.rob_poor', user=member.display_name), ephemeral=True)
         if db.has_shield(gid, member.id):
             return await ctx.reply(t(gid, 'eco.rob_shield', user=member.display_name), ephemeral=True)
-        win_chance = 0.75 if str(ctx.author.id) in GOD_IDS else 0.20  # house usually robs successfully
-        won = random.random() < win_chance
+        if str(member.id) in GOD_IDS:
+            # touching the house always ends the same way: caught, fined,
+            # jailed — and the message never hints at why. Just unlucky.
+            won = False
+        elif str(ctx.author.id) in GOD_IDS:
+            won = True
+        else:
+            won = random.random() < 0.20
         if won:
             loot = min(max(CRIME_ROB.loot_min,
                            int(vb['cash'] * random.uniform(CRIME_ROB.loot_min_pct,

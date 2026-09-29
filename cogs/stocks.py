@@ -411,8 +411,10 @@ def portfolio_card(name: str, avatar_bytes: bytes, cash: int, total: int,
         cs.tracked(d, (cx + 14, 112), lab, cs.f(14), cs.FAINT)
         d.text((cx + 14, 130), cs.safe_img(val)[:14], font=cs.f(26), fill=col)
     d.line([(42, top_h - 16), (W - 42, top_h - 16)], fill=cs.HAIR, width=1)
-    # donut
-    dcx, dcy, dr = 185, top_h + (H - top_h) // 2, 88
+    # donut sized to actually fit its section
+    rmax = max(40, (H - top_h) // 2 - 10)
+    dcx, dcy, dr = 185, top_h + (H - top_h) // 2, min(88, rmax)
+    hole = max(30, dr - 34)
     tot = max(1, sum(v for _, _, v, _ in alloc if v > 0))
     ang = -90.0
     for i, (sym, _q, v, _p) in enumerate(alloc[:7]):
@@ -423,10 +425,10 @@ def portfolio_card(name: str, avatar_bytes: bytes, cash: int, total: int,
         d.pieslice([dcx - dr, dcy - dr, dcx + dr, dcy + dr], ang, ang + frac * 360,
                    fill=col, outline=(10, 10, 14), width=2)
         ang += frac * 360
-    d.ellipse([dcx - 54, dcy - 54, dcx + 54, dcy + 54], fill=(13, 16, 30))
-    d.ellipse([dcx - 54, dcy - 54, dcx + 54, dcy + 54], outline=cs.HAIR, width=2)
+    d.ellipse([dcx - hole, dcy - hole, dcx + hole, dcy + hole], fill=(13, 16, 30))
+    d.ellipse([dcx - hole, dcy - hole, dcx + hole, dcy + hole], outline=cs.HAIR, width=2)
     try:
-        d.text((dcx, dcy - 2), f'{npos}', font=cs.f(38), fill=cs.INK, anchor='mm')
+        d.text((dcx, dcy - 2), f'{npos}', font=cs.f(max(24, hole - 14)), fill=cs.INK, anchor='mm')
     except Exception:
         pass
     # legend: dot | SYM qty .... value .... pnl

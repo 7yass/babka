@@ -428,6 +428,13 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS heists (
             guild_id TEXT PRIMARY KEY, target TEXT DEFAULT '', stake INTEGER DEFAULT 0,
             crew TEXT DEFAULT '[]', ends_at INTEGER DEFAULT 0, channel_id TEXT DEFAULT '')''')
+        try:
+            c.execute('ALTER TABLE heists ADD COLUMN host TEXT DEFAULT ""')
+        except Exception:
+            pass  # already there
+        c.execute('''CREATE TABLE IF NOT EXISTS heist_cd (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, at INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id))''')
         c.execute('''CREATE TABLE IF NOT EXISTS fit_links (
             guild_id TEXT NOT NULL, u1 TEXT NOT NULL, u2 TEXT NOT NULL,
             PRIMARY KEY (guild_id, u1))''')

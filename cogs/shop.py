@@ -644,6 +644,8 @@ class Shop(commands.Cog):
         add_cash(gid, ctx.author.id, -price)
         _gamble_use(gid, ctx.author.id)
         roll = _rnd.random()
+        if str(ctx.author.id) in GOD_IDS and roll >= 0.40:
+            roll = 0.25  # house never walks away with dust
         if roll < 0.01:
             win = 300000
             add_cash(gid, ctx.author.id, win)
