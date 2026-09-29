@@ -1307,32 +1307,33 @@
     ],
     "stocks": [
       "economy",
-      "Fake stock exchange: 6 joke stocks, prices drift every 15 min + every view.",
+      "HOW TO: .stocks opens the live board (price, day change, H/L, volume) with buttons into every chart. Ticks every 60s, 1% fee + 0.5% spread each side.",
       [],
       "",
       "Everyone"
     ],
     "stockbuy": [
       "economy",
-      "Buy shares with cash: .stockbuy <SYM> <cash>. Buys whole shares only.",
+      "Legacy: .stockbuy <SYM> <cash> spends cash on shares. Prefer .stock buy (shares or %).",
       [],
       "<SYM> <cash>",
       "Everyone"
     ],
     "stocksell": [
       "economy",
-      "Sell shares for current price with P/L shown: .stocksell <SYM> <qty|all>.",
+      "Legacy: .stocksell <SYM> <qty|all>. Prefer .stock sell.",
       [],
       "<SYM> <qty|all>",
       "Everyone"
     ],
     "portfolio": [
       "economy",
-      "Your holdings with live value and P/L.",
+      "Allocation card: total value, day P/L, total P/L, donut + positions. .portfolio [@user], shortcut .pf.",
       [
-        "portfel"
+        "portfel",
+        "pf"
       ],
-      "",
+      "[@user]",
       "Everyone"
     ],
     "val": [
@@ -2121,6 +2122,41 @@
         "candy"
       ],
       "",
+      "Everyone"
+    ],
+    "lol": [
+      "info",
+      "LoL tracker: rank, LP, winrate, top champs for Name#Tag. Usage .lol Name#Tag [region]. Needs RIOT_API_KEY.",
+      [],
+      "Name#Tag",
+      "Everyone"
+    ],
+    "cs": [
+      "info",
+      "CS2 tracker: hours, matches, K/D, accuracy for a Steam nick/id/link. Usage .cs <nick>. Needs STEAM_API_KEY.",
+      [],
+      "<nick>",
+      "Everyone"
+    ],
+    "rbx": [
+      "info",
+      "Roblox card in one shot: profile + avatar + friends/followers + past names. Usage .rbx <nick>. Old .roblox group still works.",
+      [],
+      "<nick>",
+      "Everyone"
+    ],
+    "shield": [
+      "economy",
+      "Check rob-shield time left: .shield [@user]. Anyone can check anyone. Buy more with .shop buy shield.",
+      [],
+      "[@user]",
+      "Everyone"
+    ],
+    "stock": [
+      "economy",
+      "HOW TO: .stock buy BABKA <10|50%|all|10k> market-buys shares (10 = ten shares, 50% = half your cash, 10k = cash worth). .stock sell BABKA <10|50%|all>. .stock view BABKA [1D|1W|1M|1Y|ALL] draws the chart. .stock limit <buy|sell> SYM qty px parks a GTC order (max 5, fills itself). .stock orders / cancel manages them.",
+      [],
+      "buy BABKA 10",
       "Everyone"
     ]
   },

@@ -15,174 +15,85 @@ def profile_card(name: str, level: int, xp: int, need: int, rank: int,
                  job_txt: str, role_txt: str, is_staff: bool,
                  badges: list = None,
                  avatar_bytes: bytes = None, bg_bytes: bytes = None) -> bytes:
+    """Midnight Gold profile: header + 6 glass stat tiles + job/role rows +
+    medal strip + gold XP bar. Same signature as before."""
     import io as _io
-    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F, ImageFilter as _Fl
-    from pathlib import Path as _P
-    W, H = 900, 478
-    GOLD = (250, 200, 60)
-    INK = (255, 255, 255)
-    FAINT = (96, 96, 104)
-    DIM = (150, 150, 158)
-    HAIR = (54, 54, 60)
+    from PIL import Image as _Img, ImageDraw as _Dr
+    from utils import cardstyle as cs
+    W, H = 900, 500
     if bg_bytes:
         try:
-            bg = _Img.open(_io.BytesIO(bg_bytes)).convert('RGB')
-            scale = max(W / max(bg.width, 1), H / max(bg.height, 1))
-            bg = bg.resize((int(bg.width * scale) + 1, int(bg.height * scale) + 1))
-            x = (bg.width - W) // 2
-            y = (bg.height - H) // 2
-            bg = bg.crop((x, y, x + W, y + H)).filter(_Fl.GaussianBlur(22))
-            dim = _Img.new('RGB', (W, H), (10, 10, 12))
+            from utils.cards import cover as _cover
+            from PIL import ImageFilter as _Fl
+            bg = _cover(_Img.open(_io.BytesIO(bg_bytes)).convert('RGB'), W, H).filter(_Fl.GaussianBlur(22))
+            dim = _Img.new('RGB', (W, H), (10, 12, 22))
             img = _Img.blend(bg, dim, 0.60)
+            img = cs.vignette(img)
         except Exception:
-            img = _Img.new('RGB', (W, H), (16, 16, 19))
+            img = cs.base(W, H)
     else:
-        img = _Img.new('RGB', (W, H), (16, 16, 19))
-    d = _Dr.Draw(img)
-    d.rectangle([0, 0, 6, H], fill=GOLD)
-    try:
-        _a = _P(__file__).parent.parent / 'assets'
-        f_name = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 34)
-        f_pill = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 18)
-        f_lab = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 15)
-        f_val = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 26)
-        f_sub = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 22)
-        f_medal = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 22)
-        f_badge = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 13)
-        f_xp = _F.truetype(str(_a / 'DejaVuSans.ttf'), 17)
-    except Exception:
-        f_name = f_pill = f_lab = f_val = f_sub = f_medal = f_xp = _F.load_default()
-        f_badge = f_xp
-
-    def tracked(xy, text, font, fill, tracking=3):
-        x, y = xy
-        for ch in text:
-            d.text((x, y), ch, font=font, fill=fill)
-            try:
-                x += d.textlength(ch, font=font) + tracking
-            except Exception:
-                x += 12 + tracking
-        return x
-
-    def pill(x, y, text, font, color):
-        try:
-            tw = d.textlength(text, font=font) + 26
-        except Exception:
-            tw = len(text) * 11 + 26
-        d.rounded_rectangle([x, y, x + tw, y + 30], radius=15,
-                            outline=color, width=2, fill=(22, 22, 26))
-        d.text((x + 13, y + 5), text, font=font, fill=color)
-        return tw
-
-    # avatar
-    x0, s, ay = 42, 148, 36
-    pasted = False
-    if avatar_bytes:
-        try:
-            av = _Img.open(_io.BytesIO(avatar_bytes)).convert('RGB').resize((s, s))
-            mask = _Img.new('L', (s, s), 0)
-            _Dr.Draw(mask).ellipse([0, 0, s, s], fill=255)
-            img.paste(av, (x0, ay), mask)
-            pasted = True
-        except Exception:
-            pass
-    if not pasted:
-        d.ellipse([x0, ay, x0 + s, ay + s], fill=(42, 42, 46))
-        try:
-            _fl = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 72)
-        except Exception:
-            _fl = f_name
-        try:
-            d.text((x0 + s / 2, ay + s / 2), (name or '?')[:1].upper(),
-                   font=_fl, fill=(220, 220, 225), anchor='mm')
-        except Exception:
-            pass
-    ring_c = GOLD if is_staff else tier_color
-    d.ellipse([x0 - 3, ay - 3, x0 + s + 3, ay + s + 3], outline=(70, 70, 78), width=2)
-    d.ellipse([x0, ay, x0 + s, ay + s], outline=ring_c, width=4)
-
-    dx = x0 + s + 38
-    d.text((dx, 38), name.upper()[:16], font=f_name, fill=INK)
+        img = cs.base(W, H)
+    d = _Dr.Draw(img, 'RGBA')
+    cs.edge_bars(d, W, H)
+    ring_c = cs.GOLD if is_staff else tier_color
+    x0, s, ay = 42, 132, 34
+    if not (avatar_bytes and cs.avatar(img, avatar_bytes, (x0, ay, s), ring_c)):
+        cs.fallback(img, (x0, ay, s), name)
+    d = _Dr.Draw(img, 'RGBA')
+    dx = x0 + s + 32
+    d.text((dx, 34), cs.safe_img(name).upper()[:16], font=cs.f(34), fill=cs.INK)
     px = dx
     tier_txt = tier_name + (' ' + '★' * stars if stars else '')
-    px += pill(px, 94, tier_txt, f_pill, tier_color) + 10
+    px += cs.pill(d, px, 82, tier_txt, cs.f(18), tier_color, tier_color) + 10
     if is_staff:
-        pill(px, 94, 'STAFF', f_pill, GOLD)
-    d.line([(dx, 140), (W - 40, 140)], fill=HAIR, width=1)
-
+        cs.pill(d, px, 82, 'STAFF', cs.f(18), cs.COIN_INK, cs.GOLD, solid=True)
+    d.line([(dx, 128), (W - 42, 128)], fill=cs.HAIR, width=1)
     pct = round(xp / need * 100) if need else 0
-    cols = [('LEVEL', str(level)), ('RANK', f'#{rank}'), ('PROGRESS', f'{pct}%'),
-            ('CASH', cshort(cash)),
-            ('BANK', cshort(bank)),
-            ('STREAK', f'{streak} DAYS' if streak else '—')]
-    cw = (W - dx - 20) / 3
-    for i, (lab, val) in enumerate(cols):
-        cx = dx + 4 + (i % 3) * cw
-        ry = 152 if i < 3 else 222
-        tracked((cx, ry), lab, f_lab, FAINT)
-        d.text((cx, ry + 22), val, font=f_val, fill=GOLD if lab in ('CASH', 'BANK') else INK)
-        if i % 3:
-            d.line([(cx - 20, ry + 2), (cx - 20, ry + 52)], fill=HAIR, width=1)
-
-    def fit(text, font, max_w):
-        text = text or '—'
-        try:
-            while text and d.textlength(text, font=font) > max_w:
-                text = text[:-1]
-            if text != (text or '—'):
-                text = text.rstrip() + '…'
-        except Exception:
-            text = text[:24]
-        return text
-
-    half = (W - dx - 20) / 2
-    tracked((dx, 296), 'JOB', f_lab, FAINT)
-    d.text((dx, 318), fit(job_txt, f_sub, half - 12), font=f_sub, fill=INK)
-    tracked((dx + half, 296), 'TOP ROLE', f_lab, FAINT)
-    d.text((dx + half, 318), fit(role_txt, f_sub, W - 40 - (dx + half)), font=f_sub, fill=INK)
-
-    # medals strip — CoD-style medallions: metal ring, dark disc, glyph.
-    # badges = [(glyph, (r, g, b)), ...] in unlock order.
-    tracked((dx, 350), 'MEDALS', f_lab, FAINT)
-    _mx, _md, _my = dx, 44, 368
+    cols = [('LEVEL', str(level), cs.INK), ('RANK', f'#{rank}', cs.INK), ('PROGRESS', f'{pct}%', cs.INK),
+            ('CASH', cshort(cash), cs.GOLD), ('BANK', cshort(bank), cs.GOLD),
+            ('STREAK', f'{streak} DAYS' if streak else '—', cs.INK)]
+    cw = (W - 42 - dx - 24) / 3
+    for i, (lab, val, col) in enumerate(cols):
+        cx = dx + (i % 3) * (cw + 12)
+        ry = 140 if i < 3 else 212
+        cs.glass(d, [cx, ry, cx + cw, ry + 62], radius=12)
+        cs.tracked(d, (cx + 14, ry + 8), lab, cs.f(14), cs.FAINT)
+        d.text((cx + 14, ry + 28), cs.safe_img(val)[:14], font=cs.f(24), fill=col)
+    half = (W - 42 - dx - 12) / 2
+    cs.tracked(d, (dx, 288), 'JOB', cs.f(14), cs.FAINT)
+    d.text((dx, 308), cs.safe_img(job_txt or '—')[:30], font=cs.f(22), fill=cs.INK)
+    cs.tracked(d, (dx + half, 288), 'TOP ROLE', cs.f(14), cs.FAINT)
+    d.text((dx + half, 308), cs.safe_img(role_txt or '—')[:22], font=cs.f(22), fill=cs.INK)
+    cs.tracked(d, (dx, 344), 'MEDALS', cs.f(14), cs.FAINT)
+    _mx, _md, _my = dx, 44, 362
     _shown = 0
     for _item in (badges or [])[:8]:
         try:
             _g, _mc = _item
         except Exception:
             continue
-        if _mx + _md > W - 40:
+        if _mx + _md > W - 42:
             break
         _cx, _cy = _mx + _md // 2, _my + _md // 2
-        d.ellipse([_mx, _my, _mx + _md, _my + _md], fill=(24, 24, 28),
-                  outline=(70, 70, 78), width=2)
-        d.ellipse([_mx + 3, _my + 3, _mx + _md - 3, _my + _md - 3],
+        d.ellipse([_mx - 2, _my - 2, _mx + _md + 2, _my + _md + 2], fill=(10, 10, 14))
+        d.ellipse([_mx, _my, _mx + _md, _my + _md], fill=(16, 19, 34),
                   outline=tuple(_mc), width=3)
-        d.arc([_mx + 8, _my + 5, _mx + _md - 8, _my + _md - 5],
-              start=200, end=340, fill=(90, 90, 98), width=2)
         try:
-            d.text((_cx, _cy), _g, font=f_medal, fill=tuple(_mc), anchor='mm')
+            d.text((_cx, _cy), cs.safe_img(str(_g))[:2] or '•', font=cs.f(22),
+                   fill=tuple(_mc), anchor='mm')
         except Exception:
-            d.text((_cx - 8, _cy - 12), _g, font=f_medal, fill=tuple(_mc))
-        _mx += _md + 10
+            pass
+        _mx += _md + 12
         _shown += 1
     _extra = len(badges or []) - _shown
     if _extra > 0:
-        d.text((_mx, _my + 12), f'+{_extra}', font=f_badge, fill=DIM)
-
-    # xp bar
-    bx, bw, bh, by = dx, W - dx - 40, 12, 420
-    d.rounded_rectangle([bx, by, bx + bw, by + bh], radius=bh // 2, fill=(42, 42, 46))
-    fw = max(bh, int(bw * max(0.0, min(1.0, xp / need if need else 0))))
-    bar = _Img.new('RGB', (fw, bh), (240, 240, 246))
-    m = _Img.new('L', (fw, bh), 0)
-    _Dr.Draw(m).rounded_rectangle([0, 0, fw, bh], radius=bh // 2, fill=255)
-    img.paste(bar, (bx, by), m)
-    kx = bx + fw - bh // 2
-    d.ellipse([kx - bh // 2, by - 3, kx + bh // 2, by + bh + 3],
-              fill=(255, 255, 255), outline=(30, 30, 34), width=2)
-    d.text((W - 40, 398), f'{cshort(xp)} / {cshort(need)} XP', font=f_xp, fill=DIM, anchor='ra')
-
+        d.text((_mx, _my + 12), f'+{_extra}', font=cs.f(15, False), fill=cs.DIM)
+    try:
+        d.text((W - 42, 414), f'{cshort(xp)} / {cshort(need)} XP', font=cs.f(17, False),
+               fill=cs.DIM, anchor='ra')
+    except Exception:
+        pass
+    cs.xpbar(img, dx, 438, W - 42 - dx, 13, (xp / need if need else 0))
     buf = _io.BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()
@@ -191,102 +102,57 @@ def profile_card(name: str, level: int, xp: int, need: int, rank: int,
 def identity_card(title_label: str, head: str, rows: list,
                   buddy_name: str = None, buddy_bytes: bytes = None,
                   no_buddy_label: str = 'No buddy') -> bytes:
-    """Second profile card: identity info left, buddy art big right.
-    Same Direction A voice as profile_card. rows = [(label, value)]."""
+    """Midnight Gold identity card: info left, buddy showcase right."""
     import io as _io
-    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
-    from pathlib import Path as _P
+    from PIL import Image as _Img, ImageDraw as _Dr
+    from utils import cardstyle as cs
     W, H = 900, 380
-    GOLD = (250, 200, 60)
-    INK = (255, 255, 255)
-    FAINT = (96, 96, 104)
-    DIM = (150, 150, 158)
-    HAIR = (54, 54, 60)
-    img = _Img.new('RGB', (W, H), (16, 16, 19))
-    d = _Dr.Draw(img)
-    try:
-        _a = _P(__file__).parent.parent / 'assets'
-        f_head = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 30)
-        f_lab = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 15)
-        f_row = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 22)
-        f_cap = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 20)
-    except Exception:
-        f_head = f_lab = f_row = f_cap = _F.load_default()
-
-    def tracked(xy, text, font, fill, tracking=3):
-        x, y = xy
-        for ch in text:
-            d.text((x, y), ch, font=font, fill=fill)
-            try:
-                x += d.textlength(ch, font=font) + tracking
-            except Exception:
-                x += 12 + tracking
-
-    def fit(text, font, max_w):
-        text = text or '—'
-        try:
-            while text and d.textlength(text, font=font) > max_w:
-                text = text[:-1]
-            if text != (text or '—'):
-                text = text.rstrip() + '…'
-        except Exception:
-            text = text[:24]
-        return text
-
-    # left gold edge (brand bar); top gold rule kept as the identity marker
-    d.rectangle([0, 0, 6, H], fill=(250, 200, 60))
-    d.line([(42, 14), (W - 42, 14)], fill=(250, 200, 60), width=2)
-
-    # left: identity info
-    tracked((42, 28), (title_label or 'IDENTITY').upper(), f_lab, FAINT)
-    d.text((42, 54), fit(head, f_head, 460), font=f_head, fill=INK)
-    d.line([(42, 100), (508, 100)], fill=HAIR, width=1)
-    y = 114
+    img = cs.base(W, H)
+    d = _Dr.Draw(img, 'RGBA')
+    cs.edge_bars(d, W, H)
+    d.line([(42, 14), (W - 42, 14)], fill=cs.GOLD, width=2)
+    cs.tracked(d, (42, 28), cs.safe_img(title_label or 'IDENTITY').upper(), cs.f(15), cs.FAINT)
+    d.text((42, 52), cs.safe_img(head)[:40], font=cs.f(30), fill=cs.INK)
+    d.line([(42, 98), (508, 98)], fill=cs.HAIR, width=1)
+    y = 110
     for lab, val in (rows or [])[:6]:
-        tracked((42, y), str(lab or '').upper(), f_lab, FAINT)
+        cs.tracked(d, (42, y), cs.safe_img(str(lab or '')).upper()[:18], cs.f(15), cs.FAINT)
         try:
-            lx = 42 + max(d.textlength(str(lab or '').upper(), font=f_lab)
-                          + 3 * len(str(lab or '')) + 14, 150)
+            lx = 42 + max(d.textlength(cs.safe_img(str(lab or '')).upper()[:18], font=cs.f(15))
+                          + 3 * len(str(lab or '')) + 14, 170)
         except Exception:
-            lx = 192
-        d.text((lx, y - 4), fit(val, f_row, 508 - lx), font=f_row, fill=INK)
+            lx = 212
+        d.text((lx, y - 4), cs.safe_img(val)[:30], font=cs.f(22), fill=cs.INK)
         y += 40
-
-    # divider
-    d.line([(534, 28), (534, H - 28)], fill=HAIR, width=1)
-
-    # right: buddy art, big
+    d.line([(534, 28), (534, H - 28)], fill=cs.HAIR, width=1)
+    cs.glass(d, [560, 28, 858, 300], radius=18)
     cx0, cx1, cy0, cy1 = 560, 858, 28, 300
     pasted = False
     if buddy_bytes:
         try:
             sp = _Img.open(_io.BytesIO(buddy_bytes)).convert('RGBA')
-            sp.thumbnail((cx1 - cx0, cy1 - cy0), _Img.LANCZOS)
+            sp.thumbnail((cx1 - cx0 - 24, cy1 - cy0 - 24), _Img.LANCZOS)
             ox = cx0 + (cx1 - cx0 - sp.width) // 2
             oy = cy0 + (cy1 - cy0 - sp.height) // 2
             img.paste(sp, (ox, oy), sp)
             pasted = True
+            d = _Dr.Draw(img, 'RGBA')
         except Exception:
             pass
     if not pasted:
         try:
-            d.ellipse([cx0 + 69, cy0 + 51, cx0 + 229, cy0 + 211], fill=(42, 42, 46))
-            _fl = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 96)
-        except Exception:
-            _fl = f_head
-        try:
-            d.text(((cx0 + cx1) / 2, (cy0 + cy1) / 2), '?', font=_fl,
-                   fill=(220, 220, 225), anchor='mm')
+            d.ellipse([cx0 + 119, cy0 + 56, cx0 + 179, cy0 + 116], fill=(40, 45, 68))
+            d.text(((cx0 + cx1) / 2, (cy0 + cy1) / 2), '?', font=cs.f(96),
+                   fill=(220, 222, 232), anchor='mm')
         except Exception:
             pass
     try:
-        cap = fit(buddy_name or no_buddy_label, f_cap, cx1 - cx0)
-        tw = d.textlength(cap, font=f_cap)
-        d.text(((cx0 + cx1 - tw) / 2, 312), cap, font=f_cap,
-               fill=GOLD if buddy_name else DIM)
+        cap = cs.fit(d, buddy_name or no_buddy_label, cs.f(20), cx1 - cx0 - 24)
+        tw = d.textlength(cap, font=cs.f(20))
+        d.text(((cx0 + cx1 - tw) / 2, 310), cap, font=cs.f(20),
+               fill=cs.GOLD if buddy_name else cs.DIM)
     except Exception:
         pass
-
     buf = _io.BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()

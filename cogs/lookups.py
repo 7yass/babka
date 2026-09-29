@@ -116,6 +116,46 @@ class Lookups(commands.Cog):
         await ctx.reply(embed=ok(t(gid, 'lk.rbx_names', user=username) + '\n' + '\n'.join(f'• {n}' for n in names[:25])),
                         ephemeral=True)
 
+    @commands.command(name='rbx', description='Info o koncie Roblox', aliases=['robloxinfo'])
+    async def rbx(self, ctx, *, username: str = ''):
+        """One-shot Roblox card: profile + avatar + friends + past names.
+        Usage: `.rbx Builderman`."""
+        import aiohttp as _aiohttp
+        gid = ctx.guild.id if ctx.guild else None
+        username = (username or '').strip()
+        if not username:
+            return await ctx.reply('Usage: `.rbx <nick>` (np. `.rbx Builderman`).', ephemeral=True)
+        info = await self._resolve(username)
+        if not info:
+            return await ctx.reply(t(gid, 'lk.rbx_none', user=username), ephemeral=True)
+        uid = info['id']
+        async with aiohttp.ClientSession() as s:
+            prof = await _get_json(s, f'https://users.roblox.com/v1/users/{uid}') or {}
+            fc = await _get_json(s, f'https://friends.roblox.com/v1/users/{uid}/friends/count') or {}
+            fl = await _get_json(s, f'https://friends.roblox.com/v1/users/{uid}/followers/count') or {}
+            th = await _get_json(
+                s, 'https://thumbnails.roblox.com/v1/users/avatar-headshot',
+                params={'userIds': uid, 'size': '420x420', 'format': 'Png', 'isCircular': 'false'})
+            hist = await _get_json(s, f'https://users.roblox.com/v1/users/{uid}/username-history?limit=5&sortOrder=Desc')
+        desc = (prof.get('description') or '')[:300] or '—'
+        names = [h.get('name') for h in ((hist or {}).get('data') or []) if h.get('name')]
+        e = discord.Embed(
+            title=f"{prof.get('displayName', info.get('displayName'))} (@{prof.get('name', username)})",
+            description=desc, color=WHITE,
+            url=f'https://www.roblox.com/users/{uid}/profile')
+        e.add_field(name=t(gid, 'lk.rbx_id'), value=str(uid), inline=True)
+        e.add_field(name=t(gid, 'lk.rbx_created'), value=(prof.get('created') or '?')[:10], inline=True)
+        e.add_field(name=t(gid, 'lk.rbx_friends'), value=f"{fc.get('count', '?')} / {fl.get('count', '?')}", inline=True)
+        if names:
+            e.add_field(name='Past names', value=', '.join(names[:5]), inline=False)
+        if prof.get('isBanned'):
+            e.add_field(name=t(gid, 'lk.rbx_banned'), value=t(gid, 'lk.yes'), inline=True)
+        items = (th or {}).get('data') or []
+        if items and items[0].get('imageUrl'):
+            e.set_thumbnail(url=items[0]['imageUrl'])
+        e.set_footer(text='Babka Danka · Roblox')
+        await ctx.reply(embed=e, mention_author=False)
+
 
 async def setup(bot):
     await bot.add_cog(Lookups(bot))

@@ -108,6 +108,10 @@ BUY_MAP = {
     'curse': ('curse', 0),
     'highroller': ('highroller', 10 * 60),
 }
+# Rob-shield stacking cap: protection time banks up to 7 days total, then
+# further purchases are refused (instead of silently stacking forever).
+SHIELD_MAX_STACK = 7 * 24 * 3600
+SHIELD_PER_BUY = 24 * 3600
 BAIL_COST = SHOP_PRICES['bail'].amount
 VIP_ROLE = 'Babka VIP'
 
@@ -128,6 +132,53 @@ def inv_take(gid, uid, item: str) -> bool:
         conn.execute('UPDATE inventory SET qty=qty-1 WHERE guild_id=? AND user_id=? AND item=?',
                      (str(gid), str(uid), item))
         return True
+
+
+def shield_left(gid, uid) -> int:
+    """Remaining rob-shield seconds, 0 = unprotected."""
+    import time as _t
+    with db.conn_ctx() as conn:
+        row = conn.execute("SELECT expires FROM inventory WHERE guild_id=? AND user_id=? AND item='shield'",
+                           (str(gid), str(uid))).fetchone()
+    if not row or not row['expires']:
+        return 0
+    return max(0, int(row['expires']) - int(_t.time()))
+
+
+def shield_add(gid, uid, seconds: int) -> int:
+    """Bank shield time additively: remaining + seconds, capped at
+    SHIELD_MAX_STACK from now. Returns the new remaining seconds."""
+    import time as _t
+    now = int(_t.time())
+    seconds = max(0, int(seconds))
+    with db.conn_ctx() as conn:
+        row = conn.execute("SELECT expires FROM inventory WHERE guild_id=? AND user_id=? AND item='shield'",
+                           (str(gid), str(uid))).fetchone()
+        cur = int(row['expires']) if row and row['expires'] else 0
+        new_exp = min(max(cur, now) + seconds, now + SHIELD_MAX_STACK)
+        conn.execute('''INSERT INTO inventory (guild_id, user_id, item, qty, expires) VALUES (?,?,?,?,?)
+            ON CONFLICT(guild_id, user_id, item) DO UPDATE SET qty=1, expires=?''',
+                     (str(gid), str(uid), 'shield', 1, new_exp, new_exp))
+    return max(0, new_exp - now)
+
+
+def shield_clear(gid, uid) -> None:
+    """Strip all protection (curse / expiry repair)."""
+    with db.conn_ctx() as conn:
+        conn.execute("UPDATE inventory SET qty=0, expires=0 WHERE guild_id=? AND user_id=? AND item='shield'",
+                     (str(gid), str(uid)))
+
+
+def _fmt_dur(seconds: int) -> str:
+    seconds = max(0, int(seconds or 0))
+    d, rem = divmod(seconds, 86400)
+    h, rem = divmod(rem, 3600)
+    m, _ = divmod(rem, 60)
+    if d:
+        return f'{d}d {h}h'
+    if h:
+        return f'{h}h {m}m'
+    return f'{m}m'
 
 
 # storefront display names + fleet emoji per item key
@@ -189,6 +240,17 @@ class Shop(commands.Cog):
         entries = {k: {'name': DISPLAY[k], 'price': ITEMS[k]['price'],
                        'emo': ITEM_EMOJI.get(k, ''), 'desc': t(gid, ITEMS[k]['use'])}
                    for k in ITEMS}
+        try:
+            with db.conn_ctx() as conn:
+                rows = conn.execute('SELECT item, qty FROM inventory WHERE guild_id=? AND user_id=? AND qty>0',
+                                    (str(gid), str(uid))).fetchall()
+                owned = {r['item']: r['qty'] for r in rows}
+        except Exception:
+            owned = {}
+        if owned:
+            extra = '🎒 ' + ' • '.join(f'{DISPLAY.get(k, k)} x{v}' for k, v in list(owned.items())[:6])
+        else:
+            extra = t(gid, 'shop.tip', cmd='shop', p=db.get_prefix(gid) or '.')
         secs = self.SHOP_SECTIONS if filt is None else \
             [(s, ks) for s, ks in self.SHOP_SECTIONS if s == filt]
         num_of = {k: i for i, k in self.id_map().items()}
@@ -207,6 +269,7 @@ class Shop(commands.Cog):
             ex_label=t(gid, 'shop.ex_label'),
             ex1='nick 1', ex2=f'{num_of.get("nick", 3)} 1',
             foot=t(gid, 'shop.foot', cmd='shop', p=p),
+            extra_head=extra,
             section_emos=SECTION_EMOJI,
             on_section=self._section_cb(gid, uid))
         return layout
@@ -337,6 +400,8 @@ class Shop(commands.Cog):
             return await self._pardon(ctx, price)
         if key == 'bail':
             return await self._buy_bail(ctx, price)
+        if key == 'shield':
+            return await self._buy_shield(ctx, n, price)
         b = bal(gid, ctx.author.id)
         total = price * n
         if b['cash'] < total:
@@ -463,14 +528,57 @@ class Shop(commands.Cog):
             key = resolve_economy_key(key, self.id_map())
         if key not in ITEMS:
             return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
+        from cogs.gamble import bal as _bal
         num_of = {k: i for i, k in self.id_map().items()}
         item_emo = em(gid, ITEM_EMOJI.get(key, ''))
         sec = next((s for s, ks in self.SHOP_SECTIONS if key in ks), '?')
+        price = ITEMS[key]['price']
+        cash = _bal(gid, ctx.author.id)['cash']
+        afford = '✅' if cash >= price else '❌'
+        owned, left_txt = 0, ''
+        try:
+            with db.conn_ctx() as conn:
+                r = conn.execute('SELECT qty, expires FROM inventory WHERE guild_id=? AND user_id=? AND item=?',
+                                 (str(gid), str(ctx.author.id), key)).fetchone()
+                if r and (r['qty'] or 0) > 0:
+                    owned = r['qty']
+                    if r['expires']:
+                        import time as _t
+                        left = max(0, int(r['expires']) - int(_t.time()))
+                        if left:
+                            h, rem = divmod(left, 3600)
+                            mm, _ = divmod(rem, 60)
+                            left_txt = f'\n⏳ Active: {h}h {mm}m left'
+            if key in BUY_MAP:
+                _it, _dur = BUY_MAP[key]
+                if key == 'shield':
+                    dur_txt = '+24h per buy, stacks to 7d'
+                elif _dur:
+                    h = _dur // 3600
+                    mins = (_dur % 3600) // 60
+                    dur_txt = f'{h}h' if h and not mins else (f'{mins}min' if mins and not h else f'{h}h {mins}min')
+                else:
+                    dur_txt = 'one-time use'
+            elif key in ('lootbox', 'megabox', 'scratch', 'cookie'):
+                dur_txt = 'instant gamble'
+            elif key == 'vip':
+                dur_txt = 'permanent role'
+            elif key in ('pardon', 'bail'):
+                dur_txt = 'instant effect'
+            else:
+                dur_txt = 'consumable'
+        except Exception:
+            dur_txt = ''
+        p = db.get_prefix(gid) or '.'
+        desc = (f'{price:,} {em(gid, "coin", "$")}  {afford}\n'
+                f'{t(gid, ITEMS[key]["use"])}\n\n'
+                f'⏱ Effect: {dur_txt}\n'
+                f'🎒 You own: **x{owned}**{left_txt}\n'
+                f'🛒 Buy: `{p}shop buy {key} 1` or `{p}shop buy {num_of.get(key, "?")} 1`\n'
+                f'-# `[{num_of.get(key, "?")}]` {sec} • wallet {cash:,}')
         await ctx.reply(view=card(
             f'{item_emo + " " if item_emo else ""}**{DISPLAY[key]}**',
-            f'{ITEMS[key]["price"]:,} {em(gid, "coin", "$")}\n'
-            f'{t(gid, ITEMS[key]["use"])}\n'
-            f'-# `[{num_of.get(key, "?")}]` {sec}'), ephemeral=True)
+            desc), ephemeral=True)
 
     # (cash_lo, cash_hi, weight) normal prizes per box; then item/jackpot rolls.
     # Tuned so expected value stays well under the price (house edge).
@@ -516,7 +624,10 @@ class Shop(commands.Cog):
         for inv_item, dur, w in cfg['items']:
             acc += w
             if roll < acc:
-                inv_add(gid, ctx.author.id, inv_item, 1, now + dur)
+                if inv_item == 'shield':
+                    shield_add(gid, ctx.author.id, dur)
+                else:
+                    inv_add(gid, ctx.author.id, inv_item, 1, now + dur)
                 return await ctx.reply(t(gid, 'shop.loot_item', item=inv_item), ephemeral=True)
         win = _rnd.randint(cfg['cash'][0], cfg['cash'][1])
         add_cash(gid, ctx.author.id, win)
@@ -600,7 +711,6 @@ class Shop(commands.Cog):
     @commands.command(name='curse', description='Zdejmij komuś tarczę')
     async def curse(self, ctx, member: discord.Member):
         """Spend a curse scroll to strip someone's rob shield."""
-        import time as _t
         gid = ctx.guild.id
         if member.id == ctx.author.id or member.bot:
             return await ctx.reply(t(gid, 'shop.curse_self'), ephemeral=True)
@@ -609,10 +719,20 @@ class Shop(commands.Cog):
                                    ephemeral=True)
         if not inv_take(gid, ctx.author.id, 'curse'):
             return await ctx.reply(t(gid, 'shop.no_curse'), ephemeral=True)
-        with db.conn_ctx() as conn:
-            conn.execute("UPDATE inventory SET expires=0 WHERE guild_id=? AND user_id=? AND item='shield'",
-                         (str(gid), str(member.id)))
+        shield_clear(gid, member.id)
         await ctx.reply(t(gid, 'shop.curse_ok', user=member.display_name))
+
+    @commands.command(name='shield', description='Czyja tarcza jeszcze trzyma')
+    async def shield(self, ctx, member: discord.Member = None):
+        """Shield transparency: anyone can check anyone's remaining protection."""
+        member = member or ctx.author
+        gid = ctx.guild.id
+        left = shield_left(gid, member.id)
+        if left:
+            await ctx.reply(t(gid, 'shop.shield_on', user=member.display_name, left=_fmt_dur(left)),
+                            ephemeral=True)
+        else:
+            await ctx.reply(t(gid, 'shop.shield_off', user=member.display_name), ephemeral=True)
 
     async def _buy_vip(self, ctx, price: int):
         """One-time prestige role purchase."""
@@ -752,6 +872,28 @@ class Shop(commands.Cog):
         add_cash(gid, ctx.author.id, -price)
         db.unjail(gid, ctx.author.id)
         await ctx.reply(t(gid, 'shop.free'))
+
+    async def _buy_shield(self, ctx, n: int, price: int):
+        """Rob shield banks +24h per scroll, capped at 7 days total."""
+        from cogs.gamble import bal, add_cash
+        from utils.cards import short as cshort
+        gid = ctx.guild.id
+        n = max(1, min(7, n or 1))
+        left_before = shield_left(gid, ctx.author.id)
+        if left_before >= SHIELD_MAX_STACK - 60:
+            return await ctx.reply(t(gid, 'shop.shield_full'), ephemeral=True)
+        b = bal(gid, ctx.author.id)
+        total = price * n
+        if b['cash'] < total:
+            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
+        add_cash(gid, ctx.author.id, -total)
+        left = shield_add(gid, ctx.author.id, n * SHIELD_PER_BUY)
+        try:
+            from cogs.achievements import maybe_award
+            maybe_award(gid, ctx.author.id)
+        except Exception:
+            pass
+        await ctx.reply(t(gid, 'shop.shield_ok', n=n, left=_fmt_dur(left)), ephemeral=True)
 
 
 async def setup(bot):

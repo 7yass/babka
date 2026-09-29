@@ -76,6 +76,7 @@ COGS = [
     'cogs.achievements',
     'cogs.stocks',
     'cogs.valorant',
+    'cogs.gametracker',
     'cogs.pokemon',
     'cogs.exploration',
     'cogs.worldboss',

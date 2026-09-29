@@ -1,6 +1,15 @@
-"""Fake stock market: random-walking joke stocks, buy low sell high.
-`.stocks` board, `.stockbuy <sym> <cash>`, `.stocksell <sym> <qty|all>`,
-`.portfolio`. Prices drift every trade + every 15 min in background."""
+"""Babka Stock Exchange: a real-ish market sim.
+
+`.stocks` board (live quotes + open buttons), `.stock view BABKA [1D|1W|1M|1Y|ALL]`
+(Robinhood-style chart + O/H/L, vol, mcap, ATH + timeframe buttons),
+`.stock buy BABKA <10|50%|all|10k>` / `.stock sell BABKA <10|50%|all>`,
+`.stock limit <buy|sell> SYM qty px` (GTC orders matched every tick),
+`.stock orders` / `.stock cancel`, `.portfolio` (alias `.pf`) allocation card.
+
+Market: 60s ticks (trend + noise + jumps + bot volume), 1% broker fee and
+0.5% spread each side, seeded 2Y daily history so 1Y charts work day one.
+"""
+import datetime
 import random
 import time
 
@@ -10,85 +19,480 @@ from discord.ext import commands, tasks
 import database as db
 from lang import t
 from utils.cards import short as cshort
+from utils import cardstyle as cs
 
-# symbol -> (name, start price)
+# symbol -> specs. vol = per-tick sigma, float = shares outstanding (for mcap).
 STOCKS = {
-    'BABKA': ('Babka Industries', 500),
-    'PIEROG': ('Pierogi Consolidated', 200),
-    'ROSOL': ('Rosol Energy', 120),
-    'KLAPEK': ('Klapek Enterprises', 80),
-    'MALUCH': ('Maluch Motors', 300),
-    'BIGOS': ('Bigos Holdings', 60),
+    'BABKA': {'name': 'Babka Industries', 'start': 500, 'vol': 0.012, 'float': 2_000_000},
+    'PIEROG': {'name': 'Pierogi Consolidated', 'start': 200, 'vol': 0.014, 'float': 5_000_000},
+    'ROSOL': {'name': 'Rosol Energy', 'start': 120, 'vol': 0.016, 'float': 8_000_000},
+    'KLAPEK': {'name': 'Klapek Enterprises', 'start': 80, 'vol': 0.018, 'float': 12_000_000},
+    'MALUCH': {'name': 'Maluch Motors', 'start': 300, 'vol': 0.013, 'float': 3_000_000},
+    'BIGOS': {'name': 'Bigos Holdings', 'start': 60, 'vol': 0.020, 'float': 15_000_000},
 }
-TICK_CD = 900  # background drift every 15 min
-HIST_KEEP = 24
+TICK_CD = 60           # live tick every minute
+HIST_KEEP = 3000       # per-symbol history cap (matches db.prune)
+SEED_DAYS = 730        # seeded daily closes so 1W/1M/1Y work instantly
+FEE = 0.01             # 1% broker fee each side, burned
+SPREAD = 0.005         # buy at ask +0.5%, sell at bid -0.5%
+MAX_ORDERS = 5         # open limit orders per user
+ORDER_TTL = 7 * 86400  # GTC expiry
+TF_WINDOWS = {'1D': 86400, '1W': 7 * 86400, '1M': 30 * 86400,
+              '1Y': 365 * 86400, '5Y': 5 * 365 * 86400, 'ALL': 0}
+
+UP = (46, 204, 113)
+DOWN = (231, 76, 60)
+PAL = [(250, 200, 60), (96, 165, 250), (52, 211, 153),
+       (192, 132, 252), (251, 146, 60), (244, 114, 182)]
 
 
-def _now():
+def _now() -> int:
     return int(time.time())
 
 
-def _drift(price: int) -> int:
-    change = random.gauss(0, 0.06)
-    if random.random() < 0.03:  # babka sneezes: crash or moon
-        change += random.choice([-0.35, 0.45])
+def _today_utc() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+
+
+# ---------- engine ----------
+
+def _drift(price: int, sigma: float) -> int:
+    change = random.gauss(0, sigma)
+    if random.random() < 0.008:  # babka sneezes: crash or moon
+        change += random.choice([-0.22, 0.28])
     return max(5, int(price * (1 + change)))
 
 
 def _ensure(gid):
     with db.conn_ctx() as conn:
-        for sym, (_, start) in STOCKS.items():
+        for sym, spec in STOCKS.items():
             conn.execute('INSERT OR IGNORE INTO stocks (guild_id, symbol, price, updated_at) '
-                         'VALUES (?,?,?,?)', (str(gid), sym, start, _now()))
+                         'VALUES (?,?,?,?)', (str(gid), sym, spec['start'], _now()))
+    for sym in STOCKS:
+        _seed_history(gid, sym)
 
 
-def _prices(gid) -> dict:
-    _ensure(gid)
+def _seed_history(gid, sym):
+    """One-time backfill: 2Y of daily closes random-walked backwards from the
+    live price, so long timeframes render on day one. Skipped when the
+    symbol already holds real history."""
     with db.conn_ctx() as conn:
-        rows = conn.execute('SELECT symbol, price FROM stocks WHERE guild_id=?',
-                            (str(gid),)).fetchall()
-    return {r['symbol']: r['price'] for r in rows}
-
-
-def _tick_symbol(gid, sym):
-    with db.conn_ctx() as conn:
-        row = conn.execute('SELECT price FROM stocks WHERE guild_id=? AND symbol=?',
-                           (str(gid), sym)).fetchone()
-        if not row:
+        n = conn.execute('SELECT COUNT(*) c FROM stock_hist WHERE guild_id=? AND symbol=?',
+                         (str(gid), sym)).fetchone()['c']
+        if n >= 400:
             return
-        new = _drift(row['price'])
-        conn.execute('UPDATE stocks SET price=?, updated_at=? WHERE guild_id=? AND symbol=?',
-                     (new, _now(), str(gid), sym))
-        conn.execute('INSERT INTO stock_hist (guild_id, symbol, price, ts) VALUES (?,?,?,?)',
-                     (str(gid), sym, new, _now()))
+        cur = conn.execute('SELECT price FROM stocks WHERE guild_id=? AND symbol=?',
+                           (str(gid), sym)).fetchone()
+        anchor = int(cur['price']) if cur else STOCKS[sym]['start']
+    sigma = STOCKS[sym]['vol'] * 1.1
+    pts, px, now = [], anchor, _now()
+    for i in range(SEED_DAYS):
+        pts.append((now - i * 86400, px))
+        g = random.gauss(0, sigma)
+        if random.random() < 0.01:
+            g += random.choice([-0.10, 0.12])
+        px = max(5, int(px / (1 + g)))
+    with db.conn_ctx() as conn:
+        conn.executemany('INSERT INTO stock_hist (guild_id, symbol, price, ts) VALUES (?,?,?,?)',
+                         [(str(gid), sym, p, ts) for ts, p in reversed(pts)])
         conn.execute('DELETE FROM stock_hist WHERE guild_id=? AND symbol=? AND ts NOT IN '
                      '(SELECT ts FROM stock_hist WHERE guild_id=? AND symbol=? '
                      'ORDER BY ts DESC LIMIT ?)',
                      (str(gid), sym, str(gid), sym, HIST_KEEP))
 
 
-def _spark(gid, sym) -> str:
+def _tick_symbol(gid, sym):
+    _ensure(gid)
+    now = _now()
     with db.conn_ctx() as conn:
-        rows = conn.execute('SELECT price FROM stock_hist WHERE guild_id=? AND symbol=? '
-                            'ORDER BY ts DESC LIMIT 12', (str(gid), sym)).fetchall()
-    if len(rows) < 2:
-        return ''
-    pts = [r['price'] for r in reversed(rows)]
-    lo, hi = min(pts), max(pts)
-    span = hi - lo or 1
-    bars = '▁▂▃▄▅▆▇█'
-    return ''.join(bars[min(7, int((p - lo) / span * 7))] for p in pts)
+        row = conn.execute('SELECT * FROM stocks WHERE guild_id=? AND symbol=?',
+                           (str(gid), sym)).fetchone()
+        if not row:
+            return 0
+        d = dict(row)
+        new = _drift(d['price'], STOCKS[sym]['vol'])
+        today = _today_utc()
+        if d.get('vol_day') != today or not (d.get('day_open') or 0):
+            conn.execute('UPDATE stocks SET price=?, updated_at=?, day_open=?, day_high=?, '
+                         'day_low=?, vol=?, vol_day=? WHERE guild_id=? AND symbol=?',
+                         (new, now, new, new, new,
+                          random.randint(200, 1500), today, str(gid), sym))
+        else:
+            conn.execute('UPDATE stocks SET price=?, updated_at=?, '
+                         'day_high=MAX(day_high,?), day_low=MIN(day_low,?), '
+                         'vol=vol+? WHERE guild_id=? AND symbol=?',
+                         (new, now, new, new, random.randint(50, 600), str(gid), sym))
+        conn.execute('INSERT INTO stock_hist (guild_id, symbol, price, ts) VALUES (?,?,?,?)',
+                     (str(gid), sym, new, now))
+        conn.execute('DELETE FROM stock_hist WHERE guild_id=? AND symbol=? AND ts NOT IN '
+                     '(SELECT ts FROM stock_hist WHERE guild_id=? AND symbol=? '
+                     'ORDER BY ts DESC LIMIT ?)',
+                     (str(gid), sym, str(gid), sym, HIST_KEEP))
+    return new
 
 
-def _pct(gid, sym) -> float:
+def _add_vol(gid, sym, qty: int):
+    try:
+        with db.conn_ctx() as conn:
+            conn.execute('UPDATE stocks SET vol=vol+? WHERE guild_id=? AND symbol=?',
+                         (max(0, int(qty)), str(gid), str(sym)))
+    except Exception:
+        pass
+
+
+def _quote(gid, sym) -> dict:
+    """Live quote + day stats. Ticks the symbol first."""
+    _tick_symbol(gid, sym)
     with db.conn_ctx() as conn:
-        rows = conn.execute('SELECT price FROM stock_hist WHERE guild_id=? AND symbol=? '
-                            'ORDER BY ts ASC LIMIT 1', (str(gid), sym)).fetchone()
-        first = rows['price'] if rows else None
-    cur = _prices(gid).get(sym, 0)
-    if not first or not cur:
-        return 0.0
-    return (cur - first) / first * 100
+        row = conn.execute('SELECT * FROM stocks WHERE guild_id=? AND symbol=?',
+                           (str(gid), sym)).fetchone()
+        ath = conn.execute('SELECT MAX(price) m FROM stock_hist WHERE guild_id=? AND symbol=?',
+                           (str(gid), sym)).fetchone()
+    d = dict(row)
+    o = d.get('day_open') or d['price']
+    chg = (d['price'] - o) / max(1, o) * 100
+    return {'price': d['price'], 'open': o, 'high': d.get('day_high') or d['price'],
+            'low': d.get('day_low') or d['price'], 'vol': d.get('vol') or 0,
+            'chg': chg, 'ath': (ath['m'] if ath and ath['m'] else d['price']),
+            'mcap': d['price'] * STOCKS[sym]['float']}
+
+
+def _history(gid, sym, window: int) -> list:
+    """[(ts, price)] ascending. window=0 means everything."""
+    with db.conn_ctx() as conn:
+        if window:
+            rows = conn.execute('SELECT ts, price FROM stock_hist WHERE guild_id=? AND symbol=? '
+                                'AND ts>=? ORDER BY ts ASC',
+                                (str(gid), sym, _now() - window)).fetchall()
+        else:
+            rows = conn.execute('SELECT ts, price FROM stock_hist WHERE guild_id=? AND symbol=? '
+                                'ORDER BY ts ASC', (str(gid), sym)).fetchall()
+    return [(r['ts'], r['price']) for r in rows]
+
+
+# ---------- order parsing ----------
+
+def _parse_buy(raw: str, cash: int, ask: float):
+    """-> (kind, value): ('shares', n) | ('pct', 0-100) | ('cash', coins) | ('err', None)."""
+    s = (raw or '').strip().lower().replace(',', '').replace(' ', '')
+    if s in ('all', 'max', 'everything'):
+        return ('pct', 100)
+    if s.endswith('%'):
+        try:
+            return ('pct', max(0, min(100, float(s[:-1]))))
+        except Exception:
+            return ('err', None)
+    if s.isdigit():
+        return ('shares', max(0, int(s)))
+    try:
+        from cogs.gamble import parse_bet
+        coins = parse_bet(s, cash)
+        if coins:
+            return ('cash', coins)
+    except Exception:
+        pass
+    return ('err', None)
+
+
+def _parse_sell(raw: str, held: int):
+    s = (raw or '').strip().lower().replace(',', '').replace(' ', '')
+    if s in ('all', 'max', 'everything'):
+        return ('shares', held)
+    if s.endswith('%'):
+        try:
+            return ('shares', int(held * max(0, min(100, float(s[:-1]))) / 100))
+        except Exception:
+            return ('err', None)
+    if s.isdigit():
+        return ('shares', max(0, int(s)))
+    return ('err', None)
+
+
+def _buy_fill(gid, uid, sym, qty: int, ref_price: int = None):
+    """Execute a market buy. Returns (ok, total_cost) — atomic on cash."""
+    from cogs.gamble import bal, add_cash
+    q = _quote(gid, sym) if ref_price is None else None
+    ask = (ref_price or q['price']) * (1 + SPREAD)
+    gross = int(round(ask * qty))
+    total = gross + int(gross * FEE)
+    if total > bal(gid, uid)['cash']:
+        return False, total
+    add_cash(gid, uid, -total)
+    with db.conn_ctx() as conn:
+        conn.execute('INSERT OR IGNORE INTO portfolio (guild_id, user_id, symbol, qty, spent) '
+                     'VALUES (?,?,?,0,0)', (str(gid), str(uid), sym))
+        conn.execute('UPDATE portfolio SET qty=qty+?, spent=spent+? '
+                     'WHERE guild_id=? AND user_id=? AND symbol=?',
+                     (qty, total, str(gid), str(uid), sym))
+    _add_vol(gid, sym, qty)
+    return True, total
+
+
+def _sell_fill(gid, uid, sym, qty: int, ref_price: int = None):
+    """Execute a market sell. Returns (ok, net_gain, pnl)."""
+    from cogs.gamble import add_cash
+    with db.conn_ctx() as conn:
+        pos = conn.execute('SELECT qty, spent FROM portfolio WHERE guild_id=? AND user_id=? AND symbol=?',
+                           (str(gid), str(uid), sym)).fetchone()
+    if not pos or (pos['qty'] or 0) < qty or qty <= 0:
+        return False, 0, 0
+    q = _quote(gid, sym) if ref_price is None else None
+    bid = (ref_price or q['price']) * (1 - SPREAD)
+    gross = int(round(bid * qty))
+    net = gross - int(gross * FEE)
+    avg = (pos['spent'] or 0) / max(1, pos['qty'])
+    pnl = net - int(round(avg * qty))
+    add_cash(gid, uid, net)
+    with db.conn_ctx() as conn:
+        conn.execute('UPDATE portfolio SET qty=qty-?, spent=spent-? '
+                     'WHERE guild_id=? AND user_id=? AND symbol=?',
+                     (qty, int(round(avg * qty)), str(gid), str(uid), sym))
+    _add_vol(gid, sym, qty)
+    return True, net, pnl
+
+
+# ---------- chart ----------
+
+def _downsample(pts: list, n: int = 240) -> list:
+    if len(pts) <= n:
+        return pts
+    step = len(pts) / n
+    return [pts[int(i * step)] for i in range(n)] + [pts[-1]]
+
+
+def stock_chart(sym: str, name: str, pts: list, tf: str, w: int = 900, h: int = 360) -> bytes:
+    """Robinhood-style line chart: gradient area, glowing line, gridlines with
+    right-axis prices, min/max tags, time labels. Green when up over window."""
+    import io as _io
+    from PIL import Image as _Img, ImageDraw as _Dr
+    pts = _downsample(list(pts))
+    img = cs.base(w, h)
+    d = _Dr.Draw(img, 'RGBA')
+    pad_l, pad_r, pad_t, pad_b = 16, 76, 56, 34
+    if len(pts) < 2:
+        d.text((pad_l, h // 2), 'not enough data yet — check back soon',
+               font=cs.f(22), fill=cs.DIM)
+        buf = _io.BytesIO(); img.save(buf, 'PNG'); return buf.getvalue()
+    t0, t1 = pts[0][0], pts[-1][0]
+    p0, p1 = pts[0][1], pts[-1][1]
+    col = UP if p1 >= p0 else DOWN
+    lo = min(p for _, p in pts)
+    hi = max(p for _, p in pts)
+    span = max(1, hi - lo)
+    lo -= span * 0.10
+    hi += span * 0.12
+    span = hi - lo
+    iw, ih = w - pad_l - pad_r, h - pad_t - pad_b
+
+    def xy(ts, p):
+        x = pad_l + (0 if t1 == t0 else (ts - t0) / (t1 - t0)) * iw
+        y = pad_t + (1 - (p - lo) / span) * ih
+        return x, y
+
+    chg = (p1 - p0) / max(1, p0) * 100
+    d.text((pad_l, 12), f'{sym}', font=cs.f(30), fill=cs.INK)
+    try:
+        nw = d.textlength(name, font=cs.f(18, False))
+        d.text((pad_l, 12 + 34), name, font=cs.f(18, False), fill=cs.DIM)
+        _nx = pad_l + nw
+    except Exception:
+        _nx = pad_l
+    tag = f'{tf}  {"+" if chg >= 0 else ""}{chg:.2f}%'
+    try:
+        tw = d.textlength(tag, font=cs.f(20))
+    except Exception:
+        tw = len(tag) * 11
+    d.rounded_rectangle([w - pad_r - tw - 28, 12, w - 16, 12 + 32], radius=16,
+                        outline=col, width=2, fill=(16, 19, 34))
+    d.text((w - pad_r - tw - 14, 17), tag, font=cs.f(20), fill=col)
+    # gridlines + right-axis prices
+    for i in range(5):
+        pv = lo + span * i / 4
+        _, gy = xy(t0, pv)
+        d.line([(pad_l, gy), (w - pad_r + 6, gy)], fill=cs.HAIR, width=1)
+        try:
+            d.text((w - pad_r + 12, gy - 10), cshort(int(round(pv))),
+                   font=cs.f(15, False), fill=cs.FAINT)
+        except Exception:
+            pass
+    # area fill (faded color to bottom)
+    area = _Img.new('RGB', (w, h), (10, 12, 22))
+    ad = _Dr.Draw(area)
+    poly = [xy(ts, p) for ts, p in pts] + [(xy(pts[-1][0], lo)[0], pad_t + ih),
+                                           (xy(pts[0][0], lo)[0], pad_t + ih)]
+    for i in range(h):
+        k = i / max(1, h - 1)
+        line_col = tuple(int(col[j] * (1 - k * 0.88) + 10 * k * 0.88) for j in range(3))
+        ad.line([(0, i), (w, i)], fill=line_col)
+    mask = _Img.new('L', (w, h), 0)
+    _Dr.Draw(mask).polygon(poly, fill=255)
+    try:
+        clip = _Img.new('L', (w, h), 0)
+        _Dr.Draw(clip).rectangle([pad_l, pad_t, w - pad_r, pad_t + ih], fill=255)
+        from PIL import ImageChops as _Ch
+        mask = _Ch.darker(mask, clip)
+    except Exception:
+        pass
+    img.paste(area, (0, 0), mask)
+    d = _Dr.Draw(img, 'RGBA')
+    # glowing line
+    coords = [xy(ts, p) for ts, p in pts]
+    d.line(coords, fill=tuple(c // 3 for c in col), width=9, joint='curve')
+    d.line(coords, fill=col, width=3, joint='curve')
+    # min / max tags
+    i_min = min(range(len(pts)), key=lambda i: pts[i][1])
+    i_max = max(range(len(pts)), key=lambda i: pts[i][1])
+    for idx, lab in ((i_min, 'L'), (i_max, 'H')):
+        mx, my = coords[idx]
+        d.ellipse([mx - 5, my - 5, mx + 5, my + 5], fill=col, outline=(10, 10, 14), width=2)
+        try:
+            tx = min(max(mx - 20, pad_l), w - pad_r - 60)
+            ty = my - 26 if my - 26 > pad_t + 28 else my + 12
+            d.text((tx, ty), f'{lab} {cshort(pts[idx][1])}', font=cs.f(15), fill=col)
+        except Exception:
+            pass
+    # last-price dot
+    lx, ly = coords[-1]
+    d.ellipse([lx - 6, ly - 6, lx + 6, ly + 6], fill=col, outline=(255, 255, 255), width=2)
+    # time labels
+    span_s = t1 - t0
+    fmt = '%H:%M' if span_s < 2.5 * 86400 else ('%b %d' if span_s < 70 * 86400 else '%b %Y')
+    for i in range(5):
+        ts = t0 + span_s * i / 4
+        try:
+            lab = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).strftime(fmt)
+            tw = d.textlength(lab, font=cs.f(15, False))
+            lx = pad_l + iw * i / 4
+            lx = pad_l if i == 0 else (w - pad_r - tw if i == 4 else lx - tw / 2)
+            d.text((lx, h - pad_b + 8), lab, font=cs.f(15, False), fill=cs.FAINT)
+        except Exception:
+            pass
+    buf = _io.BytesIO()
+    img.save(buf, 'PNG')
+    return buf.getvalue()
+
+
+# ---------- portfolio card ----------
+
+def portfolio_card(name: str, avatar_bytes: bytes, cash: int, total: int,
+                   day_pnl: int, total_pnl: int, alloc: list) -> bytes:
+    """Allocation card: header tiles + donut + position legend.
+    alloc = [(sym, qty, value, pnl)] sorted desc."""
+    import io as _io
+    from PIL import ImageDraw as _Dr
+    npos = len(alloc)
+    rows = min(max(npos, 1), 6)
+    W, H = 900, 300 + rows * 44
+    img = cs.base(W, H)
+    d = _Dr.Draw(img, 'RGBA')
+    cs.edge_bars(d, W, H)
+    if not (avatar_bytes and cs.avatar(img, avatar_bytes, (42, 30, 92), cs.GOLD, 3)):
+        cs.fallback(img, (42, 30, 92), name)
+    d = _Dr.Draw(img, 'RGBA')
+    d.text((150, 30), cs.safe_img(name).upper()[:16], font=cs.f(32), fill=cs.INK)
+    cs.tracked(d, (150, 70), f'{npos} POSITIONS  •  CASH {cshort(cash)}', cs.f(15), cs.FAINT)
+    tiles = [('TOTAL VALUE', cshort(total), cs.GOLD),
+             ('DAY P/L', f'{"+" if day_pnl >= 0 else ""}{cshort(day_pnl)}',
+              UP if day_pnl >= 0 else DOWN),
+             ('TOTAL P/L', f'{"+" if total_pnl >= 0 else ""}{cshort(total_pnl)}',
+              UP if total_pnl >= 0 else DOWN)]
+    tw_all = W - 150 - 42
+    cw = (tw_all - 24) / 3
+    for i, (lab, val, col) in enumerate(tiles):
+        cx = 150 + i * (cw + 12)
+        cs.glass(d, [cx, 108, cx + cw, 172], radius=12)
+        cs.tracked(d, (cx + 14, 116), lab, cs.f(14), cs.FAINT)
+        d.text((cx + 14, 134), cs.safe_img(val)[:14], font=cs.f(26), fill=col)
+    # donut
+    dcx, dcy, dr = 190, 172 + (H - 172) // 2 + 10, 104
+    tot = max(1, sum(v for _, _, v, _ in alloc))
+    ang = -90.0
+    for i, (sym, _q, v, _p) in enumerate(alloc[:6]):
+        frac = max(0.02, v / tot) if v > 0 else 0
+        if frac <= 0:
+            continue
+        d.pieslice([dcx - dr, dcy - dr, dcx + dr, dcy + dr], ang, ang + frac * 360,
+                   fill=PAL[i % len(PAL)], outline=(10, 10, 14), width=2)
+        ang += frac * 360
+    d.ellipse([dcx - 62, dcy - 62, dcx + 62, dcy + 62], fill=(13, 16, 30))
+    d.ellipse([dcx - 62, dcy - 62, dcx + 62, dcy + 62], outline=cs.HAIR, width=2)
+    try:
+        d.text((dcx, dcy - 2), f'{npos}', font=cs.f(40), fill=cs.INK, anchor='mm')
+    except Exception:
+        pass
+    # legend
+    lx, ly = 340, 196
+    if not alloc:
+        d.text((lx, ly + 40), 'no positions — .stock buy to start', font=cs.f(20), fill=cs.DIM)
+    for i, (sym, qty, val, pnl) in enumerate(alloc[:6]):
+        y = ly + i * 44
+        d.ellipse([lx, y + 4, lx + 18, y + 22], fill=PAL[i % len(PAL)])
+        d.text((lx + 28, y), sym, font=cs.f(22), fill=cs.INK)
+        d.text((lx + 130, y), f'x{qty:,}', font=cs.f(20), fill=cs.DIM)
+        try:
+            vw = d.textlength(cshort(val), font=cs.f(22))
+            d.text((W - 42 - vw - 110, y), cshort(val), font=cs.f(22), fill=cs.INK)
+            pv = f'{"+" if pnl >= 0 else ""}{cshort(pnl)}'
+            d.text((W - 42 - 100, y), pv[:12], font=cs.f(20),
+                   fill=UP if pnl >= 0 else DOWN)
+        except Exception:
+            pass
+    buf = _io.BytesIO()
+    img.save(buf, 'PNG')
+    return buf.getvalue()
+
+
+# ---------- views ----------
+
+def _chart_view(gid, sym: str, tf: str, stats_txt: str, img_url: str = 'attachment://chart.png'):
+    from cogs.gamble import _game_layout
+    from discord.ui import ActionRow
+    up = _history(gid, sym, 86400)
+    arrow = '▲' if (up[-1][1] - up[0][1] if len(up) > 1 else 0) >= 0 else '▼'
+    layout = _game_layout(f'{arrow} {sym} · {STOCKS[sym]["name"]}  [{tf}]', stats_txt, img_url,
+                          accent=0x2ECC71 if arrow == '▲' else 0xE74C3C)
+    for child in layout.children:
+        if type(child).__name__ == 'Container':
+            row = ActionRow()
+            for _tf in ('1D', '1W', '1M', '1Y', 'ALL'):
+                b = discord.ui.Button(label=_tf,
+                                      style=discord.ButtonStyle.success if _tf == tf else discord.ButtonStyle.grey,
+                                      custom_id=f'stk:{sym}:{_tf}')
+                b.callback = _mk_tf_cb(sym, _tf)
+                row.add_item(b)
+            child.add_item(row)
+            break
+    return layout
+
+
+def _mk_tf_cb(sym: str, tf: str):
+    async def _cb(interaction: discord.Interaction):
+        from lang import set_ctx_lang
+        set_ctx_lang(interaction.user)
+        try:
+            await interaction.response.defer()
+        except Exception:
+            pass
+        gid = interaction.guild_id
+        window = TF_WINDOWS.get(tf, 86400)
+        pts = _history(gid, sym, window)
+        q = _quote(gid, sym)
+        png = stock_chart(sym, STOCKS[sym]['name'], pts, tf)
+        view = _chart_view(gid, sym, tf, _stats_txt(gid, sym, q))
+        try:
+            await interaction.edit_original_response(
+                view=view, attachments=[discord.File(__import__('io').BytesIO(png), 'chart.png')])
+        except Exception:
+            pass
+    return _cb
+
+
+def _stats_txt(gid, sym: str, q: dict) -> str:
+    arrow = '▲' if q['chg'] >= 0 else '▼'
+    return (f"**{cshort(q['price'])}**  {arrow}{abs(q['chg']):.2f}% today\n"
+            f"O {cshort(q['open'])} • H {cshort(q['high'])} • L {cshort(q['low'])} • "
+            f"Vol {cshort(q['vol'])}\n"
+            f"MCap {cshort(q['mcap'])} • ATH {cshort(q['ath'])}")
 
 
 class Stocks(commands.Cog):
@@ -101,123 +505,337 @@ class Stocks(commands.Cog):
 
     @tasks.loop(seconds=TICK_CD)
     async def ticker(self):
+        await self.bot.wait_until_ready()
         try:
             with db.conn_ctx() as conn:
                 gids = [r['guild_id'] for r in conn.execute(
                     'SELECT DISTINCT guild_id FROM stocks').fetchall()]
             for g in gids:
                 for sym in STOCKS:
-                    _tick_symbol(g, sym)
+                    try:
+                        px = _tick_symbol(g, sym)
+                        await self._match_orders(g, sym, px)
+                    except Exception:
+                        continue
+            with db.conn_ctx() as conn:
+                conn.execute('DELETE FROM stock_orders WHERE expires_at<?', (_now(),))
         except Exception:
             pass
 
-    @ticker.before_loop
-    async def _before_ticker(self):
-        await self.bot.wait_until_ready()
+    async def _match_orders(self, gid, sym: str, price: int):
+        with db.conn_ctx() as conn:
+            rows = conn.execute('SELECT * FROM stock_orders WHERE guild_id=? AND symbol=?',
+                                (str(gid), str(sym))).fetchall()
+        for r in rows:
+            o = dict(r)
+            hit = (o['side'] == 'buy' and price <= o['limit_px']) or \
+                  (o['side'] == 'sell' and price >= o['limit_px'])
+            if not hit:
+                continue
+            ok = False
+            if o['side'] == 'buy':
+                ok, _ = _buy_fill(gid, o['user_id'], sym, o['qty'], ref_price=price)
+            else:
+                ok, _, _ = _sell_fill(gid, o['user_id'], sym, o['qty'], ref_price=price)
+            with db.conn_ctx() as conn:
+                conn.execute('DELETE FROM stock_orders WHERE id=?', (o['id'],))
+            if not ok:
+                continue
+            try:
+                ch = self.bot.get_channel(int(o['channel_id'])) if o['channel_id'] else None
+                if ch:
+                    await ch.send(t(gid, 'eco.stx_fill', idx=o['id'], side=o['side'],
+                                    qty=o['qty'], sym=sym, px=cshort(price)))
+            except Exception:
+                pass
 
-    def _board(self, gid) -> str:
+    # ----- board -----
+    def _board(self, gid):
         from cogs.gamble import _game_layout
-        prices = _prices(gid)
+        from discord.ui import ActionRow
         lines = []
-        for sym, (name, _) in STOCKS.items():
-            p = prices.get(sym, 0)
-            ch = _pct(gid, sym)
-            arrow = '▲' if ch >= 0 else '▼'
-            lines.append(f"• **{sym}** ({name}) — {cshort(p)} {arrow}{abs(ch):.1f}% {_spark(gid, sym)}")
-        return _game_layout(t(gid, 'eco.stocks_title'), '\n'.join(lines))
+        for sym in STOCKS:
+            q = _quote(gid, sym)
+            arrow = '▲' if q['chg'] >= 0 else '▼'
+            lines.append(f"• **{sym}** ({STOCKS[sym]['name']}) — **{cshort(q['price'])}** "
+                         f"{arrow}{abs(q['chg']):.2f}%  ·  H {cshort(q['high'])} L {cshort(q['low'])} "
+                         f"· Vol {cshort(q['vol'])}")
+        layout = _game_layout(t(gid, 'eco.stocks_title'), '\n'.join(lines),
+                              accent=0xFAC43C)
+        for child in layout.children:
+            if type(child).__name__ == 'Container':
+                row = ActionRow()
+                for sym in STOCKS:
+                    b = discord.ui.Button(label=sym, style=discord.ButtonStyle.grey,
+                                          custom_id=f'stv:{sym}')
+                    b.callback = _mk_view_cb(sym)
+                    row.add_item(b)
+                child.add_item(row)
+                break
+        return layout
 
     @commands.command(name='stocks', description='Giełda babki')
     async def stocks(self, ctx):
-        for sym in STOCKS:
-            _tick_symbol(ctx.guild.id, sym)
-        await ctx.reply(view=self._board(ctx.guild.id), ephemeral=True)
+        await ctx.defer()
+        await ctx.reply(view=self._board(ctx.guild.id), mention_author=False)
 
+    # ----- stock group -----
+    @commands.group(name='stock', description='Akcje: buy / sell / view / limit',
+                    invoke_without_command=True)
+    async def stock(self, ctx):
+        await ctx.reply(t(ctx.guild.id, 'eco.stx_use'), ephemeral=True)
+
+    @stock.command(name='buy', description='Kup akcje')
+    async def stock_buy(self, ctx, symbol: str = '', amount: str = ''):
+        from cogs.gamble import bal
+        gid = ctx.guild.id
+        sym = (symbol or '').upper()
+        if sym not in STOCKS or not amount:
+            return await ctx.reply(t(gid, 'eco.stx_buy_use'), ephemeral=True)
+        q = _quote(gid, sym)
+        ask = q['price'] * (1 + SPREAD)
+        kind, val = _parse_buy(amount, bal(gid, ctx.author.id)['cash'], ask)
+        if kind == 'err':
+            return await ctx.reply(t(gid, 'eco.stx_shares'), ephemeral=True)
+        if kind == 'pct':
+            budget = bal(gid, ctx.author.id)['cash'] * val / 100
+            qty = int(budget // (ask * (1 + FEE)))
+        elif kind == 'cash':
+            qty = int(val // (ask * (1 + FEE)))
+        else:
+            qty = int(val)
+        if qty <= 0:
+            return await ctx.reply(t(gid, 'eco.stock_poor', price=cshort(q['price'])), ephemeral=True)
+        ok, total = _buy_fill(gid, ctx.author.id, sym, qty, ref_price=q['price'])
+        if not ok:
+            b = bal(gid, ctx.author.id)
+            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
+        from cogs.gamble import _game_layout
+        fee = total - int(round(ask * qty))
+        await ctx.reply(view=_game_layout(
+            t(gid, 'eco.stock_bought_title'),
+            t(gid, 'eco.stx_bought', qty=qty, sym=sym, px=cshort(q['price']),
+              cost=cshort(total), fee=cshort(fee))), ephemeral=True)
+
+    @stock.command(name='sell', description='Sprzedaj akcje')
+    async def stock_sell(self, ctx, symbol: str = '', amount: str = 'all'):
+        gid = ctx.guild.id
+        sym = (symbol or '').upper()
+        if sym not in STOCKS:
+            return await ctx.reply(t(gid, 'eco.stock_no', syms='/'.join(STOCKS)), ephemeral=True)
+        with db.conn_ctx() as conn:
+            pos = conn.execute('SELECT qty FROM portfolio WHERE guild_id=? AND user_id=? AND symbol=?',
+                               (str(gid), str(ctx.author.id), sym)).fetchone()
+        held = (pos['qty'] if pos else 0) or 0
+        if not held:
+            return await ctx.reply(t(gid, 'eco.stock_none', sym=sym), ephemeral=True)
+        kind, val = _parse_sell(amount or 'all', held)
+        if kind == 'err':
+            return await ctx.reply(t(gid, 'eco.stx_shares'), ephemeral=True)
+        n = min(int(val), held)
+        if n <= 0:
+            return await ctx.reply(t(gid, 'eco.bet_pos'), ephemeral=True)
+        q = _quote(gid, sym)
+        ok, net, pnl = _sell_fill(gid, ctx.author.id, sym, n, ref_price=q['price'])
+        if not ok:
+            return await ctx.reply(t(gid, 'eco.stock_none', sym=sym), ephemeral=True)
+        from cogs.gamble import _game_layout
+        fee = int(round(q['price'] * (1 - SPREAD) * n)) - net
+        await ctx.reply(view=_game_layout(
+            t(gid, 'eco.stock_sold_title'),
+            t(gid, 'eco.stx_sold', qty=n, sym=sym, px=cshort(q['price']),
+              gain=cshort(net), fee=cshort(fee), pnl=cshort(pnl))), ephemeral=True)
+
+    @stock.command(name='view', description='Wykres akcji')
+    async def stock_view(self, ctx, symbol: str = '', tf: str = '1D'):
+        gid = ctx.guild.id
+        sym = (symbol or '').upper()
+        if sym not in STOCKS:
+            return await ctx.reply(t(gid, 'eco.stock_no', syms='/'.join(STOCKS)), ephemeral=True)
+        tf = (tf or '1D').upper()
+        if tf not in TF_WINDOWS:
+            tf = '1D'
+        await ctx.defer()
+        pts = _history(gid, sym, TF_WINDOWS[tf])
+        q = _quote(gid, sym)
+        png = await self.bot.loop.run_in_executor(None, stock_chart, sym,
+                                                  STOCKS[sym]['name'], pts, tf)
+        await ctx.reply(view=_chart_view(gid, sym, tf, _stats_txt(gid, sym, q)),
+                        file=discord.File(__import__('io').BytesIO(png), 'chart.png'),
+                        mention_author=False)
+
+    @stock.command(name='limit', description='Zlecenie limit')
+    async def stock_limit(self, ctx, side: str = '', symbol: str = '', qty: str = '', px: str = ''):
+        gid = ctx.guild.id
+        side = (side or '').lower()
+        sym = (symbol or '').upper()
+        if side not in ('buy', 'sell') or sym not in STOCKS:
+            return await ctx.reply(t(gid, 'eco.stx_limit_use'), ephemeral=True)
+        try:
+            n = max(1, int((qty or '').replace(',', '')))
+            lim = max(1, int((px or '').lower().replace('@', '').replace(',', '')
+                             .replace('k', '000')))
+        except Exception:
+            return await ctx.reply(t(gid, 'eco.stx_limit_use'), ephemeral=True)
+        with db.conn_ctx() as conn:
+            mine = conn.execute('SELECT COUNT(*) c FROM stock_orders WHERE guild_id=? AND user_id=?',
+                                (str(gid), str(ctx.author.id))).fetchone()['c']
+        if mine >= MAX_ORDERS:
+            return await ctx.reply(t(gid, 'eco.stx_maxorders', n=MAX_ORDERS), ephemeral=True)
+        with db.conn_ctx() as conn:
+            cur = conn.execute('INSERT INTO stock_orders (guild_id, user_id, symbol, side, qty, '
+                               'limit_px, created_at, expires_at, channel_id) VALUES (?,?,?,?,?,?,?,?,?)',
+                               (str(gid), str(ctx.author.id), sym, side, n, lim,
+                                _now(), _now() + ORDER_TTL, str(ctx.channel.id)))
+            oid = cur.lastrowid
+        await ctx.reply(t(gid, 'eco.stx_limit_ok', side=side, qty=n, sym=sym,
+                            px=cshort(lim), idx=oid), ephemeral=True)
+
+    @stock.command(name='orders', description='Twoje zlecenia')
+    async def stock_orders(self, ctx):
+        from cogs.gamble import _game_layout
+        gid = ctx.guild.id
+        with db.conn_ctx() as conn:
+            rows = conn.execute('SELECT * FROM stock_orders WHERE guild_id=? AND user_id=? ORDER BY id',
+                                (str(gid), str(ctx.author.id))).fetchall()
+        if not rows:
+            return await ctx.reply(t(gid, 'eco.stx_orders_empty'), ephemeral=True)
+        lines = [f"• #{dict(r)['id']} {dict(r)['side']} {dict(r)['qty']}x {dict(r)['symbol']} "
+                 f"@ {cshort(dict(r)['limit_px'])}" for r in rows]
+        await ctx.reply(view=_game_layout(t(gid, 'eco.stx_orders_title'), '\n'.join(lines)),
+                        ephemeral=True)
+
+    @stock.command(name='cancel', description='Anuluj zlecenie')
+    async def stock_cancel(self, ctx, oid: str = ''):
+        gid = ctx.guild.id
+        with db.conn_ctx() as conn:
+            if (oid or '').lower() == 'all':
+                conn.execute('DELETE FROM stock_orders WHERE guild_id=? AND user_id=?',
+                             (str(gid), str(ctx.author.id)))
+                return await ctx.reply(t(gid, 'eco.stx_cancelled', idx='all'), ephemeral=True)
+            try:
+                i = int(oid)
+            except Exception:
+                return await ctx.reply(t(gid, 'eco.stx_cancel_use'), ephemeral=True)
+            cur = conn.execute('DELETE FROM stock_orders WHERE id=? AND guild_id=? AND user_id=?',
+                               (i, str(gid), str(ctx.author.id)))
+            if not (cur.rowcount or 0):
+                return await ctx.reply(t(gid, 'eco.stx_no_order', idx=oid), ephemeral=True)
+        await ctx.reply(t(gid, 'eco.stx_cancelled', idx=oid), ephemeral=True)
+
+    # ----- legacy wrappers -----
     @commands.command(name='stockbuy', description='Kup akcje')
     async def stockbuy(self, ctx, symbol: str, cash: int):
-        from cogs.gamble import bal, set_cash, add_cash
+        from cogs.gamble import bal
         gid = ctx.guild.id
         sym = (symbol or '').upper()
         if sym not in STOCKS:
             return await ctx.reply(t(gid, 'eco.stock_no', syms='/'.join(STOCKS)), ephemeral=True)
         if cash <= 0:
             return await ctx.reply(t(gid, 'eco.bet_pos'), ephemeral=True)
-        _tick_symbol(gid, sym)
-        price = _prices(gid)[sym]
-        qty = cash // price
+        q = _quote(gid, sym)
+        ask = q['price'] * (1 + SPREAD)
+        qty = int(cash // (ask * (1 + FEE)))
         if qty <= 0:
-            return await ctx.reply(t(gid, 'eco.stock_poor', price=cshort(price)), ephemeral=True)
-        cost = qty * price
-        b = bal(gid, ctx.author.id)
-        if cost > b['cash']:
+            return await ctx.reply(t(gid, 'eco.stock_poor', price=cshort(q['price'])), ephemeral=True)
+        ok, total = _buy_fill(gid, ctx.author.id, sym, qty, ref_price=q['price'])
+        if not ok:
+            b = bal(gid, ctx.author.id)
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        add_cash(gid, ctx.author.id, -cost)
-        with db.conn_ctx() as conn:
-            conn.execute('INSERT OR IGNORE INTO portfolio (guild_id, user_id, symbol, qty, spent) '
-                         'VALUES (?,?,?,0,0)', (str(gid), str(ctx.author.id), sym))
-            conn.execute('UPDATE portfolio SET qty=qty+?, spent=spent+? '
-                         'WHERE guild_id=? AND user_id=? AND symbol=?',
-                         (qty, cost, str(gid), str(ctx.author.id), sym))
         from cogs.gamble import _game_layout
         await ctx.reply(view=_game_layout(
             t(gid, 'eco.stock_bought_title'),
-            t(gid, 'eco.stock_bought', qty=qty, sym=sym, cost=cshort(cost))), ephemeral=True)
+            t(gid, 'eco.stock_bought', qty=qty, sym=sym, cost=cshort(total))), ephemeral=True)
 
     @commands.command(name='stocksell', description='Sprzedaj akcje')
     async def stocksell(self, ctx, symbol: str, qty: str = 'all'):
-        from cogs.gamble import bal, set_cash, add_cash
-        gid = ctx.guild.id
-        sym = (symbol or '').upper()
-        if sym not in STOCKS:
-            return await ctx.reply(t(gid, 'eco.stock_no', syms='/'.join(STOCKS)), ephemeral=True)
-        with db.conn_ctx() as conn:
-            pos = conn.execute('SELECT qty, spent FROM portfolio WHERE guild_id=? AND user_id=? AND symbol=?',
-                               (str(gid), str(ctx.author.id), sym)).fetchone()
-        if not pos or not pos['qty']:
-            return await ctx.reply(t(gid, 'eco.stock_none', sym=sym), ephemeral=True)
-        _tick_symbol(gid, sym)
-        price = _prices(gid)[sym]
-        n = pos['qty'] if str(qty).lower() == 'all' else max(0, int(qty or 0))
-        n = min(n, pos['qty'])
-        if n <= 0:
-            return await ctx.reply(t(gid, 'eco.bet_pos'), ephemeral=True)
-        gain = n * price
-        avg = (pos['spent'] or 0) / max(1, pos['qty'])
-        pnl = gain - int(avg * n)
-        b = bal(gid, ctx.author.id)
-        add_cash(gid, ctx.author.id, gain)
-        with db.conn_ctx() as conn:
-            conn.execute('UPDATE portfolio SET qty=qty-?, spent=spent-? '
-                         'WHERE guild_id=? AND user_id=? AND symbol=?',
-                         (n, int(avg * n), str(gid), str(ctx.author.id), sym))
-        from cogs.gamble import _game_layout
-        await ctx.reply(view=_game_layout(
-            t(gid, 'eco.stock_sold_title'),
-            t(gid, 'eco.stock_sold', qty=n, sym=sym, gain=cshort(gain), pnl=cshort(pnl))),
-            ephemeral=True)
+        await self.stock_sell(ctx, symbol, qty)
 
-    @commands.command(name='portfolio', description='Twoje akcje', aliases=['portfel'])
-    async def portfolio(self, ctx):
+    @commands.command(name='portfolio', description='Twoje akcje', aliases=['portfel', 'pf'])
+    async def portfolio(self, ctx, member: discord.Member = None):
+        import asyncio as _aio
+        member = member or ctx.author
+        await ctx.defer()
         gid = ctx.guild.id
-        prices = _prices(gid)
+        prices = {s: _quote(gid, s)['price'] for s in STOCKS}
+        opens = {}
         with db.conn_ctx() as conn:
+            for s in STOCKS:
+                r = conn.execute('SELECT day_open FROM stocks WHERE guild_id=? AND symbol=?',
+                                 (str(gid), s)).fetchone()
+                opens[s] = (r['day_open'] if r and r['day_open'] else prices[s])
             rows = [dict(r) for r in conn.execute(
                 'SELECT symbol, qty, spent FROM portfolio WHERE guild_id=? AND user_id=? AND qty>0',
-                (str(gid), str(ctx.author.id))).fetchall()]
+                (str(gid), str(member.id))).fetchall()]
         if not rows:
             return await ctx.reply(t(gid, 'eco.port_empty'), ephemeral=True)
-        from cogs.gamble import _game_layout
-        lines, total, invested = [], 0, 0
+        from cogs.gamble import bal
+        alloc, total, invested, day_pnl = [], 0, 0, 0
         for r in rows:
-            val = r['qty'] * prices.get(r['symbol'], 0)
+            px = prices.get(r['symbol'], 0)
+            val = r['qty'] * px
             pnl = val - (r['spent'] or 0)
+            day_pnl += r['qty'] * (px - opens.get(r['symbol'], px))
             total += val
             invested += r['spent'] or 0
-            arrow = '▲' if pnl >= 0 else '▼'
-            lines.append(f"• **{r['symbol']}** x{r['qty']} — {cshort(val)} ({arrow}{cshort(abs(pnl))})")
-        lines.append(t(gid, 'eco.port_total', val=cshort(total), pnl=cshort(total - invested)))
-        await ctx.reply(view=_game_layout(
-            t(gid, 'eco.port_title', user=ctx.author.display_name), '\n'.join(lines)),
-            ephemeral=True)
+            alloc.append((r['symbol'], r['qty'], val, pnl))
+        alloc.sort(key=lambda a: -a[2])
+        try:
+            av = await _aio.wait_for(member.display_avatar.read(), timeout=4)
+        except Exception:
+            av = None
+        png = await self.bot.loop.run_in_executor(
+            None, portfolio_card, member.display_name, av,
+            bal(gid, member.id)['cash'], total, day_pnl, total - invested, alloc)
+        await ctx.reply(file=discord.File(__import__('io').BytesIO(png), 'portfolio.png'),
+                        mention_author=False)
+
+    @commands.Cog.listener()
+    async def on_interaction(self, interaction: discord.Interaction):
+        if interaction.type != discord.InteractionType.component:
+            return
+        cid = interaction.data.get('custom_id', '')
+        if cid.startswith('stv:'):
+            sym = cid.split(':', 1)[1]
+            if sym not in STOCKS:
+                return
+            from lang import set_ctx_lang
+            set_ctx_lang(interaction.user)
+            try:
+                await interaction.response.defer()
+            except Exception:
+                pass
+            gid = interaction.guild_id
+            pts = _history(gid, sym, TF_WINDOWS['1D'])
+            q = _quote(gid, sym)
+            png = stock_chart(sym, STOCKS[sym]['name'], pts, '1D')
+            view = _chart_view(gid, sym, '1D', _stats_txt(gid, sym, q))
+            try:
+                await interaction.edit_original_response(
+                    view=view, attachments=[discord.File(__import__('io').BytesIO(png), 'chart.png')])
+            except Exception:
+                pass
+
+
+def _mk_view_cb(sym: str):
+    async def _cb(interaction: discord.Interaction):
+        from lang import set_ctx_lang
+        set_ctx_lang(interaction.user)
+        try:
+            await interaction.response.defer()
+        except Exception:
+            pass
+        gid = interaction.guild_id
+        pts = _history(gid, sym, TF_WINDOWS['1D'])
+        q = _quote(gid, sym)
+        png = stock_chart(sym, STOCKS[sym]['name'], pts, '1D')
+        view = _chart_view(gid, sym, '1D', _stats_txt(gid, sym, q))
+        try:
+            await interaction.edit_original_response(
+                view=view, attachments=[discord.File(__import__('io').BytesIO(png), 'chart.png')])
+        except Exception:
+            pass
+    return _cb
 
 
 async def setup(bot):

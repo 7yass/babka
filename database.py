@@ -38,7 +38,8 @@ def backup_to(path) -> None:
 
 def prune() -> dict:
     """Retention: drop per-day message stats older than 30 days and cap
-    stock history at 200 rows per symbol. Keeps data.db (and its daily
+    stock history at 3000 rows per symbol (~2 days of 60s ticks plus
+    seeded daily closes for the 1Y chart). Keeps data.db (and its daily
     backup copy) from growing forever on small hosts."""
     out = {'msg_stats': 0, 'stock_hist': 0}
     with conn_ctx() as conn:
@@ -48,7 +49,7 @@ def prune() -> dict:
             SELECT rowid FROM stock_hist AS keep
             WHERE keep.guild_id = stock_hist.guild_id
               AND keep.symbol = stock_hist.symbol
-            ORDER BY ts DESC LIMIT 200)''')
+            ORDER BY ts DESC LIMIT 3000)''')
         out['stock_hist'] = cur.rowcount or 0
     return out
 
@@ -165,7 +166,12 @@ def init_db():
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL,
             xp INTEGER DEFAULT 0, level INTEGER DEFAULT 0,
             last_text_xp INTEGER DEFAULT 0, voice_minutes INTEGER DEFAULT 0,
+            text_messages INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id))''')
+        try:
+            c.execute('ALTER TABLE levels ADD COLUMN text_messages INTEGER DEFAULT 0')
+        except Exception:
+            pass  # already there
         c.execute('''CREATE TABLE IF NOT EXISTS guild_settings (
             guild_id TEXT PRIMARY KEY, levelup_channel TEXT,
             levelup_dm INTEGER DEFAULT 0, modlog_channel TEXT,
@@ -432,7 +438,24 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS stocks (
             guild_id TEXT NOT NULL, symbol TEXT NOT NULL, price INTEGER DEFAULT 100,
             updated_at INTEGER DEFAULT 0,
+            day_open INTEGER DEFAULT 0, day_high INTEGER DEFAULT 0,
+            day_low INTEGER DEFAULT 0, vol INTEGER DEFAULT 0,
+            vol_day TEXT DEFAULT '',
             PRIMARY KEY (guild_id, symbol))''')
+        for col in ('day_open INTEGER DEFAULT 0', 'day_high INTEGER DEFAULT 0',
+                    'day_low INTEGER DEFAULT 0', 'vol INTEGER DEFAULT 0',
+                    "vol_day TEXT DEFAULT ''"):
+            try:
+                c.execute(f'ALTER TABLE stocks ADD COLUMN {col}')
+            except Exception:
+                pass  # already there
+        c.execute('''CREATE TABLE IF NOT EXISTS stock_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id TEXT NOT NULL,
+            user_id TEXT NOT NULL, symbol TEXT NOT NULL, side TEXT NOT NULL,
+            qty INTEGER NOT NULL, limit_px INTEGER NOT NULL,
+            created_at INTEGER DEFAULT 0, expires_at INTEGER DEFAULT 0,
+            channel_id TEXT DEFAULT '')''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_stock_orders_sym ON stock_orders(guild_id, symbol)')
         c.execute('''CREATE TABLE IF NOT EXISTS stock_hist (
             guild_id TEXT NOT NULL, symbol TEXT NOT NULL, price INTEGER DEFAULT 0,
             ts INTEGER DEFAULT 0)''')

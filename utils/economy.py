@@ -107,6 +107,7 @@ CASINO_POKER_HR_CAP_MULT = 10
 CASINO_SLOTS_CAP_MULT = 4
 CASINO_ROU_CAP_MULT = 5
 CASINO_BJ_CAP_MULT = 2
+CASINO_COIN_CAP_MULT = 1
 
 # ---- crime ----
 # Stakes and multipliers per heist target. Chances (base 0.30 + 0.07/crew,

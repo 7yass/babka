@@ -14,8 +14,8 @@ from lang import t, get_lang
 from utils.embeds import build, err, foot, ok, say, WHITE, GREEN
 from utils.checks import staff_or
 
-TEXT_MIN, TEXT_MAX, COOLDOWN = 15, 25, 60
-VOICE_PER_MIN = 8
+TEXT_MIN, TEXT_MAX, COOLDOWN = 8, 12, 60
+VOICE_PER_MIN = 4
 STREAM_MULT = 1.5
 MIN_GIF_LEVEL = 10
 GIF_CD = 20  # seconds between GIFs per user
@@ -91,11 +91,18 @@ def user_boost(guild_id, user_id) -> float:
 def get_user(guild_id, user_id) -> dict:
     gid, uid = str(guild_id), str(user_id)
     with db.conn_ctx() as conn:
+        try:
+            conn.execute('ALTER TABLE levels ADD COLUMN text_messages INTEGER DEFAULT 0')
+        except Exception:
+            pass
         row = conn.execute('SELECT * FROM levels WHERE guild_id=? AND user_id=?', (gid, uid)).fetchone()
         if not row:
             conn.execute('INSERT INTO levels (guild_id, user_id) VALUES (?, ?)', (gid, uid))
-            return {'guild_id': gid, 'user_id': uid, 'xp': 0, 'level': 0, 'last_text_xp': 0, 'voice_minutes': 0}
-        return dict(row)
+            return {'guild_id': gid, 'user_id': uid, 'xp': 0, 'level': 0, 'last_text_xp': 0, 'voice_minutes': 0, 'text_messages': 0}
+        d = dict(row)
+        d.setdefault('text_messages', 0)
+        d.setdefault('voice_minutes', 0)
+        return d
 
 
 def add_xp(guild_id, user_id, amount: float):
@@ -273,10 +280,11 @@ def _bar_diamond(img, bx, by, bw, bh, pct, fill):
 def rank_card(member: discord.Member, data: dict, rank: int, lang: str = 'en', avatar_bytes: bytes = None,
               banner_bytes: bytes = None, accent: tuple = None, style: dict = None,
               custom_bg: bytes = None, tier_names: dict = None) -> discord.File:
-    """Direction C — minimal/terminal: top tier rule, mono avatar right, big name,
-    tracked tier line, quiet stat row, slim diamond-knob XP bar."""
+    """Midnight Gold rank card: gradient + glass tiles, avatar with level
+    coin, tier pill, gold XP bar. Same flags/behaviour as before."""
     from lang import STR
-    from utils.cards import apply_bg, parse_hex, fallback_face, tier_for
+    from utils.cards import apply_bg, parse_hex, tier_for
+    from utils import cardstyle as cs
     L = lambda k, fb: (STR.get(lang) or {}).get(k, fb)
     W, H = 900, 260
     style = style or {'blur': 25, 'dim': 0.45, 'layout': 'banner', 'show_avatar': 1, 'accent': '',
@@ -286,112 +294,141 @@ def rank_card(member: discord.Member, data: dict, rank: int, lang: str = 'en', a
     show_tier = 1 if int(style.get('show_tier', 1) or 0) else 0
     show_bar = 1 if int(style.get('show_bar', 1) or 0) else 0
     show_xp = 1 if int(style.get('show_xptext', 1) or 0) else 0
-    img, d = apply_bg(style, bg_bytes=custom_bg, banner_bytes=banner_bytes, accent=accent)
-    d.rectangle([0, 0, W, H], outline=(40, 40, 44), width=2)
-    try:
-        from pathlib import Path as _P
-        _a = _P(__file__).parent.parent / 'assets'
-        f_big = ImageFont.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 54)
-        f_tracked = ImageFont.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 21)
-        f_mid = ImageFont.truetype(str(_a / 'DejaVuSans.ttf'), 24)
-        f_sm = ImageFont.truetype(str(_a / 'DejaVuSans.ttf'), 18)
-    except Exception:
-        try:
-            f_big = ImageFont.truetype('arialbd.ttf', 54)
-            f_tracked = ImageFont.truetype('arialbd.ttf', 21)
-            f_mid = ImageFont.truetype('arial.ttf', 24)
-            f_sm = ImageFont.truetype('arial.ttf', 18)
-        except Exception:
-            f_big = f_tracked = f_mid = f_sm = ImageFont.load_default()
     need = xp_needed(data['level'])
     pct = min(1, data['xp'] / need if need else 0)
     tier_name, ring_w, stars = tier_for(data['level'], tier_names)
     tier_c = parse_hex(style.get('accent') or '') or TIER_COLORS.get(_tier_key(data['level']), (240, 240, 246))
     name = member.display_name[:18]
-    tier_txt = tier_name + ('   ' + '★' * stars if stars else '')
     lvl_num = str(data['level'])
     rank_num = f'#{rank}'
     pct_num = str(round((data['xp'] / need * 100) if need else 0))
-    pct_txt = f'{pct_num}%'
-    xp_txt = L('cv.xp', '{xp} / {need} XP • {pct}%').replace('{xp}', str(data['xp'])).replace('{need}', str(need)).replace('{pct}', pct_num)
+    xp_txt = L('cv.xp', '{xp} / {need} XP • {pct}%').replace('{xp}', cshort(data['xp'])).replace('{need}', cshort(need)).replace('{pct}', pct_num)
     if layout == 'center':
-        _ctext(d, W / 2, 20, member.display_name[:22], f_big, (255, 255, 255))
-        y = 92
+        if custom_bg or style.get('bg_url') or style.get('bg_color'):
+            img, d = apply_bg(style, bg_bytes=custom_bg, banner_bytes=banner_bytes, accent=accent)
+        else:
+            img = cs.base(W, H)
+            d = ImageDraw.Draw(img, 'RGBA')
+        cs.edge_bars(d, W, H)
+        try:
+            tw = d.textlength(member.display_name[:22], font=cs.f(54))
+            d.text(((W - tw) / 2, 24), member.display_name[:22], font=cs.f(54), fill=cs.INK)
+        except Exception:
+            pass
+        y = 96
         if show_tier:
+            tier_txt = tier_name + ('  ' + '★' * stars if stars else '')
             try:
-                tw = d.textlength(tier_txt, font=f_mid)
+                tw = d.textlength(tier_txt, font=cs.f(24))
             except Exception:
                 tw = len(tier_txt) * 13
-            _pill(d, (W - tw - 36) / 2, y, tier_txt, f_mid, tier_c, tier_c)
-            y += 50
-        _ctext(d, W / 2, y, f'LVL {lvl_num}  •  RANK {rank_num}  •  {pct_txt}', f_mid, (181, 181, 181))
-        y += 40
+            cs.pill(d, (W - tw - 28) / 2, y, tier_txt, cs.f(24), tier_c, tier_c)
+            y += 46
+        cs.tracked(d, ((W - 300) / 2, y), f'LVL {lvl_num}   •   RANK {rank_num}   •   {pct_num}%',
+                   cs.f(21), cs.DIM, spacing=3)
+        y += 36
         if show_bar:
-            _bar_diamond(img, 150, y, 600, 7, pct, tier_c)
-            y += 22
+            cs.xpbar(img, 150, y, 600, 14, pct, c1=tier_c)
+            y += 28
         if show_xp:
-            _ctext(d, W / 2, y, xp_txt, f_sm, (150, 150, 158))
+            try:
+                xw = d.textlength(xp_txt, font=cs.f(18, False))
+                d.text(((W - xw) / 2, y), xp_txt, font=cs.f(18, False), fill=cs.DIM)
+            except Exception:
+                pass
         buf = io.BytesIO()
         img.save(buf, 'PNG')
         buf.seek(0)
         return discord.File(buf, 'rank.png')
-    # banner layout — unified gold revamp: edge bar, avatar with tier ring,
-    # name with right-aligned tier pill, stat columns, labeled XP bar.
-    from utils.cards import paste_avatar
-    GOLD = (250, 200, 60)
-    INK, FAINT, DIM, HAIR = (255, 255, 255), (96, 96, 104), (150, 150, 158), (54, 54, 60)
-    try:
-        f_name = ImageFont.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 40)
-        f_pill = ImageFont.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 19)
-        f_lab = ImageFont.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 17)
-        f_val = ImageFont.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 30)
-        f_xp = ImageFont.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans.ttf'), 19)
-    except Exception:
-        f_name, f_pill, f_lab, f_val, f_xp = f_big, f_mid, f_sm, f_mid, f_sm
-    d.rectangle([0, 0, 6, H], fill=GOLD)
-    x0, s = 42, 148
+    # banner layout
+    if custom_bg or style.get('bg_url') or style.get('bg_color'):
+        img, d = apply_bg(style, bg_bytes=custom_bg, banner_bytes=banner_bytes, accent=accent)
+    else:
+        img = cs.base(W, H)
+        d = ImageDraw.Draw(img, 'RGBA')
+    cs.edge_bars(d, W, H)
+    x0, s = 44, 148
     ay = (H - s) // 2
     if show_av:
-        if not (avatar_bytes and paste_avatar(img, avatar_bytes, (x0, ay, s))):
-            fallback_face(d, (x0, ay, s), name)
-        d.ellipse([x0 - 3, ay - 3, x0 + s + 3, ay + s + 3], outline=(70, 70, 78), width=2)
-        d.ellipse([x0, ay, x0 + s, ay + s], outline=tier_c, width=4)
-        dx = x0 + s + 38
+        if not (avatar_bytes and cs.avatar(img, avatar_bytes, (x0, ay, s), tier_c, max(3, ring_w // 2))):
+            cs.fallback(img, (x0, ay, s), name)
+        cs.level_coin(d, x0 + s - 14, ay + s - 14, 26, lvl_num)
+        d = ImageDraw.Draw(img, 'RGBA')
+        dx = x0 + s + 36
     else:
-        dx = 48
-    disp_name = name.upper()[:16]
-    d.text((dx, 28), disp_name, font=f_name, fill=INK)
+        dx = 50
+    d.text((dx, 26), name.upper()[:16], font=cs.f(40), fill=cs.INK)
     if show_tier:
         tier_txt = tier_name + (' ' + '★' * stars if stars else '')
         try:
-            tw = d.textlength(tier_txt, font=f_pill) + 26
+            tw = d.textlength(tier_txt, font=cs.f(19)) + 28
         except Exception:
-            tw = len(tier_txt) * 12 + 26
-        px = W - 40 - tw
-        d.rounded_rectangle([px, 36, px + tw, 36 + 32], radius=16,
-                            outline=tier_c, width=2, fill=(22, 22, 26))
-        d.text((px + 13, 42), tier_txt, font=f_pill, fill=tier_c)
-    d.line([(dx, 96), (W - 40, 96)], fill=HAIR, width=1)
-    cols = [('LEVEL', lvl_num), ('RANK', rank_num), ('PROGRESS', pct_txt)]
-    cw = (W - dx - 60) / len(cols)
+            tw = len(tier_txt) * 12 + 28
+        px = W - 44 - tw
+        d.rounded_rectangle([px, 34, px + tw, 34 + 32], radius=16,
+                            outline=tier_c, width=2, fill=(16, 19, 34))
+        d.text((px + 14, 40), tier_txt, font=cs.f(19), fill=tier_c)
+    d.line([(dx, 92), (W - 44, 92)], fill=cs.HAIR, width=1)
+    cols = [('LEVEL', lvl_num), ('RANK', rank_num), ('PROGRESS', f'{pct_num}%')]
+    tw_all = W - dx - 44
+    cw, gap = (tw_all - 24) / 3, 12
     for i, (lab, val) in enumerate(cols):
-        cx = dx + 4 + i * cw
-        _tracked(d, (cx, 104), lab, f_lab, FAINT, tracking=3)
-        d.text((cx, 126), val, font=f_val, fill=INK)
-        if i:
-            d.line([(cx - 22, 106), (cx - 22, 158)], fill=HAIR, width=1)
+        cx = dx + i * (cw + gap)
+        cs.glass(d, [cx, 100, cx + cw, 160], radius=12)
+        cs.tracked(d, (cx + 14, 108), lab, cs.f(15), cs.FAINT)
+        d.text((cx + 14, 126), val, font=cs.f(28), fill=cs.INK)
     if show_xp:
-        d.text((W - 40, 176), f"{cshort(data['xp'])} / {cshort(need)} XP", font=f_xp, fill=DIM, anchor='ra')
+        try:
+            d.text((W - 44, 168), f"{cshort(data['xp'])} / {cshort(need)} XP", font=cs.f(17, False),
+                   fill=cs.DIM, anchor='ra')
+        except Exception:
+            pass
     if show_bar:
-        _bar_knob(img, dx, 204, W - dx - 40, 13, pct, tier_c)
+        cs.xpbar(img, dx, 200, W - dx - 44, 14, pct, c1=tier_c)
+        d = ImageDraw.Draw(img, 'RGBA')
     if data['level'] >= 20:
-        d.rectangle([6, 6, W - 6, H - 6], outline=(120, 120, 128), width=2)
+        d.rounded_rectangle([8, 8, W - 8, H - 8], radius=14, outline=(120, 122, 140), width=2)
     if data['level'] >= 50:
-        d.rectangle([12, 12, W - 12, H - 12], outline=(200, 200, 208), width=1)
+        d.rounded_rectangle([14, 14, W - 14, H - 14], radius=10, outline=(200, 200, 210), width=1)
     buf = io.BytesIO()
     img.save(buf, 'PNG')
     buf.seek(0)
     return discord.File(buf, 'rank.png')
+
+
+def _fmt_vc(mins: int) -> str:
+    mins = max(0, int(mins or 0))
+    d, rem = divmod(mins, 1440)
+    h, m = divmod(rem, 60)
+    if d:
+        return f'{d}d {h}h {m}m'
+    if h:
+        return f'{h}h {m}m'
+    return f'{m}m'
+
+
+def _backfill_msgs(guild_id) -> None:
+    """One-time migration: seed text_messages from msg_stats (30d window)
+    for users who have no lifetime count yet."""
+    try:
+        with db.conn_ctx() as conn:
+            try:
+                conn.execute('ALTER TABLE levels ADD COLUMN text_messages INTEGER DEFAULT 0')
+            except Exception:
+                pass
+            rows = conn.execute(
+                'SELECT user_id, SUM(count) s FROM msg_stats WHERE guild_id=? GROUP BY user_id',
+                (str(guild_id),)).fetchall()
+            for r in rows:
+                try:
+                    conn.execute(
+                        'UPDATE levels SET text_messages=? WHERE guild_id=? AND user_id=? '
+                        'AND COALESCE(text_messages,0)=0',
+                        (int(r['s'] or 0), str(guild_id), str(r['user_id'])))
+                except Exception:
+                    continue
+    except Exception:
+        pass
 
 
 class Levels(commands.Cog):
@@ -453,6 +490,13 @@ class Levels(commands.Cog):
             pass
         if len(message.content or '') < 5:
             return
+        # lifetime message counter for the leaderboard (counts even on XP cooldown)
+        try:
+            with db.conn_ctx() as conn:
+                conn.execute('UPDATE levels SET text_messages=COALESCE(text_messages,0)+1 WHERE guild_id=? AND user_id=?',
+                             (str(message.guild.id), str(message.author.id)))
+        except Exception:
+            pass
         now_ms = int(time.time() * 1000)
         fast_key = (message.guild.id, message.author.id)
         if now_ms - _XP_FAST.get(fast_key, 0) < COOLDOWN * 1000:
@@ -635,7 +679,7 @@ class Levels(commands.Cog):
         rows = []
         for idx, name, level, pct, sub, m in specs:
             av = await self._lb_avatar(m) if m else None
-            rows.append((idx, name, level, pct, av))
+            rows.append((idx, name, level, pct, sub, av))
         png = await self.bot.loop.run_in_executor(None, self._lb_board_image, rows)
         head.set_image(url='attachment://leaderboard.png')
         # drop footer thumbnail clash: keep icon thumb, image below
@@ -646,16 +690,32 @@ class Levels(commands.Cog):
         return sum(xp_needed(l) for l in range(max(0, level))) + max(0, xp)
 
     def _lb_rows(self, guild: discord.Guild, metric: str, limit: int):
+        _backfill_msgs(guild.id)
         with db.conn_ctx() as conn:
-            rows = conn.execute('SELECT user_id, level, xp, voice_minutes FROM levels WHERE guild_id=?',
-                                (str(guild.id),)).fetchall()
+            try:
+                rows = conn.execute(
+                    'SELECT user_id, level, xp, voice_minutes, '
+                    'COALESCE(text_messages,0) AS text_messages FROM levels WHERE guild_id=?',
+                    (str(guild.id),)).fetchall()
+            except Exception:
+                rows = conn.execute('SELECT user_id, level, xp, voice_minutes FROM levels WHERE guild_id=?',
+                                    (str(guild.id),)).fetchall()
         scored = []
         for r in rows:
             if str(r['user_id']) in HIDDEN_LB:
                 continue
-            total = self._lb_total(r['level'], r['xp'])
-            key = total if metric == 'xp' else (r['level'] if metric == 'level' else (r['voice_minutes'] or 0))
-            scored.append((key, total, dict(r)))
+            d = dict(r)
+            d.setdefault('text_messages', 0)
+            total = self._lb_total(d['level'], d['xp'])
+            if metric == 'voice':
+                key = d.get('voice_minutes') or 0
+            elif metric == 'messages':
+                key = d.get('text_messages') or 0
+            elif metric == 'level':
+                key = d['level']
+            else:
+                key = total
+            scored.append((key, total, d))
         scored.sort(key=lambda x: (-x[0], -x[1]))
         return scored[:limit]
 
@@ -666,67 +726,61 @@ class Levels(commands.Cog):
 
     @staticmethod
     def _lb_board_image(rows) -> bytes:
-        """One compact board image: avatar + rank line + thin bar per row.
-        rows = [(rank, name, level, pct, avatar_bytes)]."""
+        """Midnight Gold board: rank medallion + avatar + name/level + VC/MSG
+        sub-line + gold progress bar.
+        rows = [(rank, name, level, pct, sub, avatar_bytes)]."""
         import io as _io
         from PIL import Image as _Img, ImageDraw as _Dr
-        from utils.cards import fonts as _fonts, cover as _cover
-        _, f_mid, f_sm = _fonts()
-        try:
-            from pathlib import Path as _P
-            f_rank = __import__('PIL.ImageFont', fromlist=['truetype']).truetype(
-                str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 30)
-        except Exception:
-            f_rank = f_mid
-        W, RH, PAD, AV, GAP = 800, 88, 14, 60, 10
+        from utils import cardstyle as cs
+        from utils.cards import cover as _cover
+        W, RH, PAD, AV, GAP = 900, 116, 16, 64, 12
         H = len(rows) * (RH + GAP) - GAP + PAD * 2
-        img = _Img.new('RGB', (W, H), (16, 16, 19))
-        d = _Dr.Draw(img)
-        RANK_COLS = {1: (250, 200, 60), 2: (195, 195, 203), 3: (210, 140, 80)}
-        for k, (rank, name, level, pct, av_bytes) in enumerate(rows):
+        img = cs.base(W, H)
+        d = _Dr.Draw(img, 'RGBA')
+        for k, row in enumerate(rows):
+            rank, name, level = row[0], row[1], row[2]
+            pct, sub = row[3], cs.safe_img(row[4] if len(row) > 4 else '')
+            av_bytes = row[5] if len(row) > 5 else None
             y0 = PAD + k * (RH + GAP)
-            # row card
-            d.rounded_rectangle([PAD // 2, y0, W - PAD // 2, y0 + RH], radius=10, fill=(30, 30, 35))
+            cs.glass(d, [PAD // 2, y0, W - PAD // 2, y0 + RH], radius=16)
+            # medal
+            mx, my = PAD + 44, y0 + RH // 2
+            mfill = cs.medal(d, mx, my, 26, rank)
+            # avatar
+            ax = PAD + 84
             if av_bytes:
                 try:
                     av = _cover(_Img.open(_io.BytesIO(av_bytes)).convert('RGB'), AV, AV)
                     mask = _Img.new('L', (AV, AV), 0)
-                    _Dr.Draw(mask).rounded_rectangle([0, 0, AV, AV], radius=12, fill=255)
-                    img.paste(av, (PAD + 4, y0 + (RH - AV) // 2), mask)
+                    _Dr.Draw(mask).rounded_rectangle([0, 0, AV, AV], radius=16, fill=255)
+                    img.paste(av, (ax, y0 + (RH - AV) // 2), mask)
+                    d = _Dr.Draw(img, 'RGBA')
                 except Exception:
                     pass
-            x = PAD + 4 + AV + 14
-            ty = y0 + 10
-            rank_col = RANK_COLS.get(rank, (150, 150, 158))
-            segs = [(f'#{rank}', f_rank, rank_col), (' • ', f_mid, (110, 110, 116)),
-                    (name, f_mid, (255, 255, 255)), (' • ', f_mid, (110, 110, 116)),
-                    (f'LVL: {level}', f_mid, (150, 150, 158))]
+            else:
+                d.rounded_rectangle([ax, y0 + (RH - AV) // 2, ax + AV, y0 + (RH + AV) // 2],
+                                    radius=16, fill=(40, 45, 68))
+            x = ax + AV + 18
             try:
-                maxw = W - x - PAD
-                nm = name
-                while d.textlength(f'#{rank} • {nm} • LVL: {level}', font=f_mid) > maxw and len(nm) > 4:
-                    nm = nm[:-2]
-                if nm != name:
-                    segs[2] = (nm + '…', f_mid, (255, 255, 255))
-                cx = x
-                for txt, font, col in segs:
-                    d.text((cx, ty), txt, font=font, fill=col)
-                    cx += d.textlength(txt, font=font)
+                nm = cs.fit(d, name, cs.f(30), W - x - 150)
+                d.text((x, y0 + 12), f'{nm}', font=cs.f(30), fill=cs.INK)
+                lw = d.textlength(nm, font=cs.f(30))
+                cs.pill(d, x + lw + 14, y0 + 14, f'LVL {level}', cs.f(17), mfill, mfill)
             except Exception:
-                d.text((x, ty), f'#{rank} • {name[:14]} • LVL: {level}', font=f_mid,
-                       fill=(255, 255, 255))
-            bx, by, bw, bh = x, y0 + RH - 26, W - x - PAD, 5
-            d.rounded_rectangle([bx, by, bx + bw, by + bh], radius=2, fill=(58, 58, 64))
-            fw = max(6, int(bw * max(0.0, min(1.0, pct))))
-            d.rounded_rectangle([bx, by, bx + fw, by + bh], radius=2,
-                                fill=RANK_COLS.get(rank, (168, 168, 176)))
+                d.text((x, y0 + 12), f'{name[:16]}', font=cs.f(30), fill=cs.INK)
+            try:
+                d.text((x, y0 + 52), sub[:90], font=cs.f(19, False), fill=cs.DIM)
+            except Exception:
+                pass
+            cs.xpbar(img, x, y0 + RH - 26, W - x - 26, 8, pct, c1=mfill, knob=False)
+            d = _Dr.Draw(img, 'RGBA')
         buf = _io.BytesIO()
         img.save(buf, 'PNG')
         return buf.getvalue()
 
     def _lb_build(self, guild: discord.Guild, metric: str, n: int):
         from lang import t as _t
-        if metric not in ('xp', 'level', 'voice'):
+        if metric not in ('xp', 'level', 'voice', 'messages'):
             metric = 'xp'
         n = 10 if n >= 10 else 5
         rows = self._lb_rows(guild, metric, n)
@@ -735,17 +789,18 @@ class Levels(commands.Cog):
         head = discord.Embed(title=guild.name, color=WHITE)
         head.set_footer(text=foot())
         specs = []
+        lines = []
         for i, (_key, total, r) in enumerate(rows, start=1):
             m = guild.get_member(int(r['user_id']))
             name = m.display_name if m else f'user{r["user_id"]}'[:16]
             need = xp_needed(r['level'])
             pct = min(1, r['xp'] / need if need else 0)
-            if metric == 'voice':
-                mins = r['voice_minutes'] or 0
-                sub = f'{mins // 60}h {mins % 60}m'
-            else:
-                sub = f'{total:,} XP'.replace(',', ' ')
+            vc = _fmt_vc(r.get('voice_minutes') or 0)
+            msgs = f"{int(r.get('text_messages') or 0):,}".replace(',', ' ')
+            sub = f'{total:,} XP'.replace(',', ' ') + f' • 🎙 {vc} • 💬 {msgs}'
             specs.append((i, name[:20], r['level'], pct, sub, m))
+            lines.append(f'**#{i} {name[:20]}** — Lv {r["level"]} • 🎙 {vc} • 💬 {msgs} msgs')
+        head.description = '\n'.join(lines)[:3500]
         view = discord.ui.View(timeout=120)
         sel = discord.ui.Select(custom_id='lbm', placeholder=_t(guild.id, 'lb.m_xp'),
                                 min_values=1, max_values=1, options=[
@@ -754,7 +809,9 @@ class Levels(commands.Cog):
                                     discord.SelectOption(label=_t(guild.id, 'lb.m_level'), value='level',
                                                          default=(metric == 'level')),
                                     discord.SelectOption(label=_t(guild.id, 'lb.m_voice'), value='voice',
-                                                         default=(metric == 'voice'))])
+                                                         default=(metric == 'voice')),
+                                    discord.SelectOption(label=_t(guild.id, 'lb.m_messages'), value='messages',
+                                                         default=(metric == 'messages'))])
         view.add_item(sel)
         view.add_item(discord.ui.Button(label=_t(guild.id, 'lb.less' if n >= 10 else 'lb.more'),
                                         style=discord.ButtonStyle.grey,
@@ -775,7 +832,7 @@ class Levels(commands.Cog):
         metric, n = None, 5
         if cid == 'lbm':
             vals = interaction.data.get('values') or []
-            metric = vals[0] if vals and vals[0] in ('xp', 'level', 'voice') else 'xp'
+            metric = vals[0] if vals and vals[0] in ('xp', 'level', 'voice', 'messages') else 'xp'
         elif cid.startswith('lbmore:'):
             try:
                 _, metric, n = cid.split(':')

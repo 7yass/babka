@@ -9,14 +9,14 @@ import database as db
 from utils.cards import short as cshort
 from utils.economy import (CASINO_BASE_MAX_BET, CASINO_MAX_BET_PER_LEVEL,
                            CASINO_MAX_BET_CAP, CASINO_BJ_PAYOUT, CASINO_BJ_GOD_PAYOUT,
-                           CASINO_COINFLIP_RETURN,
+                           CASINO_COINFLIP_RETURN, CASINO_COIN_CAP_MULT,
                            CASINO_POKER_CAP_MULT, CASINO_POKER_HR_CAP_MULT,
                            CASINO_SLOTS_CAP_MULT, CASINO_ROU_CAP_MULT,
                            CASINO_BJ_CAP_MULT, CRIME_ROB)
 from lang import t, set_ctx_lang
 from utils.embeds import foot
 
-START_CASH, DAILY_CASH, DAILY_CD = 1000, 500, 86400
+START_CASH, DAILY_CASH, DAILY_CD = 1000, 1500, 86400
 # hidden from public leaderboards (progress kept, just not shown)
 HIDDEN_LB = {'1270782781605154922', '558332192531546114', '908532356397285460'}
 ROB_CD = 3600
@@ -27,6 +27,7 @@ BJ_MAX_WIN = 15000  # max profit per hand for mortals
 SLOTS_MAX_WIN = 25000    # max slots payout for mortals
 ROU_MAX_WIN = 25000      # max roulette profit for mortals
 POKER_MAX_WIN = 50000    # max poker profit for mortals
+COIN_MAX_WIN = 15000     # max coinflip profit for mortals (was uncapped)
 # gambling is limited to 15 plays per hour (shared across all games); gods exempt
 GAMBLES_PER_HOUR = 15
 SUITS = ['♠', '♥', '♦', '♣']
@@ -388,6 +389,30 @@ def _game_layout(title: str, desc: str, image_url: str = None, accent: int = 0xF
     return layout
 
 
+WIN_GREEN = 0x2ECC71
+LOSE_RED = 0xE74C3C
+GOLD = 0xFAC43C
+
+
+def _result_layout(title: str, desc: str, image_url: str = None, won: bool = None, jackpot: bool = False):
+    """Win-green / loss-red / jackpot-gold accents + result header."""
+    if jackpot:
+        accent = GOLD
+        head = '🌟 JACKPOT'
+    elif won is True:
+        accent = WIN_GREEN
+        head = '✅ WIN'
+    elif won is False:
+        accent = LOSE_RED
+        head = '❌ LOSS'
+    else:
+        accent = 0xFFFFFF
+        head = None
+    if head and head not in (desc or ''):
+        desc = f'{head}\n{desc}'
+    return _game_layout(title, desc, image_url, accent=accent)
+
+
 def _attach_roulette_again(layout, button):
     """Append a button row to a _game_layout container."""
     from discord.ui import ActionRow
@@ -532,105 +557,50 @@ def _wallet_line(gid, uid) -> str:
 
 def wallet_card(name: str, cash: int, streak: int, avatar_bytes: bytes = None, bank: int = 0,
                 bg_bytes: bytes = None) -> bytes:
-    """Direction A wallet: gold edge bar, gold-ring avatar left, giant gold
-    balance, streak/bank ledger right. Nitro banner becomes the background."""
+    """Midnight Gold wallet: giant balance, streak/bank glass tiles, vault
+    share bar. Same signature as before."""
     import io as _io
-    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F, ImageFilter as _Fl
-    from pathlib import Path as _P
-    W, H = 800, 220
-    GOLD = (250, 200, 60)
-    INK = (255, 255, 255)
-    FAINT = (96, 96, 104)
-    HAIR = (54, 54, 60)
+    from PIL import Image as _Img, ImageDraw as _Dr
+    from utils import cardstyle as cs
+    W, H = 800, 240
     if bg_bytes:
         try:
-            bg = _Img.open(_io.BytesIO(bg_bytes)).convert('RGB')
-            scale = max(W / max(bg.width, 1), H / max(bg.height, 1))
-            bg = bg.resize((int(bg.width * scale) + 1, int(bg.height * scale) + 1))
-            x = (bg.width - W) // 2
-            y = (bg.height - H) // 2
-            bg = bg.crop((x, y, x + W, y + H)).filter(_Fl.GaussianBlur(18))
-            dim = _Img.new('RGB', (W, H), (10, 10, 12))
+            from PIL import ImageFilter as _Fl
+            from utils.cards import cover as _cover
+            bg = _cover(_Img.open(_io.BytesIO(bg_bytes)).convert('RGB'), W, H).filter(_Fl.GaussianBlur(18))
+            dim = _Img.new('RGB', (W, H), (10, 12, 22))
             img = _Img.blend(bg, dim, 0.62)
+            img = cs.vignette(img)
         except Exception:
-            img = _Img.new('RGB', (W, H), (16, 16, 19))
+            img = cs.base(W, H)
     else:
-        img = _Img.new('RGB', (W, H), (16, 16, 19))
-    d = _Dr.Draw(img)
-    try:
-        _a = _P(__file__).parent.parent / 'assets'
-        f_name = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 30)
-        f_big = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 56)
-        f_lab = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 17)
-        f_row = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 16)
-        f_val = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 26)
-    except Exception:
-        try:
-            f_name = _F.truetype('arialbd.ttf', 30)
-            f_big = _F.truetype('arialbd.ttf', 56)
-            f_lab = _F.truetype('arialbd.ttf', 17)
-            f_row = _F.truetype('arialbd.ttf', 16)
-            f_val = _F.truetype('arialbd.ttf', 26)
-        except Exception:
-            f_name = f_big = f_lab = f_row = f_val = _F.load_default()
-
-    def tracked(xy, text, font, fill, tracking=3):
-        x, y = xy
-        for ch in text:
-            d.text((x, y), ch, font=font, fill=fill)
-            try:
-                x += d.textlength(ch, font=font) + tracking
-            except Exception:
-                x += 12 + tracking
-
+        img = cs.base(W, H)
+    d = _Dr.Draw(img, 'RGBA')
+    cs.edge_bars(d, W, H)
     x0, s = 40, 132
-    ay = (H - s) // 2
-    pasted = False
-    if avatar_bytes:
-        try:
-            av = _Img.open(_io.BytesIO(avatar_bytes)).convert('RGB').resize((s, s))
-            mask = _Img.new('L', (s, s), 0)
-            _Dr.Draw(mask).ellipse([0, 0, s, s], fill=255)
-            img.paste(av, (x0, ay), mask)
-            pasted = True
-        except Exception:
-            pass
-    if not pasted:
-        d.ellipse([x0, ay, x0 + s, ay + s], fill=(42, 42, 46))
-        try:
-            _fl = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 64)
-        except Exception:
-            _fl = f_big
-        try:
-            d.text((x0 + s / 2, ay + s / 2), (name or '?')[:1].upper(),
-                   font=_fl, fill=(220, 220, 225), anchor='mm')
-        except Exception:
-            pass
-    d.ellipse([x0 - 2, ay - 2, x0 + s + 2, ay + s + 2], outline=(70, 70, 78), width=2)
-    d.ellipse([x0, ay, x0 + s, ay + s], outline=GOLD, width=4)
-    d.rectangle([0, 0, 6, H], fill=GOLD)
-    dx = x0 + s + 34
-    tracked((dx, 22), 'WALLET', f_lab, FAINT)
-    _nm = name[:20]
+    ay = 48
+    if not (avatar_bytes and cs.avatar(img, avatar_bytes, (x0, ay, s), cs.GOLD)):
+        cs.fallback(img, (x0, ay, s), name)
+    d = _Dr.Draw(img, 'RGBA')
+    dx = x0 + s + 32
+    cs.tracked(d, (dx, 40), 'WALLET', cs.f(16), cs.FAINT)
+    d.text((dx, 60), cs.safe_img(name).upper()[:16], font=cs.f(30), fill=cs.INK)
+    d.text((dx, 100), cshort(cash), font=cs.f(54), fill=cs.GOLD)
+    cs.tracked(d, (dx, 168), 'COINS  •  BABKA BANK', cs.f(14), cs.FAINT)
+    rx, rw = 520, 800 - 520 - 40
+    cs.glass(d, [rx, 36, rx + rw, 108], radius=12)
+    cs.tracked(d, (rx + 14, 44), 'STREAK', cs.f(14), cs.FAINT)
+    d.text((rx + 14, 62), f'{streak} DAYS' if streak else '—', font=cs.f(26), fill=cs.INK)
+    cs.glass(d, [rx, 118, rx + rw, 190], radius=12)
+    cs.tracked(d, (rx + 14, 126), 'BANK VAULT', cs.f(14), cs.FAINT)
+    d.text((rx + 14, 144), cshort(bank), font=cs.f(26), fill=cs.GOLD)
+    total = max(1, (cash or 0) + (bank or 0))
+    share = (bank or 0) / total
     try:
-        while _nm and d.textlength(_nm, font=f_name) > 500 - dx:
-            _nm = _nm[:-1]
-        if len(_nm) < len(name[:20]):
-            _nm = _nm.rstrip() + '…'
+        d.text((dx, 196), f'VAULT HOLDINGS  {int(round(share * 100))}%', font=cs.f(13), fill=cs.FAINT)
     except Exception:
         pass
-    d.text((dx, 44), _nm, font=f_name, fill=INK)
-    d.text((dx, 86), cshort(cash), font=f_big, fill=GOLD)
-    tracked((dx, 160), 'COINS', f_lab, FAINT)
-    rx = 520
-    rows = [('DAILY STREAK', f'{streak} DAYS' if streak else '—'),
-            ('BANK', cshort(bank))]
-    ry = 52
-    for lab, val in rows:
-        tracked((rx, ry), lab, f_row, FAINT)
-        d.text((rx, ry + 24), val, font=f_val, fill=INK)
-        ry += 66
-        d.line([(rx, ry - 12), (W - 40, ry - 12)], fill=HAIR, width=1)
+    cs.xpbar(img, dx, 212, rx - dx - 20, 10, share, knob=False)
     buf = _io.BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()
@@ -1105,13 +1075,19 @@ class Gamble(commands.Cog):
             streak = 1  # missed a day: streak resets (as the help says)
         else:
             streak = (b.get('daily_streak') or 0) + 1
-        bonus = min((streak - 1) * 50, 500)
-        add_cash(gid, ctx.author.id, DAILY_CASH + bonus)
+        bonus = min((streak - 1) * 100, 1000)
+        total = DAILY_CASH + bonus
+        add_cash(gid, ctx.author.id, total)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE eco SET last_daily=?, daily_streak=? WHERE guild_id=? AND user_id=?',
                          (now, streak, str(gid), str(ctx.author.id)))
-        await ctx.reply(t(gid, 'eco.daily_ok', cash=cshort(DAILY_CASH + bonus), streak=streak)
-                        + _wallet_line(gid, ctx.author.id), ephemeral=True)
+        bar = '🔥' * min(streak, 7) + ('+' if streak > 7 else '')
+        nxt = min(streak * 100, 1000)
+        desc = (f"🎁 **+{cshort(total)}** (base {cshort(DAILY_CASH)} + streak {cshort(bonus)})\n"
+                f"{bar} **{streak}-day streak** — next bonus {cshort(nxt)}"
+                + _wallet_line(gid, ctx.author.id))
+        await ctx.reply(view=_game_layout('📅 Daily reward', desc,
+                                          accent=GOLD), ephemeral=True)
 
     @commands.command(name='pay', description='Przelej kasę')
     async def pay(self, ctx, member: discord.Member, amount: int):
@@ -1411,27 +1387,31 @@ class Gamble(commands.Cog):
             add_cash(gid, ctx.author.id, bet + win)
         msg += _wallet_line(gid, ctx.author.id)
         import asyncio as _aio
-        spin = await ctx.reply(view=_game_layout(t(gid, 'eco.slots_title', bet=cshort(bet)),
+        title = f"🎰 {t(gid, 'eco.slots_title', bet=cshort(bet))}"
+        spin = await ctx.reply(view=_game_layout(title,
                                                  t(gid, 'eco.spinning')))
         for _ in range(2):
             await _aio.sleep(0.7)
             try:
                 fake = await self.bot.loop.run_in_executor(
                     None, slots_image, [random.choice(SLOTS) for _ in range(3)])
-                await spin.edit(view=_game_layout(t(gid, 'eco.slots_title', bet=cshort(bet)),
+                await spin.edit(view=_game_layout(title,
                                                   t(gid, 'eco.spinning')),
                                 attachments=[discord.File(__import__('io').BytesIO(fake), 'slots.png')])
             except Exception:
                 break
         await _aio.sleep(0.7)
         png = await self.bot.loop.run_in_executor(None, slots_image, reels)
+        final = _result_layout(title, f"`{' | '.join(reels)}`\n{msg}",
+                               'attachment://slots.png',
+                               won=bool(win), jackpot=(mult >= 8 if won else False)) if won else \
+            _result_layout(title, f"`{' | '.join(reels)}`\n{msg}",
+                           'attachment://slots.png', won=False)
         try:
-            await spin.edit(view=_game_layout(t(gid, 'eco.slots_title', bet=cshort(bet)), msg,
-                                              'attachment://slots.png'),
+            await spin.edit(view=final,
                             attachments=[discord.File(__import__('io').BytesIO(png), 'slots.png')])
         except Exception:
-            await ctx.reply(view=_game_layout(t(gid, 'eco.slots_title', bet=cshort(bet)), msg,
-                                              'attachment://slots.png'),
+            await ctx.reply(view=final,
                             file=discord.File(__import__('io').BytesIO(png), 'slots.png'))
 
     @commands.hybrid_command(name='coinflip', description='Orzeł czy reszka', aliases=['moneta'])
@@ -1461,10 +1441,17 @@ class Gamble(commands.Cog):
             won = random.random() < 0.5
         result = pick if won else ('R' if pick == 'O' else 'O')
         if won:
-            profit = int(bet * (CASINO_COINFLIP_RETURN - 1.0))
+            raw = int(bet * (CASINO_COINFLIP_RETURN - 1.0))
+            if str(ctx.author.id) not in GOD_IDS:
+                profit, capped = self._cap_profit(raw, COIN_MAX_WIN,
+                                                  CASINO_COIN_CAP_MULT, bet)
+            else:
+                profit, capped = raw, False
             nb = bal(gid, ctx.author.id)
             add_cash(gid, ctx.author.id, bet + profit)
             msg = t(gid, 'eco.cf_win', win=cshort(profit))
+            if capped:
+                msg += '\n' + t(gid, 'eco.cap_hit', win=cshort(profit))
         else:
             msg = t(gid, 'eco.cf_lose', bet=cshort(bet))
             hr = highroller_refund(gid, ctx.author.id, bet)
@@ -1472,25 +1459,27 @@ class Gamble(commands.Cog):
                 msg += '\n' + hr
         msg += _wallet_line(gid, ctx.author.id)
         import asyncio as _aio2
-        flip = await ctx.reply(view=_game_layout(t(gid, 'eco.cf_title', bet=cshort(bet)),
+        cf_title = f"🪙 {t(gid, 'eco.cf_title', bet=cshort(bet))}"
+        flip = await ctx.reply(view=_game_layout(cf_title,
                                                  t(gid, 'eco.flipping')))
         for face in ('O', '|', 'R', '|'):
             await _aio2.sleep(0.45)
             try:
                 fake = await self.bot.loop.run_in_executor(None, coin_image, face if face != '|' else 'O')
-                await flip.edit(view=_game_layout(t(gid, 'eco.cf_title', bet=cshort(bet)),
+                await flip.edit(view=_game_layout(cf_title,
                                                   t(gid, 'eco.flipping'), 'attachment://coin.png'),
                                 attachments=[discord.File(__import__('io').BytesIO(fake), 'coin.png')])
             except Exception:
                 break
         png = await self.bot.loop.run_in_executor(None, coin_image, result)
+        side_txt = '🦅 ORZEŁ (O)' if result == 'O' else '🪙 RESZKA (R)'
+        final_cf = _result_layout(cf_title, f'{side_txt}\n{msg}',
+                                  'attachment://coin.png', won=won)
         try:
-            await flip.edit(view=_game_layout(t(gid, 'eco.cf_title', bet=cshort(bet)), msg,
-                                              'attachment://coin.png'),
+            await flip.edit(view=final_cf,
                             attachments=[discord.File(__import__('io').BytesIO(png), 'coin.png')])
         except Exception:
-            await ctx.reply(view=_game_layout(t(gid, 'eco.cf_title', bet=cshort(bet)), msg,
-                                              'attachment://coin.png'),
+            await ctx.reply(view=final_cf,
                             file=discord.File(__import__('io').BytesIO(png), 'coin.png'))
 
     @commands.hybrid_command(name='roulette', description='Ruletka', aliases=['ruletka'])
@@ -1540,9 +1529,10 @@ class Gamble(commands.Cog):
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
         _gamble_use(gid, ctx.author.id)
-        n, msg = self._roulette_round(gid, ctx.author.id, bet, kind, num)
-        title = t(gid, 'eco.rou_title', bet=cshort(bet))
-        layout = _game_layout(title, msg, 'attachment://rou.png')
+        n, msg, _won = self._roulette_round(gid, ctx.author.id, bet, kind, num)
+        title = f"🎡 {t(gid, 'eco.rou_title', bet=cshort(bet))}"
+        layout = _result_layout(title, msg, 'attachment://rou.png', won=_won,
+                                jackpot=(_won and kind == 'number'))
         _attach_roulette_again(
             layout, self._roulette_again_button(gid, ctx.author.id, bet, kind, num))
         import asyncio as _aio3
@@ -1577,7 +1567,7 @@ class Gamble(commands.Cog):
 
     def _roulette_round(self, gid, uid, bet: int, kind: str, num: int):
         """Spin + settle one round. Stake must already be taken.
-        Returns (winning_number, result_text)."""
+        Returns (winning_number, result_text, won)."""
         god = str(uid) in GOD_IDS
         forced = god and god_forced(gid, uid)
         n = _roulette_spin(kind, num, forced, rigged=not god)
@@ -1600,14 +1590,16 @@ class Gamble(commands.Cog):
             msg = t(gid, 'eco.rou_win', ball=ball, choice=label, win=cshort(profit))
             if capped:
                 msg += '\n' + t(gid, 'eco.cap_hit', win=cshort(profit))
+            won = True
         else:
             msg = t(gid, 'eco.rou_lose', ball=ball, choice=label, bet=cshort(bet))
             hr = highroller_refund(gid, uid, bet)
             if hr:
                 msg += '\n' + hr
+            won = False
         msg += '\n' + t(gid, 'eco.rou_recent', nums=recent)
         msg += _wallet_line(gid, uid)
-        return n, msg
+        return n, msg, won
 
     def _roulette_again_button(self, gid, uid, bet: int, kind: str, num: int):
         """SPIN AGAIN button: same bet + choice in one click."""
@@ -1635,14 +1627,15 @@ class Gamble(commands.Cog):
                 return await interaction.followup.send(
                     t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
             _gamble_use(gid, uid)
-            n, msg = cog._roulette_round(gid, uid, bet, kind, num)
+            n, msg, _won2 = cog._roulette_round(gid, uid, bet, kind, num)
             png = cog._rou_wheels.get(n)
             if png is None:
                 import asyncio as _aioec
                 png = await _aioec.get_running_loop().run_in_executor(
                     None, roulette_image, n)
-            layout = _game_layout(t(gid, 'eco.rou_title', bet=cshort(bet)), msg,
-                                  'attachment://rou2.png')
+            layout = _result_layout(f"🎡 {t(gid, 'eco.rou_title', bet=cshort(bet))}", msg,
+                                    'attachment://rou2.png', won=_won2,
+                                    jackpot=(_won2 and kind == 'number'))
             _attach_roulette_again(
                 layout, cog._roulette_again_button(gid, uid, bet, kind, num))
             # Resolve in place: the old card is replaced, never duplicated.

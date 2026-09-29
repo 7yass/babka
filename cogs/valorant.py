@@ -88,7 +88,8 @@ class Valorant(commands.Cog):
                 if m and m.get('status') == 200 and (m.get('data') or {}).get('current_data'):
                     mmr, region = m['data'], rg
                     break
-            matches = await _get(s, f'{API}/v3/matches/{region or "eu"}/{nu}/{tu}?size=1')
+            mmr_hist = await _get(s, f'{API}/v1/mmr-history/{region or "eu"}/{nu}/{tu}')
+            matches = await _get(s, f'{API}/v3/matches/{region or "eu"}/{nu}/{tu}?size=5')
         lvl = d.get('account_level', '?')
         card = ((d.get('card') or {}).get('small')
                 or (d.get('card') or {}).get('large') or '')
@@ -107,23 +108,68 @@ class Valorant(commands.Cog):
         ]
         if region:
             lines.append(t(gid, 'eco.val_region', region=region.upper()))
-        last = ''
+        # MMR trend from history
         try:
-            m0 = (matches.get('data') or [])[0]
-            meta = m0.get('metadata') or {}
-            me = next((p for p in m0.get('players') or []
-                       if (p.get('name', '').lower(), p.get('tag', '').lower()) == (name.lower(), tag.lower())),
-                      None)
-            if me:
-                st = me.get('stats') or {}
-                last = t(gid, 'eco.val_last', agent=me.get('character', '?'),
-                         map=meta.get('map', '?'), k=st.get('kills', '?'),
-                         d=st.get('deaths', '?'), a=st.get('assists', '?'),
-                         score=st.get('score', '?'))
+            hist = (mmr_hist.get('data') or []) if mmr_hist else []
+            if hist:
+                last5 = hist[:5]
+                deltas = [h.get('mmr_change_to_last_game', 0) or 0 for h in last5]
+                trend = sum(deltas)
+                arrow = '📈' if trend > 0 else ('📉' if trend < 0 else '➖')
+                lines.append(f'{arrow} Last {len(last5)} ranked: {" ".join(f"{x:+d}" for x in deltas)} (net {trend:+d} RR)')
         except Exception:
             pass
-        if last:
-            lines.append(last)
+        # Last 5 matches: W/L, KDA, agents, maps
+        try:
+            mlist = (matches.get('data') or []) if matches else []
+            wins, k, dd, a = 0, 0, 0, 0
+            agents, maps = {}, []
+            det = []
+            for m0 in mlist[:5]:
+                meta = m0.get('metadata') or {}
+                me = next((p for p in m0.get('players') or []
+                           if (p.get('name', '').lower(), p.get('tag', '').lower()) == (name.lower(), tag.lower())),
+                          None)
+                if not me:
+                    continue
+                st = me.get('stats') or {}
+                k += int(st.get('kills') or 0)
+                dd += int(st.get('deaths') or 0)
+                a += int(st.get('assists') or 0)
+                ag = me.get('character', '?')
+                agents[ag] = agents.get(ag, 0) + 1
+                mp = meta.get('map', '?')
+                maps.append(mp)
+                team = (me.get('team') or '').lower()
+                red = int((meta.get('rounds') or {}).get('red', 0) or 0) if isinstance(meta.get('rounds'), dict) else 0
+                blue = int((meta.get('rounds') or {}).get('blue', 0) or 0) if isinstance(meta.get('rounds'), dict) else 0
+                mine = red if team == 'red' else blue
+                theirs = blue if team == 'red' else red
+                w = mine > theirs
+                wins += 1 if w else 0
+                det.append(f"{'✅' if w else '❌'} {ag} {mp} {mine}-{theirs} ({st.get('kills', '?')}/{st.get('deaths', '?')}/{st.get('assists', '?')})")
+            if mlist and det:
+                n = len(det)
+                kd = f'{k}/{dd}/{a}'
+                kda = round((k + a) / max(1, dd), 2)
+                fav = max(agents, key=agents.get) if agents else '?'
+                lines.append(f'📊 Last {n}: **{wins}W-{n - wins}L** • KDA {kd} ({kda}) • fav {fav}')
+                lines.extend(det[:5])
+            elif mlist:
+                # fallback: single last match line (old behaviour)
+                m0 = mlist[0]
+                meta = m0.get('metadata') or {}
+                me = next((p for p in m0.get('players') or []
+                           if (p.get('name', '').lower(), p.get('tag', '').lower()) == (name.lower(), tag.lower())),
+                          None)
+                if me:
+                    st = me.get('stats') or {}
+                    lines.append(t(gid, 'eco.val_last', agent=me.get('character', '?'),
+                                   map=meta.get('map', '?'), k=st.get('kills', '?'),
+                                   d=st.get('deaths', '?'), a=st.get('assists', '?'),
+                                   score=st.get('score', '?')))
+        except Exception:
+            pass
         e = discord.Embed(title=t(gid, 'eco.val_title'), description='\n'.join(lines),
                           color=0xFF4655)
         if card:
