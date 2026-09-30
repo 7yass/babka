@@ -1814,12 +1814,13 @@ class Gamble(commands.Cog):
         gid = ctx.guild.id
         await ctx.defer()
         with db.conn_ctx() as conn:
-            rows = conn.execute('SELECT user_id, cash FROM eco WHERE guild_id=? ORDER BY cash DESC LIMIT 25',
+            rows = conn.execute('SELECT user_id, cash + COALESCE(bank, 0) AS total '
+                                'FROM eco WHERE guild_id=? ORDER BY total DESC LIMIT 25',
                                 (str(gid),)).fetchall()
         rows = [r for r in rows if str(r['user_id']) not in HIDDEN_LB][:10]
-        if not rows or rows[0]['cash'] <= 0:
+        if not rows or rows[0]['total'] <= 0:
             return await ctx.reply(t(gid, 'eco.rich_empty'), ephemeral=True)
-        top = rows[0]['cash']
+        top = rows[0]['total']
         board = []
         for i, r in enumerate(rows, start=1):
             m = ctx.guild.get_member(int(r['user_id']))
@@ -1828,8 +1829,8 @@ class Gamble(commands.Cog):
                 av = await m.display_avatar.with_size(128).read() if m else None
             except Exception:
                 av = None
-            board.append((i, name[:20], '', r['cash'] / top if top else 0,
-                          f"{r['cash']:,}".replace(',', ' ') + ' monet', None, av))
+            board.append((i, name[:20], '', r['total'] / top if top else 0,
+                          f"{r['total']:,}".replace(',', ' ') + ' monet', None, av))
         from cogs.fitcheck import board_image as _board
         png = await self.bot.loop.run_in_executor(None, _board, board)
         await ctx.reply(view=_game_layout(t(gid, 'eco.rich_title'),

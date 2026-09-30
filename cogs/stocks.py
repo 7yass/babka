@@ -58,6 +58,8 @@ PAL = [(250, 200, 60), (96, 165, 250), (52, 211, 153),
 # in-memory market mood: (gid, sym) -> trend (persistent drift direction).
 # Regimes flip on their own — pumps run hot, then mean-revert and dump.
 TREND = {}
+# last reverse-split per symbol (brains of the bankruptcy rescue)
+SPLIT_TS = {}
 # house float rig: sym -> (bias, expires_ts). Positive while the house
 # holds, hard negative after it exits. Decays on its own; restarts wipe it.
 FLOAT_RIG = {}
@@ -142,12 +144,16 @@ def _seed_history(gid, sym):
                            (str(gid), sym)).fetchone()
         anchor = int(cur['price']) if cur else STOCKS[sym]['start']
     sigma = STOCKS[sym]['vol'] * 1.1
+    anchor = max(1, anchor)
     pts, px, now = [], anchor, _now()
     for i in range(SEED_DAYS):
         pts.append((now - i * 86400, px, random.randint(5000, 60000)))
         g = random.gauss(0, sigma)
         if random.random() < 0.01:
             g += random.choice([-0.10, 0.12])
+        # pull the walk back toward the anchor so history orbits it
+        import math as _m
+        g -= (_m.log(anchor) - _m.log(max(1, px))) * 0.03
         px = max(1, int(px / (1 + g)))
     with db.conn_ctx() as conn:
         conn.executemany('INSERT INTO stock_hist (guild_id, symbol, price, ts, vol) VALUES (?,?,?,?,?)',
@@ -175,15 +181,39 @@ def _tick_symbol(gid, sym):
             tr = random.choice([-1, 1]) * random.uniform(0.05, 0.09)
         tr = max(-0.10, min(0.10, tr))
         TREND[key] = tr
-        change = tr + random.gauss(0, spec['vol']) + _rig_bias(sym)
+        rig = _rig_bias(sym)
+        change = tr + random.gauss(0, spec['vol']) + rig
         if random.random() < 0.012:  # news event: moon or rug (never a teleport)
-            change += random.choice([random.uniform(0.30, 0.55),
-                                     -random.uniform(0.30, 0.50)])
-        change = max(-0.60, min(0.60, change))
+            if random.random() < 0.5:
+                change += random.uniform(0.25, 0.45)
+            else:
+                crash = -random.uniform(0.25, 0.40)
+                if rig > 0:
+                    crash *= 0.4  # supported tape shakes off bad news
+                elif d['price'] < spec['start'] * 0.20:
+                    crash *= 0.4  # already priced in at the bottom
+                change += crash
+        # gentle gravity toward the listing price: excursions still run for
+        # hours, but nothing rots at the floor (or the moon) forever
+        import math as _m
+        dev = _m.log(spec['start'] / max(1, d['price']))
+        change += max(-0.03, min(0.03, dev * 0.02))
+        change = max(-0.45, min(0.45, change))
         new = max(1, int(d['price'] * (1 + change)))
         if new <= max(2, int(spec['start'] * 0.05)):
             # bankruptcy zone: a bailout rally starts brewing (uptrend, no teleport)
             TREND[key] = random.uniform(0.07, 0.11)
+            # ...and if the tape is truly dead, a reverse split relists it.
+            # Real mechanic, value-neutral: price jumps, share counts shrink.
+            last_split = SPLIT_TS.get(key, 0)
+            if now - last_split > 1800:
+                SPLIT_TS[key] = now
+                target = int(spec['start'] * random.uniform(0.25, 0.40))
+                ratio = max(2, round(target / max(1, new)))
+                new = max(10, new * ratio)
+                conn.execute('UPDATE portfolio SET qty=qty/?, spent=spent/? '
+                             'WHERE guild_id=? AND symbol=? AND qty>0',
+                             (ratio, ratio, str(gid), sym))
         botvol = random.randint(100, 900)
         today = _today_utc()
         if d.get('vol_day') != today or not (d.get('day_open') or 0):
