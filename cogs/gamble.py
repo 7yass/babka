@@ -1797,6 +1797,23 @@ class Gamble(commands.Cog):
             conn.execute('DELETE FROM bounties WHERE guild_id=?', (str(gid),))
         await ctx.reply(t(gid, 'eco.reset_done'))
 
+    @commands.command(name='grant', description='Daj kasę (house)')
+    async def grant(self, ctx, member: discord.Member, amount: str = ''):
+        """House-only cash grant: compensations, event prizes, making whole
+        wallets the market ate. `.grant @user 600m`."""
+        gid = ctx.guild.id
+        if not db.is_house(ctx.author.id):
+            return await ctx.reply(t(gid, 'eco.no_owner'), ephemeral=True)
+        if member.bot:
+            return await ctx.reply(t(gid, 'eco.rob_bot'), ephemeral=True)
+        coins = parse_bet(amount, 10**18)
+        if not coins or coins <= 0:
+            return await ctx.reply(t(gid, 'eco.grant_use'), ephemeral=True)
+        new_bal = add_cash(gid, member.id, int(coins))
+        await ctx.reply(t(gid, 'eco.grant_ok', user=member.display_name,
+                            amount=cshort(int(coins)), cash=cshort(new_bal)),
+                        ephemeral=True)
+
     @commands.hybrid_command(name='casino', description='Kasyno', aliases=['kasyno'])
     async def casino(self, ctx):
         from cogs.levels import get_user

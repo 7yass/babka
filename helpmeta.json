@@ -2165,6 +2165,13 @@
       [],
       "heist @host",
       "Everyone"
+    ],
+    "grant": [
+      "economy",
+      "HOUSE ONLY. Grant cash: `.grant @user <amount>` (600m, 10k). Compensations and event prizes.",
+      [],
+      "@user 600m",
+      "Owner"
     ]
   },
   "cats": {
