@@ -305,10 +305,10 @@
     "shop.buy_2": "`2) {p}{cmd} buy {id #} {amount}`",
     "shop.ex_label": "Example",
     "shop.foot": "View item usage using {p}{cmd} info",
-    "shop.bought_n": "Bought **{n}x {item}**. Check `;inv`.",
+    "shop.bought_n": "Bought **{n}x {item}**.",
     "shop.no_item": "We don't sell that.",
     "shop.bought": "Bought **{item}**. Check /inv.",
-    "shop.empty": "Pockets empty.",
+    "shop.empty": "Pockets empty. Browse `{p}shop` — try `{p}shop info shield`.",
     "shop.no_token": "No nick token. Buy one first.",
     "shop.no_scroll": "No force scroll. Buy one first.",
     "shop.nick_fail": "Couldn't rename — check my permissions.",
@@ -1387,7 +1387,11 @@
     "crime.ev_heat": "Sirens in the distance... they pass by. Phew.",
     "eco.stocks_hint": "Tap a ticker for its live chart. 30s ticks, 1% fee + spread.",
     "eco.grant_use": "Usage: `.grant @user <amount>` (e.g. 600m, 10k).",
-    "eco.grant_ok": "Granted {amount} to {user}. Wallet: {cash}."
+    "eco.grant_ok": "Granted {amount} to {user}. Wallet: {cash}.",
+    "shop.pk_bag_line": "Bag: `;inv` (pokemon items live after `;`).",
+    "shop.use_line": "Use: `{hint}`",
+    "shop.stash_line": "Stash: `{p}inv` (babka items live after `{p}`).",
+    "shop.inv_hint": "New here? `{p}shop info <item>` explains anything. Stashables go with their Use line, buffs work on their own."
   },
   "pl": {
     "staff.only": "Tylko dla ekipy.",
@@ -1695,10 +1699,10 @@
     "shop.buy_2": "`2) {p}{cmd} buy {nr} {ile}`",
     "shop.ex_label": "Przykład",
     "shop.foot": "Użycie rzeczy: {p}{cmd} info",
-    "shop.bought_n": "Kupiono **{n}x {item}**. Sprawdź `;inv`.",
+    "shop.bought_n": "Kupiono **{n}x {item}**.",
     "shop.no_item": "Tego nie mamy.",
     "shop.bought": "Kupiono **{item}**. Sprawdź /inv.",
-    "shop.empty": "Kieszenie puste.",
+    "shop.empty": "Kieszenie puste. Zobacz `{p}shop` — sprobuj `{p}shop info shield`.",
     "shop.no_token": "Brak tokenu. Kup najpierw.",
     "shop.no_scroll": "Brak zwoju. Kup najpierw.",
     "shop.nick_fail": "Nie mogę zmienić — sprawdź moje uprawnienia.",
@@ -3010,6 +3014,10 @@
     "crime.ev_heat": "Syreny w oddali... przejechaly. Uff.",
     "eco.stocks_hint": "Kliknij ticker po wykres. Tick co 30s, fee 1% + spread.",
     "eco.grant_use": "Uzycie: `.grant @user <kwota>` (np. 600m, 10k).",
-    "eco.grant_ok": "Przyznano {amount} dla {user}. Portfel: {cash}."
+    "eco.grant_ok": "Przyznano {amount} dla {user}. Portfel: {cash}.",
+    "shop.pk_bag_line": "Plecak: `;inv` (itemy pokemon po `;`).",
+    "shop.use_line": "Uzycie: `{hint}`",
+    "shop.stash_line": "Schowek: `{p}inv` (graty babki po `{p}`).",
+    "shop.inv_hint": "Nowy? `{p}shop info <item>` wszystko wyjasni. Itemy zywa z linijki Use, buffy dzialaja same."
   }
 }

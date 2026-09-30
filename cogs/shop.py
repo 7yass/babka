@@ -108,6 +108,16 @@ BUY_MAP = {
     'curse': ('curse', 0),
     'highroller': ('highroller', 10 * 60),
 }
+# stashable item -> how to actually use it ({p} = server prefix).
+# Shown in buy receipts, .inv rows and .shop info. Passive buffs say so.
+USE_HINT = {
+    'nick': '{p}nick <new name>',
+    'force': '{p}nickbomb @user <name>',
+    'shield': 'passive armor vs .rob (see {p}shield)',
+    'xpboost': 'passive double XP while active',
+    'curse': '{p}curse @user',
+    'highroller': 'passive no-bet-cap for 10 min',
+}
 # Rob-shield stacking cap: protection time banks up to 7 days total, then
 # further purchases are refused (instead of silently stacking forever).
 SHIELD_MAX_STACK = 7 * 24 * 3600
@@ -372,7 +382,8 @@ class Shop(commands.Cog):
                 conn.execute('UPDATE pk_balls SET expires=? WHERE guild_id=? AND user_id=? AND ball=?',
                              (int(_t.time()) + INCENSE_SECONDS, str(gid), str(ctx.author.id),
                               'incense'))
-        return await ctx.reply(t(gid, 'shop.bought_n', n=n, item=_Pk.PK_NAMES.get(key, key)),
+        return await ctx.reply(t(gid, 'shop.bought_n', n=n, item=_Pk.PK_NAMES.get(key, key))
+                               + '\n' + t(gid, 'shop.pk_bag_line'),
                                ephemeral=True)
 
     async def _buy_economy(self, ctx, key: str, n: int):
@@ -415,7 +426,13 @@ class Shop(commands.Cog):
             maybe_award(gid, ctx.author.id)
         except Exception:
             pass
-        await ctx.reply(t(gid, 'shop.bought_n', n=n, item=DISPLAY.get(key, key)), ephemeral=True)
+        p = db.get_prefix(gid) or '.'
+        msg = t(gid, 'shop.bought_n', n=n, item=DISPLAY.get(key, key))
+        hint = (USE_HINT.get(inv_item) or '').format(p=p)
+        if hint:
+            msg += '\n' + t(gid, 'shop.use_line', hint=hint)
+        msg += '\n' + t(gid, 'shop.stash_line', p=p)
+        await ctx.reply(msg, ephemeral=True)
 
     @shop.command(name='buy', description='Kup przedmiot')
     async def buy(self, ctx, item: str = '', n: str = '1'):
@@ -475,7 +492,8 @@ class Shop(commands.Cog):
                 from cogs.pokemon import balls_add
                 balls_add(gid, ctx.author.id, key, n)
                 # handle repel/incense expire etc. via balls already
-                return await ctx.reply(t(gid, 'shop.bought_n', n=n, item=_Pk.PK_NAMES.get(key, key)), ephemeral=True)
+                return await ctx.reply(t(gid, 'shop.bought_n', n=n, item=_Pk.PK_NAMES.get(key, key))
+                                       + '\n' + t(gid, 'shop.pk_bag_line'), ephemeral=True)
         except Exception:
             pass
         return await ctx.reply(t(gid, 'shop.no_item'), ephemeral=True)
@@ -570,9 +588,12 @@ class Shop(commands.Cog):
         except Exception:
             dur_txt = ''
         p = db.get_prefix(gid) or '.'
+        use_hint = (USE_HINT.get(BUY_MAP.get(key, (key, 0))[0], '') or '').format(p=p)
+        use_line = f'▶ Use: `{use_hint}`\n' if use_hint else ''
         desc = (f'{price:,} {em(gid, "coin", "$")}  {afford}\n'
                 f'{t(gid, ITEMS[key]["use"])}\n\n'
                 f'⏱ Effect: {dur_txt}\n'
+                f'{use_line}'
                 f'🎒 You own: **x{owned}**{left_txt}\n'
                 f'🛒 Buy: `{p}shop buy {key} 1` or `{p}shop buy {num_of.get(key, "?")} 1`\n'
                 f'-# `[{num_of.get(key, "?")}]` {sec} • wallet {cash:,}')
@@ -772,15 +793,30 @@ class Shop(commands.Cog):
             rows = conn.execute('SELECT item, qty, expires FROM inventory WHERE guild_id=? AND user_id=?',
                                 (str(gid), str(ctx.author.id))).fetchall()
         rows = [dict(r) for r in rows if (r['qty'] or 0) > 0]
+        p = db.get_prefix(gid) or '.'
         if not rows:
-            return await ctx.reply(t(gid, 'shop.empty'), ephemeral=True)
+            return await ctx.reply(t(gid, 'shop.empty', p=p), ephemeral=True)
         lines = []
         for r in rows:
-            tail = ''
+            key = r['item']
+            name = DISPLAY.get(key, key.replace('_', ' ').title())
+            left_txt, active = '', True
             if r['expires']:
                 left = max(0, int(r['expires']) - int(time.time()))
-                tail = f" ({left // 3600}h left)" if left else ' (expired)'
-            lines.append(f"• **{r['item']}** x{r['qty']}{tail}")
+                if left:
+                    h, rem = divmod(left, 3600)
+                    m, _ = divmod(rem, 60)
+                    left_txt = f' — ACTIVE {h}h {m}m left' if h else f' — ACTIVE {m}m left'
+                else:
+                    active = False
+            hint = (USE_HINT.get(key) or '').format(p=p)
+            if not active:
+                lines.append(f'• **{name}** x{r["qty"]} — expired, rebuy: `{p}shop buy {key}`')
+            elif left_txt:
+                lines.append(f'• **{name}**{left_txt}' + (f' — {hint}' if hint else ''))
+            else:
+                lines.append(f'• **{name}** x{r["qty"]}' + (f' — use: `{hint}`' if hint else ''))
+        lines.append(t(gid, 'shop.inv_hint', p=p))
         await ctx.reply(view=card(
             t(gid, 'shop.inv_title', user=ctx.author.display_name),
             '\n'.join(lines)), ephemeral=True)
