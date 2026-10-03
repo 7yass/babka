@@ -82,7 +82,14 @@ def _drift(price: int, sigma: float) -> int:
     return max(5, int(price * (1 + change)))
 
 
+# guilds whose one-time schema/migration/seed pass already ran this process.
+# (Migration is one-way: old tickers can't be recreated, so skipping is safe.)
+_ENSURED = set()
+
+
 def _ensure(gid):
+    if str(gid) in _ENSURED:
+        return
     with db.conn_ctx() as conn:
         try:
             conn.execute('ALTER TABLE stock_hist ADD COLUMN vol INTEGER DEFAULT 0')
@@ -106,6 +113,7 @@ def _ensure(gid):
                          'VALUES (?,?,?,?)', (str(gid), sym, spec['start'], _now()))
     for sym in STOCKS:
         _seed_history(gid, sym)
+    _ENSURED.add(str(gid))
 
 
 def _rig_bias(sym: str) -> float:

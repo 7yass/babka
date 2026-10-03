@@ -22,6 +22,12 @@ def get_conn():
         # Small frequent checkpoints: one huge checkpoint stalls the loop
         # (and every sqlite call runs ON the loop) far worse than many tiny ones.
         conn.execute('PRAGMA wal_autocheckpoint=500')
+        # Hard cap on WAL size: a runaway WAL makes every checkpoint — and the
+        # daily backup — slower and slower until the process looks dead.
+        try:
+            conn.execute('PRAGMA journal_size_limit=33554432')
+        except Exception:
+            pass
     except Exception:
         pass
     return conn
@@ -628,6 +634,19 @@ def init_db():
                 c.execute(col)
             except Exception:
                 pass  # already there
+    # Report the real journal mode: on filesystems without WAL support
+    # SQLite silently falls back to locking mode, where the daily backup's
+    # read transaction blocks every writer (frozen loop + "database is
+    # locked" everywhere). This line tells us which world we're in.
+    try:
+        with conn_ctx() as conn:
+            mode = conn.execute('PRAGMA journal_mode').fetchone()[0]
+            print(f'[+] DB journal_mode={mode}')
+            if str(mode).lower() != 'wal':
+                print('[!] DB is NOT in WAL mode: readers block writers here. '
+                      'Expect stalls during backups; move data.db to local disk if so.')
+    except Exception as e:
+        print(f'[!] DB mode check failed: {e}')
 
 
 _CACHE_TTL = 180  # prefix/settings/antiraid: config changes take up to 3 min to apply

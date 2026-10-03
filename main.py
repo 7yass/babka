@@ -257,6 +257,18 @@ async def _loop_lag():
         print(f'[!] no code ran for {lag:.1f}s — the process was frozen. On a '
               f'shared host that is CPU throttling; locally it is the PC '
               f'sleeping. Reconnect storms and "Unknown interaction" follow.')
+        if lag > 10:
+            # Big freeze forensics: DB/WAL sizes tell a runaway WAL apart
+            # from pure CPU starvation. Cheap stat() calls, no DB touch.
+            try:
+                from pathlib import Path as _P
+                _db = _P(__file__).parent / 'data.db'
+                _wal = _P(str(_db) + '-wal')
+                _sz = _db.stat().st_size if _db.exists() else -1
+                _wz = _wal.stat().st_size if _wal.exists() else 0
+                print(f'[!] freeze forensics: data.db={_sz // 1024}KB wal={_wz // 1024}KB')
+            except Exception as e:
+                print(f'[!] freeze forensics failed: {e}')
 
 
 @bot.event
