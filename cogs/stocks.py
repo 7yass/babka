@@ -719,8 +719,8 @@ def _mk_tf_cb(sym: str, tf: str):
             pass
         gid = interaction.guild_id
         window = TF_WINDOWS.get(tf, 86400)
-        pts = _history(gid, sym, window)
         q = _quote(gid, sym)
+        pts = _history(gid, sym, window)
         png = stock_chart(sym, STOCKS[sym]['name'], pts, tf)
         view = _chart_view(gid, sym, tf, _stats_txt(gid, sym, q))
         try:
@@ -731,12 +731,25 @@ def _mk_tf_cb(sym: str, tf: str):
     return _cb
 
 
+def _mood(chg: float) -> str:
+    if chg >= 20:
+        return 'MOONING'
+    if chg >= 5:
+        return 'climbing'
+    if chg > -5:
+        return 'flat'
+    if chg > -20:
+        return 'dipping'
+    return 'crashed'
+
+
 def _stats_txt(gid, sym: str, q: dict) -> str:
     arrow = '▲' if q['chg'] >= 0 else '▼'
     return (f"**{cshort(q['price'])}**  {arrow}{abs(q['chg']):.2f}% today\n"
             f"O {cshort(q['open'])} • H {cshort(q['high'])} • L {cshort(q['low'])} • "
             f"Vol {cshort(q['vol'])}\n"
-            f"MCap {cshort(q['mcap'])} • ATH {cshort(q['ath'])}")
+            f"MCap {cshort(q['mcap'])} • ATH {cshort(q['ath'])}\n"
+            f"{t(gid, 'eco.stx_plain', sym=sym, mood=_mood(q['chg']))}")
 
 
 class Stocks(commands.Cog):
@@ -864,7 +877,8 @@ class Stocks(commands.Cog):
         await ctx.reply(view=_game_layout(
             t(gid, 'eco.stock_bought_title'),
             t(gid, 'eco.stx_bought', qty=qty, sym=sym, px=cshort(q['price']),
-              cost=cshort(total), fee=cshort(fee))), ephemeral=True)
+              cost=cshort(total), fee=cshort(fee))
+            + '\n' + t(gid, 'eco.stx_tip_buy', sym=sym)), ephemeral=True)
 
     @stock.command(name='sell', description='Sprzedaj akcje')
     async def stock_sell(self, ctx, symbol: str = '', amount: str = 'all'):
@@ -893,7 +907,8 @@ class Stocks(commands.Cog):
         await ctx.reply(view=_game_layout(
             t(gid, 'eco.stock_sold_title'),
             t(gid, 'eco.stx_sold', qty=n, sym=sym, px=cshort(q['price']),
-              gain=cshort(net), fee=cshort(fee), pnl=cshort(pnl))), ephemeral=True)
+              gain=cshort(net), fee=cshort(fee), pnl=cshort(pnl))
+            + '\n' + t(gid, 'eco.stx_tip_sell')), ephemeral=True)
 
     @stock.command(name='view', description='Wykres akcji')
     async def stock_view(self, ctx, symbol: str = '', tf: str = '1D'):
@@ -905,8 +920,8 @@ class Stocks(commands.Cog):
         if tf not in TF_WINDOWS:
             tf = '1D'
         await ctx.defer()
+        q = _quote(gid, sym)  # tick first: rescues + fresh price land IN this chart
         pts = _history(gid, sym, TF_WINDOWS[tf])
-        q = _quote(gid, sym)
         png = await self.bot.loop.run_in_executor(None, stock_chart, sym,
                                                   STOCKS[sym]['name'], pts, tf)
         await ctx.reply(view=_chart_view(gid, sym, tf, _stats_txt(gid, sym, q)),
@@ -1057,8 +1072,8 @@ class Stocks(commands.Cog):
             except Exception:
                 pass
             gid = interaction.guild_id
-            pts = _history(gid, sym, TF_WINDOWS['1D'])
             q = _quote(gid, sym)
+            pts = _history(gid, sym, TF_WINDOWS['1D'])
             png = stock_chart(sym, STOCKS[sym]['name'], pts, '1D')
             view = _chart_view(gid, sym, '1D', _stats_txt(gid, sym, q))
             try:
@@ -1077,8 +1092,8 @@ def _mk_view_cb(sym: str):
         except Exception:
             pass
         gid = interaction.guild_id
-        pts = _history(gid, sym, TF_WINDOWS['1D'])
         q = _quote(gid, sym)
+        pts = _history(gid, sym, TF_WINDOWS['1D'])
         png = stock_chart(sym, STOCKS[sym]['name'], pts, '1D')
         view = _chart_view(gid, sym, '1D', _stats_txt(gid, sym, q))
         try:
