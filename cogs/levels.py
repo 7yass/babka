@@ -663,6 +663,9 @@ class Levels(commands.Cog):
         if not custom_bg and style.get('bg_url'):
             if style['bg_url'] not in _BG_CACHE or time.time() - _BG_CACHE[style['bg_url']][0] > 3600:
                 _BG_CACHE[style['bg_url']] = (time.time(), await fetch_bytes(style['bg_url']))
+                # cap: custom backgrounds are up to 8MB each — never hoard them
+                while len(_BG_CACHE) > 20:
+                    _BG_CACHE.pop(next(iter(_BG_CACHE)))
             custom_bg = _BG_CACHE[style['bg_url']][1]
         card = await self.bot.loop.run_in_executor(
             None, rank_card, member, data, get_rank(ctx.guild.id, member.id),
