@@ -11,12 +11,17 @@ DB_PATH = Path(__file__).parent / 'data.db'
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     try:
         conn.execute('PRAGMA journal_mode=WAL')
-        conn.execute('PRAGMA busy_timeout=5000')
+        # Wait out transient contention instead of failing voice XP etc:
+        # on throttled disks a checkpoint can stall writers for seconds.
+        conn.execute('PRAGMA busy_timeout=30000')
         conn.execute('PRAGMA synchronous=NORMAL')
+        # Small frequent checkpoints: one huge checkpoint stalls the loop
+        # (and every sqlite call runs ON the loop) far worse than many tiny ones.
+        conn.execute('PRAGMA wal_autocheckpoint=500')
     except Exception:
         pass
     return conn
@@ -24,7 +29,11 @@ def get_conn():
 
 def backup_to(path) -> None:
     """Online-safe snapshot via the sqlite backup API (reads the local file)."""
-    src = sqlite3.connect(DB_PATH, timeout=10)
+    src = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        src.execute('PRAGMA busy_timeout=30000')
+    except Exception:
+        pass
     try:
         dst = sqlite3.connect(path)
         try:
