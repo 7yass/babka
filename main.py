@@ -387,17 +387,24 @@ def _bar(done: int, total: int) -> str:
     return '█' * f + '░' * (BAR_W - f)
 
 
-def _start_stall_guard(loop, grace_s=300, check_s=30, dead_s=150):
-    """Hardware watchdog: a real OS thread (not the event loop) that hard-exits
-    the process if the loop stops responding. Panels restart exited processes,
-    which turns 'panel says running but the bot is dead' into a fresh boot
-    instead of an indefinite coma. A faulthandler dump right before the exit
-    shows exactly where the loop was wedged."""
+def _start_stall_guard(loop, grace_s=300, check_s=30, dead_s=150, give_up_s=1800):
+    """Stall watchdog on a real OS thread (not the event loop).
+
+    Policy learned the hard way: the freezes here are host CPU starvation,
+    not deadlocks (every dump shows the loop parked idle in select()).
+    Exiting early is actively harmful — the panel refuses auto-restart
+    within 600s of the last crash, turning a transient freeze into a
+    permanent outage needing a manual Start. So: announce every stall with
+    a stack dump (evidence), ride out anything under 30 minutes (the loop
+    always recovered so far), and only exit past that — by which point the
+    daemon's crash window has long cleared and a restart actually happens.
+    """
     import threading as _th
     import os as _os
     boot = time.monotonic()
 
     def _watch():
+        dead_since = None
         while True:
             time.sleep(check_s)
             if time.monotonic() - boot < grace_s:
@@ -407,8 +414,25 @@ def _start_stall_guard(loop, grace_s=300, check_s=30, dead_s=150):
                 loop.call_soon_threadsafe(fired.set)
             except Exception:
                 pass
-            if not fired.wait(dead_s):
-                print(f'[!] STALL GUARD: event loop unresponsive for {dead_s}s — '
+            if fired.wait(dead_s):
+                dead_since = None
+                continue
+            now = time.monotonic()
+            if dead_since is None:
+                dead_since = now
+                print(f'[!] STALL: event loop unresponsive for {dead_s}s — '
+                      f'holding position, NOT exiting (auto-restart is refused '
+                      f'within 600s of a crash; riding it out).', flush=True)
+                try:
+                    import faulthandler as _fh
+                    _fh.dump_traceback()
+                except Exception:
+                    pass
+                continue
+            dead_for = now - dead_since
+            print(f'[!] STALL: loop still dead after {int(dead_for)}s total.', flush=True)
+            if dead_for >= give_up_s:
+                print(f'[!] STALL: dead {int(dead_for)}s with no recovery — '
                       f'exiting so the panel restarts fresh.', flush=True)
                 try:
                     import faulthandler as _fh
