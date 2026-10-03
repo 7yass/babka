@@ -700,10 +700,12 @@ def roulette_spin_gif(idxs, get_png, size: int = 240) -> bytes:
 
 class PokerView(discord.ui.LayoutView):
     def __init__(self, cog, player_id: int, bet: int, deck, hand, gid):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog, self.player_id, self.bet = cog, player_id, bet
         self.deck, self.hand, self.held, self.gid = deck, hand, set(), gid
         self.done = False
+        self.settled = False  # money moved (payout or recorded loss)
+        self.refunded = False  # stake given back exactly once, ever
         self.message = None  # set at send time so on_timeout can close the card
         self._build()
 
@@ -746,8 +748,7 @@ class PokerView(discord.ui.LayoutView):
             if self.done:
                 # Round already settled: answer with the closed card instead of
                 # raw text (LayoutView messages can't take plain content).
-                self._build(t(self.gid, 'eco.round_over'))
-                return await finish(interaction, mode, view=self)
+                return await self._closed_card(interaction, mode)
             if i in self.held:
                 self.held.discard(i)
             else:
@@ -763,6 +764,29 @@ class PokerView(discord.ui.LayoutView):
         png = await loop.run_in_executor(None, poker_image, list(self.hand), set(self.held))
         return discord.File(__import__('io').BytesIO(png), 'poker.png')
 
+    def _refund_once(self) -> bool:
+        """Return the stake exactly once. True if money moved."""
+        if self.settled or self.refunded:
+            return False
+        self.refunded = True
+        try:
+            add_cash(self.gid, self.player_id, self.bet)
+        except Exception:
+            return False
+        return True
+
+    async def _closed_card(self, interaction, mode, key: str = 'eco.round_over'):
+        """Answer a stale click with the closed card + wallet state, image kept."""
+        from utils.interactions import finish
+        try:
+            img = await self._img()
+        except Exception:
+            img = None
+        self._build(t(self.gid, key) + _wallet_line(self.gid, self.player_id))
+        if img is None:
+            return await finish(interaction, mode, view=self)
+        return await finish(interaction, mode, view=self, attachments=[img])
+
     async def _cb_draw(self, interaction: discord.Interaction):
         from utils.interactions import ack, finish
         set_ctx_lang(interaction.user)
@@ -771,71 +795,82 @@ class PokerView(discord.ui.LayoutView):
                 t(self.gid, 'eco.not_yours'), ephemeral=True)
         mode = await ack(interaction)
         if self.done:
-            self._build(t(self.gid, 'eco.round_over'))
-            return await finish(interaction, mode, view=self)
+            return await self._closed_card(interaction, mode)
         self.done = True
-        for i in range(5):
-            if i not in self.held:
-                self.hand[i] = self.deck.pop()
-        key, mult = poker_eval(self.hand)
-        if str(self.player_id) in GOD_IDS and not mult:
-            # hero call: the river "pairs up" into queens
-            qi = [i for i, (r, _s) in enumerate(self.hand) if r == 'Q']
-            if qi:
-                mate = next((i for i in range(5) if i not in qi), 1)
-                self.hand[mate] = ('Q', self.hand[mate][1])
-            else:
-                self.hand[0] = ('Q', self.hand[0][1])
-                self.hand[1] = ('Q', self.hand[1][1])
+        try:
+            for i in range(5):
+                if i not in self.held:
+                    self.hand[i] = self.deck.pop()
             key, mult = poker_eval(self.hand)
-        b = bal(self.gid, self.player_id)
-        if mult:
-            raw = self.bet * mult
-            if str(self.player_id) not in GOD_IDS:
-                # Caps scale with stake (5x, 10x on High Roller) so big
-                # bets and big hands both matter; notice when it binds.
-                sm = (CASINO_POKER_HR_CAP_MULT
-                      if has_highroller(self.gid, self.player_id)
-                      else CASINO_POKER_CAP_MULT)
-                profit, capped = self.cog._cap_profit(
-                    raw, POKER_MAX_WIN, sm, self.bet)
+            if str(self.player_id) in GOD_IDS and not mult:
+                # hero call: the river "pairs up" into queens
+                qi = [i for i, (r, _s) in enumerate(self.hand) if r == 'Q']
+                if qi:
+                    mate = next((i for i in range(5) if i not in qi), 1)
+                    self.hand[mate] = ('Q', self.hand[mate][1])
+                else:
+                    self.hand[0] = ('Q', self.hand[0][1])
+                    self.hand[1] = ('Q', self.hand[1][1])
+                key, mult = poker_eval(self.hand)
+            b = bal(self.gid, self.player_id)
+            if mult:
+                raw = self.bet * mult
+                if str(self.player_id) not in GOD_IDS:
+                    # Caps scale with stake (5x, 10x on High Roller) so big
+                    # bets and big hands both matter; notice when it binds.
+                    sm = (CASINO_POKER_HR_CAP_MULT
+                          if has_highroller(self.gid, self.player_id)
+                          else CASINO_POKER_CAP_MULT)
+                    profit, capped = self.cog._cap_profit(
+                        raw, POKER_MAX_WIN, sm, self.bet)
+                else:
+                    profit, capped = raw, False
+                add_cash(self.gid, self.player_id, self.bet + profit)
+                msg = t(self.gid, 'eco.poker_win', hand=key.replace('_', ' '), win=cshort(profit))
+                if capped:
+                    msg += '\n' + t(self.gid, 'eco.cap_hit', win=cshort(profit))
             else:
-                profit, capped = raw, False
-            add_cash(self.gid, self.player_id, self.bet + profit)
-            msg = t(self.gid, 'eco.poker_win', hand=key.replace('_', ' '), win=cshort(profit))
-            if capped:
-                msg += '\n' + t(self.gid, 'eco.cap_hit', win=cshort(profit))
-        else:
-            msg = t(self.gid, 'eco.poker_lose', bet=cshort(self.bet))
-            hr = highroller_refund(self.gid, self.player_id, self.bet)
-            if hr:
-                msg += '\n' + hr
-        msg += _wallet_line(self.gid, self.player_id)
-        self._build(msg)
-        await finish(interaction, mode, view=self,
-                     attachments=[await self._img()])
+                msg = t(self.gid, 'eco.poker_lose', bet=cshort(self.bet))
+                hr = highroller_refund(self.gid, self.player_id, self.bet)
+                if hr:
+                    msg += '\n' + hr
+            self.settled = True  # payout recorded or loss booked — money is final
+            msg += _wallet_line(self.gid, self.player_id)
+            self._build(msg)
+            await finish(interaction, mode, view=self,
+                         attachments=[await self._img()])
+        except Exception:
+            # Mid-settlement hiccup: stake back exactly once + visible receipt.
+            # Money can never vanish between payout and refund.
+            self._refund_once()
+            try:
+                await self._closed_card(interaction, mode, key='eco.round_err')
+            except Exception:
+                pass
         self.stop()
 
     async def on_timeout(self):
-        if not self.done:
-            self.done = True
-            b = bal(self.gid, self.player_id)
-            add_cash(self.gid, self.player_id, self.bet)  # refund
-            # Close the card: dead buttons must not look live.
-            try:
-                self._build(t(self.gid, 'eco.stake_back'))
-                if self.message is not None:
-                    await self.message.edit(view=self, attachments=[await self._img()])
-            except Exception:
-                pass
+        if not self.settled:
+            self._refund_once()  # stake back — the round never settled
+        self.done = True
+        # Close the card: dead buttons must not look live.
+        try:
+            self._build(t(self.gid, 'eco.stake_back') + _wallet_line(self.gid, self.player_id))
+            if self.message is not None:
+                await self.message.edit(view=self, attachments=[await self._img()])
+        except Exception:
+            pass
+        self.stop()
 
 
 class BJView(discord.ui.LayoutView):
     def __init__(self, cog, player_id: int, bet: int, deck, phand, dhand, gid):
-        super().__init__(timeout=120)
+        super().__init__(timeout=300)
         self.cog, self.player_id, self.bet = cog, player_id, bet
         self.deck, self.phand, self.dhand, self.gid = deck, phand, dhand, gid
         self.done = False
+        self.settled = False  # money moved (payout or recorded loss)
+        self.refunded = False  # stake given back exactly once, ever
         self.message = None  # set at send time so on_timeout can close the card
         self._build(True)
 
@@ -878,54 +913,88 @@ class BJView(discord.ui.LayoutView):
             return False
         return True
 
+    def _refund_once(self) -> bool:
+        """Return the stake exactly once. True if money moved."""
+        if self.settled or self.refunded:
+            return False
+        self.refunded = True
+        try:
+            add_cash(self.gid, self.player_id, self.bet)
+        except Exception:
+            return False
+        return True
+
+    async def _closed_card(self, interaction, mode, hide=True,
+                           key: str = 'eco.round_over'):
+        """Answer a stale click with the closed table + wallet state."""
+        from utils.interactions import finish as _late
+        try:
+            img = await self._table_file(hide)
+        except Exception:
+            img = None
+        self._build(hide=hide, extra=t(self.gid, key)
+                    + _wallet_line(self.gid, self.player_id))
+        if img is None:
+            return await _late(interaction, mode, view=self)
+        return await _late(interaction, mode, view=self, attachments=[img])
+
     async def finish(self, interaction: discord.Interaction, mode: str = 'edit'):
         from utils.interactions import finish as _late
         self.done = True
-        god = str(self.player_id) in GOD_IDS
-        pv = hand_value(self.phand)
-        while hand_value(self.dhand) < 17:
-            self.dhand.append(self.deck.pop())
-        dv = hand_value(self.dhand)
-        if god and pv <= 21 and dv >= pv and dv <= 21 and random.random() < 0.9:
-            # dealer "gets greedy" and draws into a bust — reads as a bad beat.
-            # First extra card busts unless a soft ace absorbs it; the second
-            # one always finishes the job (hard 17+ eats another 10).
-            for _ in range(2):
-                if hand_value(self.dhand) > 21:
-                    break
-                self.dhand.append((random.choice(['10', 'J', 'Q', 'K']), random.choice(SUITS)))
+        try:
+            god = str(self.player_id) in GOD_IDS
+            pv = hand_value(self.phand)
+            while hand_value(self.dhand) < 17:
+                self.dhand.append(self.deck.pop())
             dv = hand_value(self.dhand)
-        b = bal(self.gid, self.player_id)
-        if pv > 21:
-            msg = t(self.gid, 'eco.bj_bust', pv=pv)
-            hr = highroller_refund(self.gid, self.player_id, self.bet)
-            if hr:
-                msg += '\n' + hr
-        elif dv > 21 or pv > dv:
-            if pv == 21 and len(self.phand) == 2:
-                raw = int(self.bet * (1.5 if god else 1.0))  # mortals get even money
+            if god and pv <= 21 and dv >= pv and dv <= 21 and random.random() < 0.9:
+                # dealer "gets greedy" and draws into a bust — reads as a bad beat.
+                # First extra card busts unless a soft ace absorbs it; the second
+                # one always finishes the job (hard 17+ eats another 10).
+                for _ in range(2):
+                    if hand_value(self.dhand) > 21:
+                        break
+                    self.dhand.append((random.choice(['10', 'J', 'Q', 'K']), random.choice(SUITS)))
+                dv = hand_value(self.dhand)
+            b = bal(self.gid, self.player_id)
+            if pv > 21:
+                msg = t(self.gid, 'eco.bj_bust', pv=pv)
+                hr = highroller_refund(self.gid, self.player_id, self.bet)
+                if hr:
+                    msg += '\n' + hr
+            elif dv > 21 or pv > dv:
+                if pv == 21 and len(self.phand) == 2:
+                    raw = int(self.bet * (1.5 if god else 1.0))  # mortals get even money
+                else:
+                    raw = self.bet
+                if not god:
+                    profit, capped = self.cog._cap_profit(raw, BJ_MAX_WIN,
+                                                          CASINO_BJ_CAP_MULT, self.bet)
+                else:
+                    profit, capped = raw, False
+                add_cash(self.gid, self.player_id, self.bet + profit)
+                msg = t(self.gid, 'eco.bj_win', pv=pv, dv=dv, win=cshort(profit))
+                if capped:
+                    msg += '\n' + t(self.gid, 'eco.cap_hit', win=cshort(profit))
+            elif pv == dv:
+                add_cash(self.gid, self.player_id, self.bet)  # push refunds stake
+                msg = t(self.gid, 'eco.bj_push', pv=pv)
             else:
-                raw = self.bet
-            if not god:
-                profit, capped = self.cog._cap_profit(raw, BJ_MAX_WIN,
-                                                      CASINO_BJ_CAP_MULT, self.bet)
-            else:
-                profit, capped = raw, False
-            add_cash(self.gid, self.player_id, self.bet + profit)
-            msg = t(self.gid, 'eco.bj_win', pv=pv, dv=dv, win=cshort(profit))
-            if capped:
-                msg += '\n' + t(self.gid, 'eco.cap_hit', win=cshort(profit))
-        elif pv == dv:
-            add_cash(self.gid, self.player_id, self.bet)  # push refunds stake
-            msg = t(self.gid, 'eco.bj_push', pv=pv)
-        else:
-            msg = t(self.gid, 'eco.bj_lose', pv=pv, dv=dv, bet=cshort(self.bet))
-            hr = highroller_refund(self.gid, self.player_id, self.bet)
-            if hr:
-                msg += '\n' + hr
-        self._build(hide=False, extra=msg)
-        await _late(interaction, mode, view=self,
-                    attachments=[await self._table_file(False)])
+                msg = t(self.gid, 'eco.bj_lose', pv=pv, dv=dv, bet=cshort(self.bet))
+                hr = highroller_refund(self.gid, self.player_id, self.bet)
+                if hr:
+                    msg += '\n' + hr
+            self.settled = True  # payout recorded or loss booked — money is final
+            self._build(hide=False, extra=msg)
+            await _late(interaction, mode, view=self,
+                        attachments=[await self._table_file(False)])
+        except Exception:
+            # Mid-settlement hiccup: stake back exactly once + visible receipt.
+            self._refund_once()
+            try:
+                await self._closed_card(interaction, mode, hide=False, key='eco.round_err')
+            except Exception:
+                pass
         self.stop()
 
     def _god_save(self):
@@ -956,9 +1025,7 @@ class BJView(discord.ui.LayoutView):
             return
         mode = await ack(interaction)
         if self.done:
-            self._build(hide=False, extra=t(self.gid, 'eco.round_over'))
-            return await finish(interaction, mode, view=self,
-                                attachments=[await self._table_file(False)])
+            return await self._closed_card(interaction, mode, hide=True)
         self.phand.append(self.deck.pop())
         self._god_save()
         if hand_value(self.phand) >= 21:
@@ -974,9 +1041,7 @@ class BJView(discord.ui.LayoutView):
             return
         mode = await ack(interaction)
         if self.done:
-            self._build(hide=False, extra=t(self.gid, 'eco.round_over'))
-            return await finish(interaction, mode, view=self,
-                                attachments=[await self._table_file(False)])
+            return await self._closed_card(interaction, mode, hide=False)
         await self.finish(interaction, mode)
 
     async def _cb_double(self, interaction: discord.Interaction):
@@ -987,9 +1052,7 @@ class BJView(discord.ui.LayoutView):
         mode = await ack(interaction)
         if self.done or len(self.phand) != 2:
             # Nothing changed: re-render the table instead of defer-and-vanish.
-            self._build(True)
-            return await finish(interaction, mode, view=self,
-                                attachments=[await self._table_file(True)])
+            return await self._closed_card(interaction, mode, hide=True)
         b = bal(self.gid, self.player_id)
         if b['cash'] < self.bet:
             msg = t(self.gid, 'eco.broke', cash=cshort(b['cash']))
@@ -1005,17 +1068,18 @@ class BJView(discord.ui.LayoutView):
         await self.finish(interaction, mode)
 
     async def on_timeout(self):
-        if not self.done:
-            self.done = True
-            b = bal(self.gid, self.player_id)
-            add_cash(self.gid, self.player_id, self.bet)  # refund
-            # Close the card: dead buttons must not look live.
-            try:
-                self._build(hide=False, extra=t(self.gid, 'eco.stake_back'))
-                if self.message is not None:
-                    await self.message.edit(view=self, attachments=[await self._table_file(False)])
-            except Exception:
-                pass
+        if not self.settled:
+            self._refund_once()  # stake back — the round never settled
+        self.done = True
+        # Close the card: dead buttons must not look live.
+        try:
+            self._build(hide=False, extra=t(self.gid, 'eco.stake_back')
+                        + _wallet_line(self.gid, self.player_id))
+            if self.message is not None:
+                await self.message.edit(view=self, attachments=[await self._table_file(False)])
+        except Exception:
+            pass
+        self.stop()
 
 
 class Gamble(commands.Cog):

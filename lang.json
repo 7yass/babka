@@ -1391,7 +1391,8 @@
     "shop.pk_bag_line": "Bag: `;inv` (pokemon items live after `;`).",
     "shop.use_line": "Use: `{hint}`",
     "shop.stash_line": "Stash: `{p}inv` (babka items live after `{p}`).",
-    "shop.inv_hint": "New here? `{p}shop info <item>` explains anything. Stashables go with their Use line, buffs work on their own."
+    "shop.inv_hint": "New here? `{p}shop info <item>` explains anything. Stashables go with their Use line, buffs work on their own.",
+    "eco.round_err": "Table hiccup — stake returned, no harm done."
   },
   "pl": {
     "staff.only": "Tylko dla ekipy.",
@@ -3018,6 +3019,7 @@
     "shop.pk_bag_line": "Plecak: `;inv` (itemy pokemon po `;`).",
     "shop.use_line": "Uzycie: `{hint}`",
     "shop.stash_line": "Schowek: `{p}inv` (graty babki po `{p}`).",
-    "shop.inv_hint": "Nowy? `{p}shop info <item>` wszystko wyjasni. Itemy zywa z linijki Use, buffy dzialaja same."
+    "shop.inv_hint": "Nowy? `{p}shop info <item>` wszystko wyjasni. Itemy zywa z linijki Use, buffy dzialaja same.",
+    "eco.round_err": "Stol sie zajaknal — stawka wrocona, nic straconego."
   }
 }
