@@ -236,6 +236,39 @@ async def _before_backup():
     await asyncio.sleep(180)
 
 
+@tasks.loop(seconds=60)
+async def _heartbeat():
+    """One tiny DB write per minute + own PID. At boot this tells whether
+    the previous session died suddenly (fresh PID, recent heartbeat, no
+    farewell) versus stopped cleanly. Silent deaths leave no other trace."""
+    import os as _os
+    import time as _t
+    await bot.wait_until_ready()
+    try:
+        db.meta_set('hb_pid', str(_os.getpid()))
+        db.meta_set('hb_at', str(int(_t.time())))
+    except Exception:
+        pass
+
+
+def _last_death_note() -> str:
+    """Compare the previous session's heartbeat against this boot."""
+    import os as _os
+    import time as _t
+    try:
+        pid = db.meta_get('hb_pid')
+        at = db.meta_get('hb_at')
+        if not pid or not at:
+            return ''
+        gap = int(_t.time()) - int(at)
+        if str(pid) != str(_os.getpid()) and gap < 600:
+            return (f'[!] last session died suddenly ~{gap}s after its last heartbeat '
+                    f'(no farewell, no guard trip — killed from outside: OOM or panel).')
+    except Exception:
+        pass
+    return ''
+
+
 @tasks.loop(seconds=15)
 async def _loop_lag():
     """Process-freeze watchdog. Every PIL render already runs in an executor and
@@ -393,6 +426,9 @@ async def main():
     _rev = _build_hash()
     if _rev:
         print(f'[+] build {_rev} (compare with origin/main to confirm the deploy)')
+    _note = _last_death_note()
+    if _note:
+        print(_note)
     import logging as _lg
     try:
         # Slow-callback tripwire: asyncio logs any callback hogging the loop
@@ -408,6 +444,7 @@ async def main():
         pass
     _daily_backup.start()
     _loop_lag.start()
+    _heartbeat.start()
     _start_stall_guard(bot.loop)
     async with bot:
         failed = []
