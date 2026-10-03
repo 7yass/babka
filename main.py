@@ -339,10 +339,60 @@ def _bar(done: int, total: int) -> str:
     return '█' * f + '░' * (BAR_W - f)
 
 
+def _start_stall_guard(loop, grace_s=300, check_s=30, dead_s=150):
+    """Hardware watchdog: a real OS thread (not the event loop) that hard-exits
+    the process if the loop stops responding. Panels restart exited processes,
+    which turns 'panel says running but the bot is dead' into a fresh boot
+    instead of an indefinite coma. A faulthandler dump right before the exit
+    shows exactly where the loop was wedged."""
+    import threading as _th
+    import os as _os
+    boot = time.monotonic()
+
+    def _watch():
+        while True:
+            time.sleep(check_s)
+            if time.monotonic() - boot < grace_s:
+                continue
+            fired = _th.Event()
+            try:
+                loop.call_soon_threadsafe(fired.set)
+            except Exception:
+                pass
+            if not fired.wait(dead_s):
+                print(f'[!] STALL GUARD: event loop unresponsive for {dead_s}s — '
+                      f'exiting so the panel restarts fresh.', flush=True)
+                try:
+                    import faulthandler as _fh
+                    _fh.dump_traceback()
+                except Exception:
+                    pass
+                _os._exit(1)
+
+    _th.Thread(target=_watch, name='stall-guard', daemon=True).start()
+
+
+def _build_hash() -> str:
+    """Short commit hash for the boot log, so the console proves which build
+    is actually running. Empty when the volume isn't a git checkout."""
+    try:
+        import subprocess as _sp
+        from pathlib import Path as _P
+        out = _sp.check_output(['git', 'rev-parse', '--short', 'HEAD'],
+                               cwd=str(_P(__file__).parent),
+                               stderr=_sp.DEVNULL, timeout=10)
+        return out.decode().strip()
+    except Exception:
+        return ''
+
+
 async def main():
     db.init_db()
     bot.boot_at = time.time()
     print(_banner())
+    _rev = _build_hash()
+    if _rev:
+        print(f'[+] build {_rev} (compare with origin/main to confirm the deploy)')
     import logging as _lg
     try:
         # Slow-callback tripwire: asyncio logs any callback hogging the loop
@@ -358,6 +408,7 @@ async def main():
         pass
     _daily_backup.start()
     _loop_lag.start()
+    _start_stall_guard(bot.loop)
     async with bot:
         failed = []
         loaded = []
