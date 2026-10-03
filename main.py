@@ -160,15 +160,20 @@ async def _unpin_user_lang(ctx):
 @tasks.loop(hours=24)
 async def _daily_backup():
     try:
+        import asyncio as _aio
         import datetime as _dt
         from pathlib import Path as _P
+        loop = _aio.get_running_loop()
         _P('backups').mkdir(exist_ok=True)
+        # prune + full-file copy both ride the executor: on slow shared
+        # disks they stall the loop for seconds (dead heartbeats, dead
+        # interactions) if they run inline.
         try:
-            pruned = db.prune()
+            pruned = await loop.run_in_executor(None, db.prune)
         except Exception:
             pruned = {}
         stamp = _dt.datetime.now().strftime('%Y%m%d-%H%M%S')
-        db.backup_to(str(_P('backups') / f'data-{stamp}.db'))
+        await loop.run_in_executor(None, db.backup_to, str(_P('backups') / f'data-{stamp}.db'))
         snaps = sorted(_P('backups').glob('data-*.db'))
         for old in snaps[:-7]:
             try:
