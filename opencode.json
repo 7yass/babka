@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "bot-hosting": {
+        "type": "remote",
+        "url": "https://bot-hosting.net/api/mcp",
+        "oauth": false,
+        "headers": {
+          "Authorization": "Bearer {env:BOT_HOSTING_API_KEY}"
+        }
+      }
+    }
+  }
+}
