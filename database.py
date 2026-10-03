@@ -33,8 +33,15 @@ def get_conn():
     return conn
 
 
-def backup_to(path) -> None:
-    """Online-safe snapshot via the sqlite backup API (reads the local file)."""
+def backup_to(path, pages: int = 20, sleep: float = 0.3) -> None:
+    """Online-safe snapshot via the sqlite backup API (reads the local file).
+
+    Incremental: copies `pages` DB pages at a time with `sleep` seconds
+    between them, so the backup yields constantly instead of hogging the
+    (throttled) disk/CPU for one long stretch. A monolithic backup taken
+    while starved held its read lock for minutes, which starved writers
+    into 'database is locked' and the loop into missing heartbeats.
+    """
     src = sqlite3.connect(DB_PATH, timeout=30)
     try:
         src.execute('PRAGMA busy_timeout=30000')
@@ -43,7 +50,7 @@ def backup_to(path) -> None:
     try:
         dst = sqlite3.connect(path)
         try:
-            src.backup(dst)
+            src.backup(dst, pages=pages, sleep=sleep)
             dst.commit()
         finally:
             dst.close()
