@@ -53,19 +53,23 @@ def backup_to(path) -> None:
 
 def prune() -> dict:
     """Retention: drop per-day message stats older than 30 days and cap
-    stock history at 3000 rows per symbol (~2 days of 60s ticks plus
-    seeded daily closes for the 1Y chart). Keeps data.db (and its daily
-    backup copy) from growing forever on small hosts."""
+    stock history at 3000 rows per symbol (~25h of 30s ticks plus seeded
+    daily closes for the 1Y chart). Cutoff-based deletes (indexed range)
+    instead of a correlated NOT IN, which re-ran the subquery per row and
+    took double-digit seconds on a tiny table."""
     out = {'msg_stats': 0, 'stock_hist': 0}
     with conn_ctx() as conn:
         cur = conn.execute("DELETE FROM msg_stats WHERE day < date('now','-30 days')")
         out['msg_stats'] = cur.rowcount or 0
-        cur = conn.execute('''DELETE FROM stock_hist WHERE rowid NOT IN (
-            SELECT rowid FROM stock_hist AS keep
-            WHERE keep.guild_id = stock_hist.guild_id
-              AND keep.symbol = stock_hist.symbol
-            ORDER BY ts DESC LIMIT 3000)''')
-        out['stock_hist'] = cur.rowcount or 0
+        syms = conn.execute('SELECT DISTINCT guild_id, symbol FROM stock_hist').fetchall()
+        for r in syms:
+            cut = conn.execute('SELECT ts FROM stock_hist WHERE guild_id=? AND symbol=? '
+                               'ORDER BY ts DESC LIMIT 1 OFFSET 2999',
+                               (r['guild_id'], r['symbol'])).fetchone()
+            if cut:
+                cur = conn.execute('DELETE FROM stock_hist WHERE guild_id=? AND symbol=? AND ts<?',
+                                   (r['guild_id'], r['symbol'], cut['ts']))
+                out['stock_hist'] += cur.rowcount or 0
     return out
 
 
@@ -481,6 +485,8 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS stock_hist (
             guild_id TEXT NOT NULL, symbol TEXT NOT NULL, price INTEGER DEFAULT 0,
             ts INTEGER DEFAULT 0)''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_stock_hist_gs ON stock_hist(guild_id, symbol, ts)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_msg_stats_day ON msg_stats(day)')
         try:
             c.execute('ALTER TABLE stock_hist ADD COLUMN vol INTEGER DEFAULT 0')
         except Exception:

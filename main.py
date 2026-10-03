@@ -162,8 +162,19 @@ async def _daily_backup():
     try:
         import asyncio as _aio
         import datetime as _dt
+        import time as _t
         from pathlib import Path as _P
         loop = _aio.get_running_loop()
+        # Every restart used to trigger a full prune+backup 3 min after boot:
+        # on a tiny CPU slice that pegged the container, starved heartbeats
+        # and took the bot offline minutes after every start. Skip when a
+        # fresh backup already exists.
+        try:
+            last = float(db.meta_get('last_backup') or 0)
+        except Exception:
+            last = 0
+        if _t.time() - last < 20 * 3600:
+            return
         _P('backups').mkdir(exist_ok=True)
         # prune + full-file copy both ride the executor: on slow shared
         # disks they stall the loop for seconds (dead heartbeats, dead
@@ -181,6 +192,10 @@ async def _daily_backup():
             except Exception:
                 pass
         print(f'[+] DB backup done ({len(snaps[:7])} kept, pruned {pruned})')
+        try:
+            db.meta_set('last_backup', str(_t.time()))
+        except Exception:
+            pass
     except Exception as e:
         print(f'[-] DB backup failed: {e}')
 

@@ -166,10 +166,7 @@ def _seed_history(gid, sym):
     with db.conn_ctx() as conn:
         conn.executemany('INSERT INTO stock_hist (guild_id, symbol, price, ts, vol) VALUES (?,?,?,?,?)',
                          [(str(gid), sym, p, ts, v) for ts, p, v in reversed(pts)])
-        conn.execute('DELETE FROM stock_hist WHERE guild_id=? AND symbol=? AND ts NOT IN '
-                     '(SELECT ts FROM stock_hist WHERE guild_id=? AND symbol=? '
-                     'ORDER BY ts DESC LIMIT ?)',
-                     (str(gid), sym, str(gid), sym, HIST_KEEP))
+        _trim_hist(conn, gid, sym)
 
 
 def _tick_symbol(gid, sym):
@@ -236,11 +233,25 @@ def _tick_symbol(gid, sym):
                          (new, now, new, new, botvol, str(gid), sym))
         conn.execute('INSERT INTO stock_hist (guild_id, symbol, price, ts, vol) VALUES (?,?,?,?,?)',
                      (str(gid), sym, new, now, botvol))
-        conn.execute('DELETE FROM stock_hist WHERE guild_id=? AND symbol=? AND ts NOT IN '
-                     '(SELECT ts FROM stock_hist WHERE guild_id=? AND symbol=? '
-                     'ORDER BY ts DESC LIMIT ?)',
-                     (str(gid), sym, str(gid), sym, HIST_KEEP))
+        _trim_hist(conn, gid, sym)
     return new
+
+
+def _trim_hist(conn, gid, sym):
+    """Cap per-symbol history (indexed cutoff delete). Count-gated so the
+    common case is a single cheap query, not a sort on every tick."""
+    try:
+        n = conn.execute('SELECT COUNT(*) c FROM stock_hist WHERE guild_id=? AND symbol=?',
+                         (str(gid), sym)).fetchone()['c']
+        if n > HIST_KEEP + 100:
+            cut = conn.execute('SELECT ts FROM stock_hist WHERE guild_id=? AND symbol=? '
+                               'ORDER BY ts DESC LIMIT 1 OFFSET ?',
+                               (str(gid), sym, HIST_KEEP)).fetchone()
+            if cut:
+                conn.execute('DELETE FROM stock_hist WHERE guild_id=? AND symbol=? AND ts<?',
+                             (str(gid), sym, cut['ts']))
+    except Exception:
+        pass
 
 
 def _add_vol(gid, sym, qty: int):
