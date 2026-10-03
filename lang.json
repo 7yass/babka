@@ -1395,7 +1395,12 @@
     "eco.round_err": "Table hiccup — stake returned, no harm done.",
     "eco.stx_plain": "{sym} is {mood} today. Buy low, sell high: `.stock buy {sym} 10` = ten shares.",
     "eco.stx_tip_buy": "Holding {sym}? If it moons, `.stock sell {sym} all` cashes out.",
-    "eco.stx_tip_sell": "Sold. Eyeing the next one? `.stocks` shows the whole market."
+    "eco.stx_tip_sell": "Sold. Eyeing the next one? `.stocks` shows the whole market.",
+    "vm.wv_added": "{user} is vault-whitelisted — they can join the locked vault.",
+    "vm.wv_removed": "{user} dropped from the vault list.",
+    "vm.wv_list": "Vault guests: {users}",
+    "vm.wv_empty": "Vault guest list is empty. `.wv @user` to add someone.",
+    "vm.wv_bot": "Bots pass the vault anyway — no need to list them."
   },
   "pl": {
     "staff.only": "Tylko dla ekipy.",
@@ -3026,6 +3031,11 @@
     "eco.round_err": "Stol sie zajaknal — stawka wrocona, nic straconego.",
     "eco.stx_plain": "{sym} dzisiaj: {mood}. Kupuj tanio, sprzedawaj drogo: `.stock buy {sym} 10` = dziesiec akcji.",
     "eco.stx_tip_buy": "Trzymasz {sym}? Jak urosnie, `.stock sell {sym} all` sprzedaje wszystko.",
-    "eco.stx_tip_sell": "Sprzedane. Co dalej? `.stocks` pokazuje caly rynek."
+    "eco.stx_tip_sell": "Sprzedane. Co dalej? `.stocks` pokazuje caly rynek.",
+    "vm.wv_added": "{user} na liscie vaultu — moze wchodzic do zamknietego vaultu.",
+    "vm.wv_removed": "{user} usuniety z listy vaultu.",
+    "vm.wv_list": "Goscie vaultu: {users}",
+    "vm.wv_empty": "Lista pusta. `.wv @user` zeby kogos dodac.",
+    "vm.wv_bot": "Boty i tak przechodza — nie trzeba ich dodawac."
   }
 }

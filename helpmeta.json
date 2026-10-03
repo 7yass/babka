@@ -2172,6 +2172,20 @@
       [],
       "@user 600m",
       "Owner"
+    ],
+    "wv": [
+      "voice",
+      "HOUSE ONLY. Vault guest list: `.wv @user` lets them join the locked vault (grants perms on the spot), `.wv` lists guests.",
+      [],
+      "@user",
+      "Owner"
+    ],
+    "wuv": [
+      "voice",
+      "HOUSE ONLY. Drop a vault guest: `.wuv @user` (also clears their channel perms).",
+      [],
+      "@user",
+      "Owner"
     ]
   },
   "cats": {

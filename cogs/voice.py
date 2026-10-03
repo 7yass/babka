@@ -314,13 +314,13 @@ class Voice(commands.Cog):
         # and must not skip it (an empty room fires no further events ever)
         if before.channel:
             await _drop_temp(guild, before.channel.id, 'temp vc emptied')
-        # vault: only the house stays inside, everyone else gets yanked
+        # vault: house + trusted stay inside, everyone else gets yanked
         try:
             if after.channel and not member.bot and not db.is_house(member.id):
                 with db.conn_ctx() as conn:
                     v = conn.execute('SELECT 1 FROM voice_vaults WHERE guild_id=? AND channel_id=?',
                                      (str(guild.id), str(after.channel.id))).fetchone()
-                if v:
+                if v and str(member.id) not in Voice._trusted(guild.id):
                     try:
                         await member.move_to(None, reason='vault')
                     except Exception:
@@ -560,8 +560,21 @@ class Voice(commands.Cog):
         await ctx.reply(t(gid, 'vm.bring_done', n=moved, ch=dest.mention,
                            f=t(gid, 'vm.bring_fail', n=failed) if failed else ''))
 
-    # trusted: never vault-kicked, house aside
+    # trusted: never vault-kicked, house aside. Managed with .wv (DB),
+    # plus the legacy hardcoded ID for backward compatibility.
     VAULT_TRUSTED = {'558332192531546114'}
+
+    @staticmethod
+    def _trusted(gid) -> set:
+        out = set(Voice.VAULT_TRUSTED)
+        try:
+            with db.conn_ctx() as conn:
+                for r in conn.execute('SELECT user_id FROM voice_trusted WHERE guild_id=?',
+                                      (str(gid),)).fetchall():
+                    out.add(str(r['user_id']))
+        except Exception:
+            pass
+        return out
 
     @commands.command(name='v', aliases=['vault'])
     async def vault_cmd(self, ctx):
@@ -571,16 +584,17 @@ class Voice(commands.Cog):
         vc = ctx.author.voice.channel if ctx.author.voice else None
         if not vc:
             return await ctx.reply(t(gid, 'vm.bring_join'), ephemeral=True)
+        trusted = self._trusted(gid)
         try:
             await vc.set_permissions(ctx.guild.default_role, connect=False, view_channel=False)
             for m in list(vc.members):
                 if (not m.bot and not db.is_house(m.id)
-                        and str(m.id) not in self.VAULT_TRUSTED):
+                        and str(m.id) not in trusted):
                     try:
                         await m.move_to(None, reason='vault')
                     except Exception:
                         pass
-            for tid in self.VAULT_TRUSTED:
+            for tid in trusted:
                 tm = ctx.guild.get_member(int(tid))
                 if tm:
                     try:
@@ -610,6 +624,57 @@ class Voice(commands.Cog):
             except Exception:
                 pass
         await ctx.reply(t(gid, 'vm.vault_off'))
+
+    @commands.command(name='wv', description='Whitelist do vaultu')
+    async def wv_cmd(self, ctx, member: discord.Member = None):
+        """House-only vault guest list: `.wv @user` lets them join the
+        locked vault, `.wv` lists guests, `.wuv @user` removes one."""
+        gid = ctx.guild.id
+        if not db.is_house(ctx.author.id):
+            return await ctx.reply(t(gid, 'eco.no_owner'), ephemeral=True)
+        if member is None:
+            trusted = sorted(self._trusted(gid))
+            if not trusted:
+                return await ctx.reply(t(gid, 'vm.wv_empty'), ephemeral=True)
+            return await ctx.reply(t(gid, 'vm.wv_list',
+                                     users=' '.join(f'<@{u}>' for u in trusted)),
+                                   ephemeral=True)
+        if member.bot:
+            return await ctx.reply(t(gid, 'vm.wv_bot'), ephemeral=True)
+        with db.conn_ctx() as conn:
+            conn.execute('INSERT OR IGNORE INTO voice_trusted (guild_id, user_id) VALUES (?,?)',
+                         (str(gid), str(member.id)))
+        with db.conn_ctx() as conn:
+            row = conn.execute('SELECT channel_id FROM voice_vaults WHERE guild_id=?',
+                               (str(gid),)).fetchone()
+        if row and row['channel_id']:
+            ch = ctx.guild.get_channel(int(row['channel_id']))
+            if ch:
+                try:
+                    await ch.set_permissions(member, connect=True, view_channel=True)
+                except Exception:
+                    pass
+        await ctx.reply(t(gid, 'vm.wv_added', user=member.display_name))
+
+    @commands.command(name='wuv', aliases=['unwv'])
+    async def wuv_cmd(self, ctx, member: discord.Member):
+        """House-only: drop someone from the vault guest list."""
+        gid = ctx.guild.id
+        if not db.is_house(ctx.author.id):
+            return await ctx.reply(t(gid, 'eco.no_owner'), ephemeral=True)
+        with db.conn_ctx() as conn:
+            conn.execute('DELETE FROM voice_trusted WHERE guild_id=? AND user_id=?',
+                         (str(gid), str(member.id)))
+            row = conn.execute('SELECT channel_id FROM voice_vaults WHERE guild_id=?',
+                               (str(gid),)).fetchone()
+        if row and row['channel_id']:
+            ch = ctx.guild.get_channel(int(row['channel_id']))
+            if ch:
+                try:
+                    await ch.set_permissions(member, overwrite=None)
+                except Exception:
+                    pass
+        await ctx.reply(t(gid, 'vm.wv_removed', user=member.display_name))
 
     @commands.command(name='vcpanel', description='Panel pokoju')
     async def vcpanel(self, ctx):
