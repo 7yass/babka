@@ -191,7 +191,7 @@
     ],
     "antiraid": [
       "protection",
-      "Raid shield: account-age gate, join-burst auto-lockdown, honeypot trap channel. `.antiraid status/toggle/...`.",
+      "Raid shield: account-age gate, join-burst auto-lockdown, honeypot trap channel. `.antiraid allow <id>` exempts a fresh account (old user, new ID). `.antiraid status/toggle/...`.",
       [],
       "<subcommand>",
       "Administrator",

@@ -15,6 +15,18 @@ from utils.common import log_to_mod
 JOIN_BURST: dict = defaultdict(lambda: deque(maxlen=50))
 
 
+def _age_allowed(gid, uid) -> bool:
+    with db.conn_ctx() as conn:
+        return bool(conn.execute('SELECT 1 FROM age_allow WHERE guild_id=? AND user_id=?',
+                                 (str(gid), str(uid))).fetchone())
+
+
+def _parse_uid(raw: str) -> str:
+    """Accept a mention (<@123>, <@!123>) or a raw ID. Empty if garbage."""
+    s = (raw or '').strip().strip('<@!> ')
+    return s if s.isdigit() else ''
+
+
 async def set_lockdown(guild: discord.Guild, locked: bool) -> int:
     failed = 0
     for ch in guild.text_channels:
@@ -65,7 +77,7 @@ class AntiRaid(commands.Cog):
 
         cfg = db.get_antiraid(gid)
         age_days = (time.time() - member.created_at.timestamp()) / 86400
-        if cfg['enabled'] and age_days < (cfg['min_age_days'] or 60):
+        if cfg['enabled'] and age_days < (cfg['min_age_days'] or 60) and not _age_allowed(gid, member.id):
             try:
                 await member.send(t(gid, 'ar.dm', server=member.guild.name, age=f'{age_days:.0f}', min=cfg['min_age_days']))
                 if cfg['action'] == 'ban':
@@ -123,7 +135,7 @@ class AntiRaid(commands.Cog):
     # ---------- commands ----------
     @commands.group(name='antiraid', description='Ochrona anty-rajdowa')
     async def antiraid(self, ctx):
-        await ctx.reply('.antiraid status / toggle / set-age / set-action / set-burst / honeypot-set / honeypot-clear / lockdown',
+        await ctx.reply('.antiraid status / toggle / set-age / set-action / set-burst / allow / unallow / allowlist / honeypot-set / honeypot-clear / lockdown',
                         ephemeral=True)
 
     @antiraid.command(name='status', description='PokaÅ¼ ustawienia')
@@ -163,6 +175,45 @@ class AntiRaid(commands.Cog):
         with db.conn_ctx() as conn:
             conn.execute('UPDATE antiraid SET action=? WHERE guild_id=?', (action, str(gid)))
         await ctx.reply(t(gid, 'ar.action_set', a=action), ephemeral=True)
+
+    @antiraid.command(name='allow', description='Wpuść młode konto (ID lub @user)')
+    @staff_or('administrator')
+    async def allow(self, ctx, target: str):
+        """Age-gate exemption for a fresh account (old user, new ID).
+        Works with raw IDs — the user doesn't need to be on the server."""
+        gid = ctx.guild.id
+        uid = _parse_uid(target)
+        if not uid:
+            return await ctx.reply(t(gid, 'ar.allow_use'), ephemeral=True)
+        import time as _t
+        with db.conn_ctx() as conn:
+            conn.execute('INSERT OR REPLACE INTO age_allow (guild_id, user_id, by_id, at) VALUES (?,?,?,?)',
+                         (str(gid), uid, str(ctx.author.id), int(_t.time())))
+        await ctx.reply(t(gid, 'ar.allow_ok', uid=uid), ephemeral=True)
+
+    @antiraid.command(name='unallow', description='Cofnij wpuszczenie konta')
+    @staff_or('administrator')
+    async def unallow(self, ctx, target: str):
+        gid = ctx.guild.id
+        uid = _parse_uid(target)
+        if not uid:
+            return await ctx.reply(t(gid, 'ar.allow_use'), ephemeral=True)
+        with db.conn_ctx() as conn:
+            conn.execute('DELETE FROM age_allow WHERE guild_id=? AND user_id=?',
+                         (str(gid), uid))
+        await ctx.reply(t(gid, 'ar.unallow_ok', uid=uid), ephemeral=True)
+
+    @antiraid.command(name='allowlist', description='Lista wpuszczonych kont')
+    @staff_or('administrator')
+    async def allowlist(self, ctx):
+        gid = ctx.guild.id
+        with db.conn_ctx() as conn:
+            rows = conn.execute('SELECT user_id FROM age_allow WHERE guild_id=? ORDER BY user_id',
+                                (str(gid),)).fetchall()
+        if not rows:
+            return await ctx.reply(t(gid, 'ar.allow_empty'), ephemeral=True)
+        await ctx.reply(t(gid, 'ar.allow_title') + '\n' + '\n'.join(
+            f"• `{r['user_id']}`" for r in rows), ephemeral=True)
 
     @antiraid.command(name='set-burst', description='Próg nawaÅ‚nicy')
     @staff_or('administrator')

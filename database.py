@@ -256,6 +256,10 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS permabans (
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL, reason TEXT,
             PRIMARY KEY (guild_id, user_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS age_allow (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, by_id TEXT DEFAULT '',
+            at INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id))''')
         c.execute('''CREATE TABLE IF NOT EXISTS prefixes (
             guild_id TEXT PRIMARY KEY, prefix TEXT DEFAULT '.')''')
         c.execute('''CREATE TABLE IF NOT EXISTS meta (

@@ -1400,7 +1400,12 @@
     "vm.wv_removed": "{user} dropped from the vault list.",
     "vm.wv_list": "Vault guests: {users}",
     "vm.wv_empty": "Vault guest list is empty. `.wv @user` to add someone.",
-    "vm.wv_bot": "Bots pass the vault anyway — no need to list them."
+    "vm.wv_bot": "Bots pass the vault anyway — no need to list them.",
+    "ar.allow_use": "Usage: `.antiraid allow <user_id or @user>`.",
+    "ar.allow_ok": "ID `{uid}` is now exempt from the age gate. They can join with a fresh account.",
+    "ar.unallow_ok": "ID `{uid}` removed from the age-gate exemptions.",
+    "ar.allow_empty": "No age-gate exemptions. `.antiraid allow <id>` to add one.",
+    "ar.allow_title": "Age-gate exemptions:"
   },
   "pl": {
     "staff.only": "Tylko dla ekipy.",
@@ -3036,6 +3041,11 @@
     "vm.wv_removed": "{user} usuniety z listy vaultu.",
     "vm.wv_list": "Goscie vaultu: {users}",
     "vm.wv_empty": "Lista pusta. `.wv @user` zeby kogos dodac.",
-    "vm.wv_bot": "Boty i tak przechodza — nie trzeba ich dodawac."
+    "vm.wv_bot": "Boty i tak przechodza — nie trzeba ich dodawac.",
+    "ar.allow_use": "Uzycie: `.antiraid allow <id lub @user>`.",
+    "ar.allow_ok": "ID `{uid}` jest zwolnione z limitu wieku. Moze wejsc z nowego konta.",
+    "ar.unallow_ok": "ID `{uid}` usuniete ze zwolnien.",
+    "ar.allow_empty": "Brak zwolnien. `.antiraid allow <id>` zeby dodac.",
+    "ar.allow_title": "Zwolnienia z limitu wieku:"
   }
 }
