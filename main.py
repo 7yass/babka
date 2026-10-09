@@ -460,6 +460,13 @@ def _build_hash() -> str:
 
 async def main():
     db.init_db()
+    try:
+        _orph = db.refund_open_games()
+        if _orph['games']:
+            print(f"[+] refunded {_orph['games']} orphaned game(s) "
+                  f"({int(_orph['total']):,} coins) left mid-hand by the last death")
+    except Exception as e:
+        print(f'[!] orphan refund failed: {e}')
     bot.boot_at = time.time()
     print(_banner())
     _rev = _build_hash()

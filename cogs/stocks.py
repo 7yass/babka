@@ -9,6 +9,7 @@
 Market: 60s ticks (trend + noise + jumps + bot volume), 1% broker fee and
 0.5% spread each side, seeded 2Y daily history so 1Y charts work day one.
 """
+import asyncio
 import datetime
 import random
 import time
@@ -742,7 +743,7 @@ def _mk_tf_cb(sym: str, tf: str):
             pass
         gid = interaction.guild_id
         window = TF_WINDOWS.get(tf, 86400)
-        q = _quote(gid, sym)
+        q = await asyncio.get_running_loop().run_in_executor(None, _quote, gid, sym)
         pts = _history(gid, sym, window)
         png = stock_chart(sym, STOCKS[sym]['name'], pts, tf)
         view = _chart_view(gid, sym, tf, _stats_txt(gid, sym, q))
@@ -834,14 +835,19 @@ class Stocks(commands.Cog):
                 pass
 
     # ----- board -----
-    def _board(self, gid):
-        from cogs.gamble import _game_layout
-        from discord.ui import ActionRow
+    def _board_rows(self, gid):
+        """Pure data (sync SQLite ticks): runs in a worker thread so the loop
+        stays free to ack button clicks inside their 3s window."""
         rows = []
         for sym in STOCKS:
             q = _quote(gid, sym)
             rows.append((sym, STOCKS[sym]['name'], q['price'], q['chg'],
                          _history(gid, sym, 86400)))
+        return rows
+
+    def _board(self, gid, rows):
+        from cogs.gamble import _game_layout
+        from discord.ui import ActionRow
         layout = _game_layout(t(gid, 'eco.stocks_title'),
                               t(gid, 'eco.stocks_hint'), 'attachment://market.png',
                               accent=0xFAC43C)
@@ -862,7 +868,9 @@ class Stocks(commands.Cog):
     @commands.command(name='stocks', description='Giełda babki')
     async def stocks(self, ctx):
         await ctx.defer()
-        layout, rows = self._board(ctx.guild.id)
+        rows = await asyncio.get_running_loop().run_in_executor(
+            None, self._board_rows, ctx.guild.id)
+        layout = self._board(ctx.guild.id, rows)
         png = await self.bot.loop.run_in_executor(None, market_board, rows)
         await ctx.reply(view=layout,
                         file=discord.File(__import__('io').BytesIO(png), 'market.png'),
@@ -947,7 +955,8 @@ class Stocks(commands.Cog):
         if tf not in TF_WINDOWS:
             tf = '1D'
         await ctx.defer()
-        q = _quote(gid, sym)  # tick first: rescues + fresh price land IN this chart
+        loop = asyncio.get_running_loop()
+        q = await loop.run_in_executor(None, _quote, gid, sym)  # tick first: rescues + fresh price land IN this chart
         pts = _history(gid, sym, TF_WINDOWS[tf])
         png = await self.bot.loop.run_in_executor(None, stock_chart, sym,
                                                   STOCKS[sym]['name'], pts, tf)
@@ -1048,7 +1057,11 @@ class Stocks(commands.Cog):
         member = member or ctx.author
         await ctx.defer()
         gid = ctx.guild.id
-        prices = {s: _quote(gid, s)['price'] for s in STOCKS}
+        loop = asyncio.get_running_loop()
+        # 10 sync market ticks: worker thread, not the loop (same 3s-ack story
+        # as the ticker — a blocked loop reads as dead casino buttons).
+        prices = await loop.run_in_executor(
+            None, lambda: {s: _quote(gid, s)['price'] for s in STOCKS})
         opens = {}
         with db.conn_ctx() as conn:
             for s in STOCKS:
@@ -1099,7 +1112,7 @@ class Stocks(commands.Cog):
             except Exception:
                 pass
             gid = interaction.guild_id
-            q = _quote(gid, sym)
+            q = await asyncio.get_running_loop().run_in_executor(None, _quote, gid, sym)
             pts = _history(gid, sym, TF_WINDOWS['1D'])
             png = stock_chart(sym, STOCKS[sym]['name'], pts, '1D')
             view = _chart_view(gid, sym, '1D', _stats_txt(gid, sym, q))
@@ -1119,7 +1132,7 @@ def _mk_view_cb(sym: str):
         except Exception:
             pass
         gid = interaction.guild_id
-        q = _quote(gid, sym)
+        q = await asyncio.get_running_loop().run_in_executor(None, _quote, gid, sym)
         pts = _history(gid, sym, TF_WINDOWS['1D'])
         png = stock_chart(sym, STOCKS[sym]['name'], pts, '1D')
         view = _chart_view(gid, sym, '1D', _stats_txt(gid, sym, q))

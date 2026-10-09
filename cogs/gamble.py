@@ -1,4 +1,5 @@
 """Gambling economy: balance, daily, blackjack, slots, coinflip, rob, rich. Hybrid."""
+import asyncio
 import random
 import time
 
@@ -699,7 +700,7 @@ def roulette_spin_gif(idxs, get_png, size: int = 240) -> bytes:
 
 
 class PokerView(discord.ui.LayoutView):
-    def __init__(self, cog, player_id: int, bet: int, deck, hand, gid):
+    def __init__(self, cog, player_id: int, bet: int, deck, hand, gid, row_id=None):
         super().__init__(timeout=300)
         self.cog, self.player_id, self.bet = cog, player_id, bet
         self.deck, self.hand, self.held, self.gid = deck, hand, set(), gid
@@ -707,6 +708,8 @@ class PokerView(discord.ui.LayoutView):
         self.settled = False  # money moved (payout or recorded loss)
         self.refunded = False  # stake given back exactly once, ever
         self.message = None  # set at send time so on_timeout can close the card
+        self.row_id = row_id  # open_games row: crash-proof stake, deleted on settle
+        self._lock = asyncio.Lock()  # serialize rapid clicks: no double settle
         self._build()
 
     def _build(self, result: str = None):
@@ -744,18 +747,19 @@ class PokerView(discord.ui.LayoutView):
             if interaction.user.id != self.player_id:
                 return await interaction.response.send_message(
                     t(self.gid, 'eco.not_yours'), ephemeral=True)
-            mode = await ack(interaction)
-            if self.done:
-                # Round already settled: answer with the closed card instead of
-                # raw text (LayoutView messages can't take plain content).
-                return await self._closed_card(interaction, mode)
-            if i in self.held:
-                self.held.discard(i)
-            else:
-                self.held.add(i)
-            self._build()
-            await finish(interaction, mode, view=self,
-                         attachments=[await self._img()])
+            async with self._lock:
+                mode = await ack(interaction)
+                if self.done:
+                    # Round already settled: answer with the closed card instead of
+                    # raw text (LayoutView messages can't take plain content).
+                    return await self._closed_card(interaction, mode)
+                if i in self.held:
+                    self.held.discard(i)
+                else:
+                    self.held.add(i)
+                self._build()
+                await finish(interaction, mode, view=self,
+                             attachments=[await self._img()])
         return _cb
 
     async def _img(self):
@@ -793,65 +797,70 @@ class PokerView(discord.ui.LayoutView):
         if interaction.user.id != self.player_id:
             return await interaction.response.send_message(
                 t(self.gid, 'eco.not_yours'), ephemeral=True)
-        mode = await ack(interaction)
-        if self.done:
-            return await self._closed_card(interaction, mode)
-        self.done = True
-        try:
-            for i in range(5):
-                if i not in self.held:
-                    self.hand[i] = self.deck.pop()
-            key, mult = poker_eval(self.hand)
-            if str(self.player_id) in GOD_IDS and not mult:
-                # hero call: the river "pairs up" into queens
-                qi = [i for i, (r, _s) in enumerate(self.hand) if r == 'Q']
-                if qi:
-                    mate = next((i for i in range(5) if i not in qi), 1)
-                    self.hand[mate] = ('Q', self.hand[mate][1])
-                else:
-                    self.hand[0] = ('Q', self.hand[0][1])
-                    self.hand[1] = ('Q', self.hand[1][1])
-                key, mult = poker_eval(self.hand)
-            b = bal(self.gid, self.player_id)
-            if mult:
-                raw = self.bet * mult
-                if str(self.player_id) not in GOD_IDS:
-                    # Caps scale with stake (5x, 10x on High Roller) so big
-                    # bets and big hands both matter; notice when it binds.
-                    sm = (CASINO_POKER_HR_CAP_MULT
-                          if has_highroller(self.gid, self.player_id)
-                          else CASINO_POKER_CAP_MULT)
-                    profit, capped = self.cog._cap_profit(
-                        raw, POKER_MAX_WIN, sm, self.bet)
-                else:
-                    profit, capped = raw, False
-                add_cash(self.gid, self.player_id, self.bet + profit)
-                msg = t(self.gid, 'eco.poker_win', hand=key.replace('_', ' '), win=cshort(profit))
-                if capped:
-                    msg += '\n' + t(self.gid, 'eco.cap_hit', win=cshort(profit))
-            else:
-                msg = t(self.gid, 'eco.poker_lose', bet=cshort(self.bet))
-                hr = highroller_refund(self.gid, self.player_id, self.bet)
-                if hr:
-                    msg += '\n' + hr
-            self.settled = True  # payout recorded or loss booked — money is final
-            msg += _wallet_line(self.gid, self.player_id)
-            self._build(msg)
-            await finish(interaction, mode, view=self,
-                         attachments=[await self._img()])
-        except Exception:
-            # Mid-settlement hiccup: stake back exactly once + visible receipt.
-            # Money can never vanish between payout and refund.
-            self._refund_once()
+        async with self._lock:
+            mode = await ack(interaction)
+            if self.done:
+                return await self._closed_card(interaction, mode)
+            self.done = True
             try:
-                await self._closed_card(interaction, mode, key='eco.round_err')
+                for i in range(5):
+                    if i not in self.held:
+                        self.hand[i] = self.deck.pop()
+                key, mult = poker_eval(self.hand)
+                if str(self.player_id) in GOD_IDS and not mult:
+                    # hero call: the river "pairs up" into queens
+                    qi = [i for i, (r, _s) in enumerate(self.hand) if r == 'Q']
+                    if qi:
+                        mate = next((i for i in range(5) if i not in qi), 1)
+                        self.hand[mate] = ('Q', self.hand[mate][1])
+                    else:
+                        self.hand[0] = ('Q', self.hand[0][1])
+                        self.hand[1] = ('Q', self.hand[1][1])
+                    key, mult = poker_eval(self.hand)
+                b = bal(self.gid, self.player_id)
+                if mult:
+                    raw = self.bet * mult
+                    if str(self.player_id) not in GOD_IDS:
+                        # Caps scale with stake (5x, 10x on High Roller) so big
+                        # bets and big hands both matter; notice when it binds.
+                        sm = (CASINO_POKER_HR_CAP_MULT
+                              if has_highroller(self.gid, self.player_id)
+                              else CASINO_POKER_CAP_MULT)
+                        profit, capped = self.cog._cap_profit(
+                            raw, POKER_MAX_WIN, sm, self.bet)
+                    else:
+                        profit, capped = raw, False
+                    add_cash(self.gid, self.player_id, self.bet + profit)
+                    msg = t(self.gid, 'eco.poker_win', hand=key.replace('_', ' '), win=cshort(profit))
+                    if capped:
+                        msg += '\n' + t(self.gid, 'eco.cap_hit', win=cshort(profit))
+                else:
+                    msg = t(self.gid, 'eco.poker_lose', bet=cshort(self.bet))
+                    hr = highroller_refund(self.gid, self.player_id, self.bet)
+                    if hr:
+                        msg += '\n' + hr
+                self.settled = True  # payout recorded or loss booked — money is final
+                if self.row_id:
+                    db.open_game_del(self.row_id)  # hand closed: nothing to refund on reboot
+                msg += _wallet_line(self.gid, self.player_id)
+                self._build(msg)
+                await finish(interaction, mode, view=self,
+                             attachments=[await self._img()])
             except Exception:
-                pass
-        self.stop()
+                # Mid-settlement hiccup: stake back exactly once + visible receipt.
+                # Money can never vanish between payout and refund.
+                self._refund_once()
+                try:
+                    await self._closed_card(interaction, mode, key='eco.round_err')
+                except Exception:
+                    pass
+            self.stop()
 
     async def on_timeout(self):
         if not self.settled:
             self._refund_once()  # stake back — the round never settled
+        if self.row_id:
+            db.open_game_del(self.row_id)
         self.done = True
         # Close the card: dead buttons must not look live.
         try:
@@ -864,7 +873,7 @@ class PokerView(discord.ui.LayoutView):
 
 
 class BJView(discord.ui.LayoutView):
-    def __init__(self, cog, player_id: int, bet: int, deck, phand, dhand, gid):
+    def __init__(self, cog, player_id: int, bet: int, deck, phand, dhand, gid, row_id=None):
         super().__init__(timeout=300)
         self.cog, self.player_id, self.bet = cog, player_id, bet
         self.deck, self.phand, self.dhand, self.gid = deck, phand, dhand, gid
@@ -872,6 +881,8 @@ class BJView(discord.ui.LayoutView):
         self.settled = False  # money moved (payout or recorded loss)
         self.refunded = False  # stake given back exactly once, ever
         self.message = None  # set at send time so on_timeout can close the card
+        self.row_id = row_id  # open_games row: crash-proof stake, deleted on settle
+        self._lock = asyncio.Lock()  # serialize rapid clicks: no double settle
         self._build(True)
 
     def _build(self, hide=True, extra='', image=True):
@@ -985,6 +996,8 @@ class BJView(discord.ui.LayoutView):
                 if hr:
                     msg += '\n' + hr
             self.settled = True  # payout recorded or loss booked — money is final
+            if self.row_id:
+                db.open_game_del(self.row_id)  # hand closed: nothing to refund on reboot
             self._build(hide=False, extra=msg)
             await _late(interaction, mode, view=self,
                         attachments=[await self._table_file(False)])
@@ -1023,53 +1036,60 @@ class BJView(discord.ui.LayoutView):
         set_ctx_lang(interaction.user)
         if not await self._guard(interaction):
             return
-        mode = await ack(interaction)
-        if self.done:
-            return await self._closed_card(interaction, mode, hide=True)
-        self.phand.append(self.deck.pop())
-        self._god_save()
-        if hand_value(self.phand) >= 21:
-            return await self.finish(interaction, mode)
-        self._build(True)
-        await finish(interaction, mode, view=self,
-                     attachments=[await self._table_file(True)])
+        async with self._lock:
+            mode = await ack(interaction)
+            if self.done:
+                return await self._closed_card(interaction, mode, hide=True)
+            self.phand.append(self.deck.pop())
+            self._god_save()
+            if hand_value(self.phand) >= 21:
+                return await self.finish(interaction, mode)
+            self._build(True)
+            await finish(interaction, mode, view=self,
+                         attachments=[await self._table_file(True)])
 
     async def _cb_stand(self, interaction: discord.Interaction):
         from utils.interactions import ack, finish
         set_ctx_lang(interaction.user)
         if not await self._guard(interaction):
             return
-        mode = await ack(interaction)
-        if self.done:
-            return await self._closed_card(interaction, mode, hide=False)
-        await self.finish(interaction, mode)
+        async with self._lock:
+            mode = await ack(interaction)
+            if self.done:
+                return await self._closed_card(interaction, mode, hide=False)
+            await self.finish(interaction, mode)
 
     async def _cb_double(self, interaction: discord.Interaction):
         from utils.interactions import ack, finish
         set_ctx_lang(interaction.user)
         if not await self._guard(interaction):
             return
-        mode = await ack(interaction)
-        if self.done or len(self.phand) != 2:
-            # Nothing changed: re-render the table instead of defer-and-vanish.
-            return await self._closed_card(interaction, mode, hide=True)
-        b = bal(self.gid, self.player_id)
-        if b['cash'] < self.bet:
-            msg = t(self.gid, 'eco.broke', cash=cshort(b['cash']))
-            try:
-                await interaction.followup.send(msg, ephemeral=True)
-            except Exception:
-                pass
-            return
-        add_cash(self.gid, self.player_id, -self.bet)
-        self.bet *= 2
-        self.phand.append(self.deck.pop())
-        self._god_save()
-        await self.finish(interaction, mode)
+        async with self._lock:
+            mode = await ack(interaction)
+            if self.done or len(self.phand) != 2:
+                # Nothing changed: re-render the table instead of defer-and-vanish.
+                return await self._closed_card(interaction, mode, hide=True)
+            b = bal(self.gid, self.player_id)
+            if b['cash'] < self.bet:
+                msg = t(self.gid, 'eco.broke', cash=cshort(b['cash']))
+                try:
+                    await interaction.followup.send(msg, ephemeral=True)
+                except Exception:
+                    pass
+                return
+            add_cash(self.gid, self.player_id, -self.bet)
+            self.bet *= 2
+            if self.row_id:
+                db.open_game_set_bet(self.row_id, self.bet)
+            self.phand.append(self.deck.pop())
+            self._god_save()
+            await self.finish(interaction, mode)
 
     async def on_timeout(self):
         if not self.settled:
             self._refund_once()  # stake back — the round never settled
+        if self.row_id:
+            db.open_game_del(self.row_id)
         self.done = True
         # Close the card: dead buttons must not look live.
         try:
@@ -1407,6 +1427,11 @@ class Gamble(commands.Cog):
             return await ctx.reply(view=view, files=[await view._table_file(False)])
         view = BJView(self, ctx.author.id, bet, deck, phand, dhand, gid)
         view.message = await ctx.reply(view=view, files=[await view._table_file(True)])
+        # Crash-proof stake: refunded on boot if the process dies mid-hand.
+        try:
+            view.row_id = db.open_game_add(gid, ctx.author.id, 'bj', bet)
+        except Exception:
+            view.row_id = None
 
     def _take_bet(self, ctx, bet):
         from cogs.levels import get_user
@@ -1785,6 +1810,11 @@ class Gamble(commands.Cog):
         hand = [deck.pop() for _ in range(5)]
         view = PokerView(self, ctx.author.id, bet, deck, hand, gid)
         view.message = await ctx.reply(view=view, files=[await view._img()])
+        # Crash-proof stake: refunded on boot if the process dies mid-hand.
+        try:
+            view.row_id = db.open_game_add(gid, ctx.author.id, 'poker', bet)
+        except Exception:
+            view.row_id = None
 
     @commands.command(name='rob', description='Okradnij typa')
     async def rob(self, ctx, member: discord.Member):

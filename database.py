@@ -351,6 +351,12 @@ def init_db():
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL,
             cash INTEGER DEFAULT 1000, last_daily INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS open_games (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id TEXT NOT NULL,
+            user_id TEXT NOT NULL, game TEXT NOT NULL, bet INTEGER NOT NULL,
+            created_at INTEGER NOT NULL)''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_open_games_user '
+                  'ON open_games (guild_id, user_id)')
         c.execute('''CREATE TABLE IF NOT EXISTS verify_cfg (
             guild_id TEXT PRIMARY KEY, channel_id TEXT, message_id TEXT,
             role_id TEXT, unverified_role TEXT, method TEXT DEFAULT 'button',
@@ -671,6 +677,55 @@ _prefix_cache = {}
 _settings_cache = {}
 _lang_cache = {}
 _antiraid_cache = {}
+
+
+# ---------- open casino games (crash-proof stakes) ----------
+# A row is written when a live BJ/poker hand is dealt (stake already taken)
+# and deleted when it settles or times out. Anything left at boot died with
+# the process mid-hand: refund it. Money must never vanish on restart.
+
+def open_game_add(guild_id, user_id, game: str, bet: int) -> int:
+    import time as _t
+    with conn_ctx() as conn:
+        cur = conn.execute('INSERT INTO open_games (guild_id, user_id, game, bet, created_at) '
+                           'VALUES (?,?,?,?,?)',
+                           (str(guild_id), str(user_id), game, int(bet), int(_t.time())))
+        return cur.lastrowid
+
+
+def open_game_del(row_id: int) -> None:
+    try:
+        with conn_ctx() as conn:
+            conn.execute('DELETE FROM open_games WHERE id=?', (int(row_id),))
+    except Exception:
+        pass
+
+
+def open_game_set_bet(row_id: int, bet: int) -> None:
+    try:
+        with conn_ctx() as conn:
+            conn.execute('UPDATE open_games SET bet=? WHERE id=?', (int(bet), int(row_id)))
+    except Exception:
+        pass
+
+
+def refund_open_games() -> dict:
+    """Pay back every stake orphaned by a mid-hand death. Returns counts."""
+    out = {'games': 0, 'total': 0}
+    with conn_ctx() as conn:
+        rows = conn.execute('SELECT id, guild_id, user_id, bet FROM open_games').fetchall()
+        for r in rows:
+            try:
+                conn.execute('INSERT OR IGNORE INTO eco (guild_id, user_id, cash) VALUES (?,?,?)',
+                             (r['guild_id'], r['user_id'], 1000))
+                conn.execute('UPDATE eco SET cash=cash+? WHERE guild_id=? AND user_id=?',
+                             (int(r['bet']), r['guild_id'], r['user_id']))
+                conn.execute('DELETE FROM open_games WHERE id=?', (r['id'],))
+                out['games'] += 1
+                out['total'] += int(r['bet'])
+            except Exception:
+                continue
+    return out
 
 
 def get_settings(guild_id: str) -> dict:
