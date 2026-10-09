@@ -82,6 +82,7 @@ COGS = [
     'cogs.worldboss',
     'cogs.crafting',
     'cogs.cards',
+    'cogs.wish',
     'cogs.emojis',
     'cogs.ping',
     'cogs.health',

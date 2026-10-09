@@ -84,7 +84,7 @@ class Cards(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.group(name='cards', aliases=['collection', 'animecards'], invoke_without_command=True)
+    @commands.group(name='cards', aliases=['collection', 'animecards', 'lc'], invoke_without_command=True)
     async def cards(self, ctx, set_name: str = '', page: str = ''):
         """`.cards [set] [card#]` — flip through your cards, rarest first.
         `.cards all [set]` — full checklist incl. unowned."""
@@ -133,7 +133,7 @@ class Cards(commands.Cog):
                          + (f" x{owned}" if owned else ""))
         await ctx.reply(f'**{header}**\n' + '\n'.join(lines[:PAGE_SIZE]), ephemeral=True)
 
-    @commands.command(name='cardinfo', description='Card detail')
+    @commands.command(name='cardinfo', aliases=['lv'], description='Card detail')
     async def cardinfo(self, ctx, code: str = ''):
         from services.card_service import card_perks, DUST_VALUE, RAR_COLORS, RAR_EMOJI
         import database as db

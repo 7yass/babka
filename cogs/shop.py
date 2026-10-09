@@ -13,174 +13,6 @@ from lang import t, set_ctx_lang
 from utils.embeds import card
 from utils.emojis import em
 
-PACK_META = {
-    'card_pack_std': ('Card Pack', 0x3498DB),
-    'card_pack_mono': ('Monochroma Pack', 0x9B59B6),
-    'card_pack_animated': ('Animated Pack', 0xF1C40F),
-}
-
-
-def pack_cover_image(label: str, accent: int, n: int) -> bytes:
-    """Sealed-pack wrapper: dark foil, accent glow border, pack name.
-    Rendered in a worker thread at buy time (never on the loop)."""
-    import random as _r
-    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
-    from pathlib import Path as _P
-    W, H = 600, 760
-    img = _Img.new('RGB', (W, H), (13, 13, 20))
-    d = _Dr.Draw(img, 'RGBA')
-    r, g, b = (accent >> 16) & 255, (accent >> 8) & 255, accent & 255
-    for x in range(-H, W, 90):  # foil shine
-        d.polygon([(x, 0), (x + 34, 0), (x + 34 + H, H), (x + H, H)],
-                  fill=(255, 255, 255, 9))
-    for _ in range(40):  # sparkle dust
-        sx, sy = _r.randint(40, W - 40), _r.randint(40, H - 40)
-        d.ellipse([sx - 2, sy - 2, sx + 2, sy + 2], fill=(r, g, b, 70))
-    d.rounded_rectangle([8, 8, W - 9, H - 9], radius=36, outline=(r, g, b), width=6)
-    d.rounded_rectangle([22, 22, W - 23, H - 23], radius=28, outline=(r, g, b, 90), width=2)
-    try:
-        _a = _P(__file__).parent.parent / 'assets'
-        f_big = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 62)
-        f_mid = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 34)
-        f_sm = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 26)
-    except Exception:
-        f_big = f_mid = f_sm = _F.load_default()
-    words, lines, cur = (label or 'Card Pack').split(), [], ''
-    for w in words:
-        t2 = (cur + ' ' + w).strip()
-        try:
-            wpx = d.textlength(t2, font=f_big)
-        except Exception:
-            wpx = len(t2) * 34
-        if wpx > W - 120 and cur:
-            lines.append(cur)
-            cur = w
-        else:
-            cur = t2
-    lines.append(cur)
-    d.text((W // 2, 140), 'BABKA • ANIME CARDS', font=f_sm, fill=(r, g, b), anchor='mm')
-    y = H // 2 - len(lines) * 40
-    for ln in lines:
-        d.text((W // 2, y), ln, font=f_big, fill=(250, 250, 250), anchor='mm')
-        y += 78
-    d.text((W // 2, H - 170), f'{n} CARD{"S" if n != 1 else ""} INSIDE',
-           font=f_mid, fill=(r, g, b), anchor='mm')
-    d.text((W // 2, H - 108), 'tap  Open  below', font=f_sm, fill=(200, 200, 200), anchor='mm')
-    buf = io.BytesIO()
-    img.save(buf, 'PNG')
-    return buf.getvalue()
-
-
-class PackRevealView(discord.ui.View):
-    """Pokémon-style opening: sealed cover + Open, then one card per Next,
-    weakest first, rarest last. Buyer-only buttons, 5-min timeout."""
-
-    def __init__(self, author_id: int, pulls: list, pack_label: str, timeout: int = 300):
-        super().__init__(timeout=timeout)
-        from services.card_service import RARITY_ORDER
-        order = {r: i for i, r in enumerate(RARITY_ORDER)}
-        self.author_id = author_id
-        self.pulls = sorted(pulls or [], key=lambda c: order.get(c.get('rarity', 'C'), 0))
-        self.pack_label = pack_label
-        self.idx = -1  # sealed
-        self.done = False
-        self.message = None
-        self._lock = asyncio.Lock()
-        self._btn = discord.ui.Button(label='🎁 Open', style=discord.ButtonStyle.success,
-                                      custom_id='pack_open')
-        self._btn.callback = self._cb_advance
-        self.add_item(self._btn)
-        self._all = discord.ui.Button(label='Open all ⏩', style=discord.ButtonStyle.grey,
-                                      custom_id='pack_open_all')
-        self._all.callback = self._cb_all
-        self.add_item(self._all)
-
-    @staticmethod
-    def _line(c) -> str:
-        from services.card_service import RAR_EMOJI
-        mark = ' ✨NEW!' if c.get('is_new') else ''
-        pn = f" #{c['print_no']}/{c['print_total']}" if c.get('print_no') else ''
-        return (f"{RAR_EMOJI.get(c.get('rarity'), '')} **{c.get('name') or c.get('code')}** "
-                f"[{c.get('rarity', '?')}] `{c.get('code', '')}`{pn}{mark}")
-
-    def _embed(self) -> discord.Embed:
-        from services.card_service import RAR_COLORS, RAR_EMOJI
-        if self.idx < 0:
-            emb = discord.Embed(title=f'📦 {self.pack_label}',
-                                description=f'{len(self.pulls)} sealed card(s) inside.\nTap Open to reveal.',
-                                color=0xFAC43C)
-            emb.set_image(url='attachment://pack.png')
-            return emb
-        c = self.pulls[self.idx]
-        emb = discord.Embed(
-            title=f"{RAR_EMOJI.get(c.get('rarity'), '')} {c.get('name') or c.get('code')} "
-                  f"[{c.get('rarity', '?')}]" + (' ✨NEW!' if c.get('is_new') else ''),
-            description='\n'.join(self._line(x) for x in self.pulls[:self.idx + 1]),
-            color=RAR_COLORS.get(c.get('rarity'), 0x9AA0A6))
-        if c.get('image_url'):
-            emb.set_image(url=c['image_url'])
-        emb.set_footer(text=f"{self.idx + 1}/{len(self.pulls)} • {c.get('code', '')} · {c.get('set_id', '')}")
-        return emb
-
-    def _sync_button(self):
-        if self.done:
-            self._btn.disabled = True
-            self._btn.label = 'Opened ✓'
-            self._btn.style = discord.ButtonStyle.grey
-            self._all.disabled = True
-        elif self.idx < 0:
-            self._btn.label = '🎁 Open'
-        else:
-            self._btn.label = f'Next ({self.idx + 1}/{len(self.pulls)})'
-
-    async def _cb_advance(self, interaction: discord.Interaction):
-        from utils.interactions import ack, finish
-        set_ctx_lang(interaction.user)
-        if interaction.user.id != self.author_id:
-            return await interaction.response.send_message(
-                'Not your pack — buy your own in `.shop`.', ephemeral=True)
-        async with self._lock:
-            mode = await ack(interaction)
-            if not self.done:
-                self.idx += 1
-                if self.idx >= len(self.pulls) - 1:
-                    self.done = True
-                self._sync_button()
-            # attachments=[] clears the sealed cover file from card steps.
-            await finish(interaction, mode, embed=self._embed(), view=self, attachments=[])
-            if self.done:
-                self.stop()
-
-    async def _cb_all(self, interaction: discord.Interaction):
-        """Impatient path: jump straight to the full reveal."""
-        from utils.interactions import ack, finish
-        set_ctx_lang(interaction.user)
-        if interaction.user.id != self.author_id:
-            return await interaction.response.send_message(
-                'Not your pack — buy your own in `.shop`.', ephemeral=True)
-        async with self._lock:
-            mode = await ack(interaction)
-            if not self.done:
-                self.idx = len(self.pulls) - 1
-                self.done = True
-                self._sync_button()
-            await finish(interaction, mode, embed=self._embed(), view=self, attachments=[])
-            if self.done:
-                self.stop()
-
-    async def on_timeout(self):
-        # Cards are already in the collection — never leave a dead sealed pack.
-        if self.done:
-            return
-        self.idx = len(self.pulls) - 1
-        self.done = True
-        self._sync_button()
-        try:
-            if self.message is not None:
-                await self.message.edit(embed=self._embed(), view=self, attachments=[])
-        except Exception:
-            pass
-        self.stop()
 
 ITEMS = {
     'cookie': {'price': SHOP_PRICES['cookie'].amount, 'use': 'shop.u_cookie'},
@@ -196,9 +28,6 @@ ITEMS = {
     'highroller': {'price': SHOP_PRICES['highroller'].amount, 'use': 'shop.u_highroller'},
     'bail': {'price': SHOP_PRICES['bail'].amount, 'use': 'shop.u_bail'},
     'vip': {'price': SHOP_PRICES['vip'].amount, 'use': 'shop.u_vip'},
-    'card_pack_std': {'price': SHOP_PRICES['card_pack_std'].amount, 'use': 'shop.u_card_std'},
-    'card_pack_mono': {'price': SHOP_PRICES['card_pack_mono'].amount, 'use': 'shop.u_card_mono'},
-    'card_pack_animated': {'price': SHOP_PRICES['card_pack_animated'].amount, 'use': 'shop.u_card_animated'},
 }
 # common misspellings / shortcuts -> canonical economy key
 ALIASES = {
@@ -368,9 +197,6 @@ DISPLAY = {
     'pardon': 'Pardon', 'curse': 'Curse Scroll', 'megabox': 'Megabox',
     'force': 'Force Scroll', 'highroller': 'High Roller', 'bail': 'Bail',
     'vip': 'VIP',
-    'card_pack_std': 'Card Pack',
-    'card_pack_mono': 'Monochroma Pack',
-    'card_pack_animated': 'Animated Pack',
 }
 ITEM_EMOJI = {
     'cookie': 'candy', 'scratch': 'price_tag', 'lootbox': 'box_box',
@@ -378,12 +204,11 @@ ITEM_EMOJI = {
     'pardon': 'check', 'curse': 'check_cross', 'megabox': 'box_done',
     'force': 'quest_scroll', 'highroller': 'medal_gold', 'bail': 'lock_open',
     'vip': 'trophy',
-    'card_pack_std': 'box_box', 'card_pack_mono': 'box_done', 'card_pack_animated': 'star',
 }
 SECTION_EMOJI = {
     'Cheap thrills': 'candy', 'Identity': 'lock', 'Protection': 'shield',
     'Power': 'bolt', 'Boxes': 'box_box', 'Freedom': 'lock_open',
-    'Prestige': 'trophy', 'Cards': 'star',
+    'Prestige': 'trophy',
 }
 
 
@@ -398,7 +223,6 @@ class Shop(commands.Cog):
         ('Protection', ['shield', 'curse']),
         ('Power', ['xpboost']),
         ('Boxes', ['lootbox', 'megabox']),
-        ('Cards', ['card_pack_std', 'card_pack_mono', 'card_pack_animated']),
         ('Freedom', ['bail']),
         ('Prestige', ['highroller', 'vip']),
     ]
@@ -567,8 +391,6 @@ class Shop(commands.Cog):
             wait = _gamble_gate(gid, ctx.author.id)
             if wait is not None:
                 return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
-        if key in self.CARD_PACKS:
-            return await self._buy_card_pack(ctx, key, n, price)
         if key in ('lootbox', 'megabox'):
             return await self._open_box(ctx, key, price)
         if key == 'vip':
@@ -783,7 +605,6 @@ class Shop(commands.Cog):
     }
     # instant shop gambles share the hourly play limit with casino games
     GAMBLE_ITEMS = {'lootbox', 'megabox', 'scratch', 'cookie'}
-    CARD_PACKS = {'card_pack_std', 'card_pack_mono', 'card_pack_animated'}
 
     async def _open_box(self, ctx, box: str, price: int):
         """Instant-open gambling box driven by BOX_TABLES."""
@@ -1036,39 +857,6 @@ class Shop(commands.Cog):
         add_cash(gid, ctx.author.id, -BAIL_COST)
         db.unjail(gid, ctx.author.id)
         await ctx.reply(t(gid, 'shop.free'))
-
-    async def _buy_card_pack(self, ctx, key: str, n: int, price: int):
-        """Card packs: coin sink → anime pull (scalable to 2000+ cards)."""
-        from cogs.gamble import bal, add_cash
-        from utils.cards import short as cshort
-        gid = ctx.guild.id
-        b = bal(gid, ctx.author.id)
-        total = price * n
-        if b['cash'] < total:
-            return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        add_cash(gid, ctx.author.id, -total)
-        try:
-            from services.card_service import open_pack
-            pulls = []
-            for _ in range(n):
-                res = open_pack(gid, ctx.author.id, key)
-                pulls.extend(res.get('cards', []))
-        except Exception as e:
-            add_cash(gid, ctx.author.id, total)
-            return await ctx.reply(t(gid, 'err.generic', e=str(e)), ephemeral=True)
-        if not pulls:
-            return await ctx.reply(t(gid, 'shop.card_empty'), ephemeral=True)
-        # Sealed-pack ceremony: cover + Open, then one card per Next (weakest
-        # first). Public message — pulls are for flexing. Rolls already happened
-        # above; the view only paginates, so clicks stay instant.
-        label, accent = PACK_META.get(key, ('Card Pack', 0xFAC43C))
-        cover = await self.bot.loop.run_in_executor(
-            None, pack_cover_image, label, accent, len(pulls))
-        view = PackRevealView(ctx.author.id, pulls, label)
-        view.message = await ctx.reply(
-            embed=view._embed(),
-            file=discord.File(io.BytesIO(cover), 'pack.png'),
-            view=view, mention_author=False)
 
     async def _buy_bail(self, ctx, price: int):
         """Buy your way out through the shop (same as .bail)."""

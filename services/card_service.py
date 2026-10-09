@@ -1,166 +1,22 @@
 """Anime card service — scalable to 2000+ cards.
 
-Discord-free: no ctx, no views. Handles pack opening, pity, print numbers, dust.
-Reuses DB tables added in database.py: anime_sets, anime_cards, anime_collection, anime_pity, anime_dust.
+Discord-free: no ctx, no views. Ticket loop (drop/wish/burn), buddy +
+set-completion perks, dust/reroll.
+Reuses DB tables added in database.py: anime_sets, anime_cards,
+anime_collection, anime_pity, anime_dust, card_buddy, card_tickets.
 
 Design for 2000+:
-- Rarity pools queried once per pack, not per card (indexed)
-- Print number assigned via MAX(print_no) inside transaction (atomic)
-- Pity counter per guild+user, reset on SR+ pull
+- Rarity pools queried per wish (indexed), never full-loaded
+- Perk math cached 5 min (user_boost runs on every XP tick)
 """
 import random
 import time
 
 import database as db
 
-# Pack definitions: (pulls, guaranteed_min_rarity)
-# Rarity order C < R < SR < LR < UR
-PACKS = {
-    'card_pack_std': {'pulls': 3, 'guaranteed': None, 'weights': {'C': 70, 'R': 22, 'SR': 7, 'LR': 0.8, 'UR': 0.2}},
-    'card_pack_mono': {'pulls': 3, 'guaranteed': 'SR', 'weights': {'C': 60, 'R': 25, 'SR': 12, 'LR': 2.5, 'UR': 0.5}},
-    'card_pack_animated': {'pulls': 2, 'guaranteed': None, 'animated_one': True, 'weights': {'C': 50, 'R': 30, 'SR': 15, 'LR': 4, 'UR': 1}},
-}
 
 RARITY_ORDER = ['C', 'R', 'SR', 'LR', 'UR']
 DUST_VALUE = {'C': 100, 'R': 400, 'SR': 1500, 'LR': 5000, 'UR': 10000}
-PITY_THRESHOLD = 10  # packs without SR+ -> next pack guaranteed SR
-
-
-def _choose_rarity(weights: dict, rng) -> str:
-    total = sum(weights.values())
-    roll = rng.random() * total
-    acc = 0
-    for rar, w in weights.items():
-        acc += w
-        if roll < acc:
-            return rar
-    return 'C'
-
-
-def _pick_card(pool, rng):
-    if not pool:
-        return None
-    return rng.choice(pool)
-
-
-def open_pack(gid, uid, pack_key: str, rng=None) -> dict:
-    """Open one pack. Returns {cards: [...], dust_earned: int, pity: int}"""
-    gid, uid = str(gid), str(uid)
-    cfg = PACKS.get(pack_key)
-    if not cfg:
-        return {'cards': [], 'error': 'unknown_pack'}
-    rng = rng or random
-
-    with db.conn_ctx() as conn:
-        # Load pools once
-        pools = {}
-        counts = {}
-        for rar in RARITY_ORDER:
-            rows = conn.execute('SELECT * FROM anime_cards WHERE rarity=?', (rar,)).fetchall()
-            # animated filter
-            if cfg.get('animated_one'):
-                # for animated pack, separate pools but for now same logic
-                pass
-            pools[rar] = [dict(r) for r in rows]
-            counts[rar] = len(pools[rar])
-
-        # If DB empty (no cards imported yet), return placeholder
-        total_cards = sum(counts.values())
-        if total_cards == 0:
-            return {'cards': [], 'empty': True}
-
-        # Pity check
-        row = conn.execute('SELECT pulls_without_sr FROM anime_pity WHERE guild_id=? AND user_id=?', (gid, uid)).fetchone()
-        pity = int(row['pulls_without_sr'] or 0) if row else 0
-
-        pulls = cfg['pulls']
-        guaranteed = cfg.get('guaranteed')
-        # Pity triggers SR guarantee
-        if pity >= PITY_THRESHOLD and not guaranteed:
-            guaranteed = 'SR'
-
-        cards = []
-        got_sr = False
-        for i in range(pulls):
-            # last pull guaranteed
-            need = guaranteed if (i == pulls - 1 and guaranteed) else None
-            if need:
-                rar = need if pools.get(need) and pools[need] else 'SR' if pools.get('SR') else 'R'
-                # if need rarity has no cards (e.g. no LR), fall back to highest available
-                if not pools.get(rar) or not pools[rar]:
-                    for fb in reversed(RARITY_ORDER):
-                        if pools.get(fb) and pools[fb]:
-                            rar = fb
-                            break
-            else:
-                rar = _choose_rarity(cfg['weights'], rng)
-                # fallback if no cards of that rarity
-                if not pools.get(rar) or not pools[rar]:
-                    # pick closest available rarity
-                    for fb in ['R', 'C', 'SR', 'LR']:
-                        if pools.get(fb) and pools[fb]:
-                            rar = fb
-                            break
-
-            card = _pick_card(pools.get(rar, []), rng)
-            if not card:
-                continue
-            if rar in ('SR', 'LR', 'UR'):
-                got_sr = True
-
-            # Animated variant handling
-            is_animated = bool(card['is_animated'])
-            if cfg.get('animated_one') and i == 0:
-                # force animated if available, else keep as is
-                anim_pool = [c for c in pools.get(rar, []) if c['is_animated']]
-                if anim_pool:
-                    card = rng.choice(anim_pool)
-                    is_animated = True
-
-            # Print number for limited editions
-            print_no = 0
-            print_total = int(card['print_total'] or 0)
-            if print_total > 0:
-                # Check sold out
-                cnt = conn.execute('SELECT COUNT(*) c FROM anime_collection WHERE guild_id=? AND card_id=?', (gid, card['id'])).fetchone()['c']
-                if cnt >= print_total:
-                    # sold out -> reroll within same rarity excluding sold out
-                    avail = [c for c in pools[rar] if int(c['print_total'] or 0) == 0 or conn.execute('SELECT COUNT(*) c FROM anime_collection WHERE guild_id=? AND card_id=?', (gid, c['id'])).fetchone()['c'] < int(c['print_total'] or 1)]
-                    if avail:
-                        card = rng.choice(avail)
-                        print_total = int(card['print_total'] or 0)
-                    else:
-                        # all sold out in this rarity, fallback
-                        continue
-                # assign next print number (global per guild+card)
-                mx = conn.execute('SELECT MAX(print_no) m FROM anime_collection WHERE guild_id=? AND card_id=?', (gid, card['id'])).fetchone()['m']
-                print_no = (int(mx or 0) + 1)
-                if print_no > print_total:
-                    continue
-
-            # Insert into collection
-            existing = conn.execute('SELECT qty FROM anime_collection WHERE guild_id=? AND user_id=? AND card_id=? AND print_no=?', (gid, uid, card['id'], print_no)).fetchone()
-            if existing:
-                conn.execute('UPDATE anime_collection SET qty=qty+1 WHERE guild_id=? AND user_id=? AND card_id=? AND print_no=?', (gid, uid, card['id'], print_no))
-            else:
-                conn.execute('INSERT INTO anime_collection (guild_id, user_id, card_id, print_no, obtained_at, qty) VALUES (?,?,?,?,?,1)', (gid, uid, card['id'], print_no, int(time.time())))
-            tot = conn.execute('SELECT SUM(qty) q FROM anime_collection WHERE guild_id=? AND user_id=? AND card_id=?',
-                               (gid, uid, card['id'])).fetchone()['q'] or 0
-
-            cards.append({
-                'id': card['id'], 'code': card['code'], 'rarity': card['rarity'],
-                'name': card['name'], 'set_id': card['set_id'],
-                'print_no': print_no, 'print_total': print_total,
-                'is_animated': is_animated, 'image_url': card['image_url'],
-                'is_new': tot <= 1,
-            })
-
-        # Update pity
-        new_pity = 0 if got_sr else pity + 1
-        conn.execute('INSERT OR REPLACE INTO anime_pity (guild_id, user_id, pulls_without_sr) VALUES (?,?,?)', (gid, uid, new_pity))
-
-    invalidate_perks(gid, uid)  # collection changed: set-completion may flip
-    return {'cards': cards, 'pity': new_pity, 'got_sr': got_sr}
 
 
 def get_collection(gid, uid, set_id=None, page=0, per_page=50, owned_only=False) -> dict:
@@ -223,6 +79,200 @@ def set_progress(gid, uid) -> list:
 
 RAR_COLORS = {'C': 0x9AA0A6, 'R': 0x3498DB, 'SR': 0x9B59B6, 'LR': 0xF1C40F, 'UR': 0xE74C3C}
 RAR_EMOJI = {'C': '⚪', 'R': '🔵', 'SR': '🟣', 'LR': '🟡', 'UR': '🔴'}
+
+
+# ---------- ticket economy (wish loop) ----------
+# Tickets replace coin packs: .drop accrues them, .wish spends them.
+# Pools are R/LR/UR only (that is all the art that exists).
+DROP_CD = 300          # one drop accrues per 5 min
+DROP_STACK_MAX = 3     # unclaimed drops bank up to 3
+WISH_ODDS = {'R': 97.0, 'LR': 2.2, 'UR': 0.8}
+SSR_ODDS = {'LR': 95.0, 'UR': 5.0}   # milestone ticket: guaranteed LR+
+MILESTONE_EVERY = 200  # tickets spent -> 1 LR+ ticket
+BURN_TICKET_EVERY = 10  # burns -> 1 ticket
+WISH_MULTI_MAX = 50
+DAILY_TICKETS = 3
+
+
+def ticket_state(gid, uid) -> dict:
+    gid, uid = str(gid), str(uid)
+    with db.conn_ctx() as conn:
+        row = conn.execute('SELECT * FROM card_tickets WHERE guild_id=? AND user_id=?',
+                           (gid, uid)).fetchone()
+        if not row:
+            conn.execute('INSERT INTO card_tickets (guild_id, user_id) VALUES (?,?)', (gid, uid))
+            return {'guild_id': gid, 'user_id': uid, 'tickets': 0, 'ssr_tickets': 0,
+                    'drop_stack': 0, 'last_drop': 0, 'milestone': 0, 'burns': 0}
+        return dict(row)
+
+
+def add_tickets(gid, uid, n: int) -> dict:
+    ticket_state(gid, uid)
+    with db.conn_ctx() as conn:
+        conn.execute('UPDATE card_tickets SET tickets=tickets+? WHERE guild_id=? AND user_id=?',
+                     (int(n), str(gid), str(uid)))
+    return ticket_state(gid, uid)
+
+
+def claim_drop(gid, uid, now: int = None) -> dict:
+    """Accrue 5-min drops (banked to 3), then hand over ONE ticket."""
+    import time as _t
+    gid, uid = str(gid), str(uid)
+    now = int(now if now is not None else _t.time())
+    st = ticket_state(gid, uid)
+    stack, last = int(st['drop_stack'] or 0), int(st['last_drop'] or 0)
+    if not last:
+        stack, last = DROP_STACK_MAX, now  # first touch: full bank
+    else:
+        add = (now - last) // DROP_CD
+        if add > 0:
+            stack = min(DROP_STACK_MAX, stack + add)
+            last = now if stack >= DROP_STACK_MAX else last + add * DROP_CD
+    if stack <= 0:
+        wait = DROP_CD - (now - last)
+        with db.conn_ctx() as conn:
+            conn.execute('UPDATE card_tickets SET drop_stack=?, last_drop=? '
+                         'WHERE guild_id=? AND user_id=?', (stack, last, gid, uid))
+        return {'ok': False, 'wait': max(1, wait), 'stack': 0,
+                'tickets': st['tickets'], 'ssr_tickets': st['ssr_tickets'],
+                'milestone': st['milestone'], 'burns': st['burns']}
+    stack -= 1
+    with db.conn_ctx() as conn:
+        conn.execute('UPDATE card_tickets SET drop_stack=?, last_drop=?, tickets=tickets+1 '
+                     'WHERE guild_id=? AND user_id=?', (stack, last, gid, uid))
+    st = ticket_state(gid, uid)
+    st.update(ok=True, granted=1, stack=stack)
+    return st
+
+
+def _roll_rarity(weights: dict, rng) -> str:
+    total = sum(weights.values())
+    roll = rng.uniform(0, total)
+    acc = 0.0
+    for rar, w in weights.items():
+        acc += w
+        if roll < acc:
+            return rar
+    return next(iter(weights))
+
+
+def _grant_wish_card(conn, gid, uid, card: dict) -> bool:
+    """Insert one pulled card (ours have no print limits). Returns is_new."""
+    row = conn.execute('SELECT qty FROM anime_collection WHERE guild_id=? AND user_id=? '
+                       'AND card_id=? AND print_no=0', (gid, uid, card['id'])).fetchone()
+    if row:
+        conn.execute('UPDATE anime_collection SET qty=qty+1 WHERE guild_id=? AND user_id=? '
+                     'AND card_id=? AND print_no=0', (gid, uid, card['id']))
+    else:
+        import time as _t
+        conn.execute('INSERT INTO anime_collection (guild_id, user_id, card_id, print_no, '
+                     'obtained_at, qty) VALUES (?,?,?,?,?,1)',
+                     (gid, uid, card['id'], 0, int(_t.time())))
+    tot = conn.execute('SELECT SUM(qty) q FROM anime_collection WHERE guild_id=? AND user_id=? '
+                       'AND card_id=?', (gid, uid, card['id'])).fetchone()['q'] or 0
+    return tot <= 1
+
+
+def wish(gid, uid, n: int = 1, use_ssr: bool = False, rng=None) -> dict:
+    """Spend tickets, pull cards. Normal: 1 ticket/pull. SSR: 1 LR+ ticket."""
+    import random as _r
+    gid, uid = str(gid), str(uid)
+    rng = rng or _r
+    n = max(1, min(WISH_MULTI_MAX, int(n or 1)))
+    st = ticket_state(gid, uid)
+    if use_ssr:
+        if (st['ssr_tickets'] or 0) < 1:
+            return {'ok': False, 'code': 'no_ssr', 'state': st}
+    elif (st['tickets'] or 0) < n:
+        return {'ok': False, 'code': 'no_tickets', 'need': n,
+                'have': st['tickets'] or 0, 'state': st}
+    weights = SSR_ODDS if use_ssr else WISH_ODDS
+    pulls = []
+    with db.conn_ctx() as conn:
+        for _ in range(n):
+            rar = _roll_rarity(weights, rng)
+            pool = conn.execute('SELECT * FROM anime_cards WHERE rarity=?', (rar,)).fetchall()
+            if not pool:  # empty tier: fall back to R so the ticket never fizzles
+                pool = conn.execute("SELECT * FROM anime_cards WHERE rarity='R'").fetchall()
+                rar = 'R'
+            if not pool:
+                continue
+            card = dict(rng.choice(pool))
+            is_new = _grant_wish_card(conn, gid, uid, card)
+            pulls.append({'id': card['id'], 'code': card.get('code') or card['id'],
+                          'name': card.get('name') or card['id'], 'rarity': rar,
+                          'set_id': card.get('set_id', ''), 'image_url': card.get('image_url', ''),
+                          'is_new': is_new})
+        if use_ssr:
+            conn.execute('UPDATE card_tickets SET ssr_tickets=ssr_tickets-1 '
+                         'WHERE guild_id=? AND user_id=?', (gid, uid))
+        else:
+            conn.execute('UPDATE card_tickets SET tickets=tickets-?, milestone=milestone+? '
+                         'WHERE guild_id=? AND user_id=?', (n, n, gid, uid))
+    invalidate_perks(gid, uid)
+    st = ticket_state(gid, uid)
+    earned = 0
+    if not use_ssr:
+        # Milestone: every 200 spent -> 1 guaranteed LR+ ticket.
+        while (st['milestone'] or 0) >= MILESTONE_EVERY:
+            with db.conn_ctx() as conn:
+                conn.execute('UPDATE card_tickets SET milestone=milestone-?, ssr_tickets=ssr_tickets+1 '
+                             'WHERE guild_id=? AND user_id=?', (MILESTONE_EVERY, gid, uid))
+            earned += 1
+            st = ticket_state(gid, uid)
+    return {'ok': True, 'pulls': pulls, 'state': st, 'ssr_earned': earned,
+            'guaranteed': use_ssr}
+
+
+def burn_cards(gid, uid, code: str, count: int = 1) -> dict:
+    """Burn owned copies -> dust + burn progress (10 burns = 1 ticket)."""
+    gid, uid = str(gid), str(uid)
+    with db.conn_ctx() as conn:
+        card = conn.execute('SELECT * FROM anime_cards WHERE code=? OR id=?',
+                            (code, code)).fetchone()
+        if not card:
+            return {'ok': False, 'code': 'no_card'}
+        c = dict(card)
+        bud = conn.execute('SELECT card_id FROM card_buddy WHERE guild_id=? AND user_id=?',
+                           (gid, uid)).fetchone()
+        if bud and bud['card_id'] == c['id']:
+            return {'ok': False, 'code': 'is_buddy'}
+        rows = conn.execute('SELECT print_no, qty FROM anime_collection WHERE guild_id=? AND user_id=? '
+                            'AND card_id=? ORDER BY print_no', (gid, uid, c['id'])).fetchall()
+        owned = sum(int(r['qty'] or 0) for r in rows)
+        if owned <= 0:
+            return {'ok': False, 'code': 'not_owned'}
+        n = max(1, min(int(count or 1), owned))
+        left = n
+        for r in rows:
+            if left <= 0:
+                break
+            take = min(int(r['qty'] or 0), left)
+            left -= take
+            newq = int(r['qty'] or 0) - take
+            if newq <= 0:
+                conn.execute('DELETE FROM anime_collection WHERE guild_id=? AND user_id=? '
+                             'AND card_id=? AND print_no=?', (gid, uid, c['id'], r['print_no']))
+            else:
+                conn.execute('UPDATE anime_collection SET qty=? WHERE guild_id=? AND user_id=? '
+                             'AND card_id=? AND print_no=?', (newq, gid, uid, c['id'], r['print_no']))
+        dust = DUST_VALUE.get(c['rarity'], 100) * n
+        conn.execute('INSERT OR IGNORE INTO anime_dust (guild_id, user_id, dust) VALUES (?,?,0)', (gid, uid))
+        conn.execute('UPDATE anime_dust SET dust=dust+? WHERE guild_id=? AND user_id=?', (dust, gid, uid))
+        conn.execute('INSERT OR IGNORE INTO card_tickets (guild_id, user_id) VALUES (?,?)', (gid, uid))
+        before = (conn.execute('SELECT burns FROM card_tickets WHERE guild_id=? AND user_id=?',
+                               (gid, uid)).fetchone()['burns'] or 0) // BURN_TICKET_EVERY
+        conn.execute('UPDATE card_tickets SET burns=burns+? WHERE guild_id=? AND user_id=?',
+                     (n, gid, uid))
+        after = (conn.execute('SELECT burns FROM card_tickets WHERE guild_id=? AND user_id=?',
+                              (gid, uid)).fetchone()['burns'] or 0) // BURN_TICKET_EVERY
+        tickets_earned = after - before
+        if tickets_earned:
+            conn.execute('UPDATE card_tickets SET tickets=tickets+? WHERE guild_id=? AND user_id=?',
+                         (tickets_earned, gid, uid))
+    invalidate_perks(gid, uid)
+    return {'ok': True, 'card': c, 'burned': n, 'dust': dust,
+            'tickets_earned': tickets_earned, 'state': ticket_state(gid, uid)}
 
 
 def get_user_stats(gid, uid) -> dict:
