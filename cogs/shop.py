@@ -90,6 +90,10 @@ class PackRevealView(discord.ui.View):
                                       custom_id='pack_open')
         self._btn.callback = self._cb_advance
         self.add_item(self._btn)
+        self._all = discord.ui.Button(label='Open all ⏩', style=discord.ButtonStyle.grey,
+                                      custom_id='pack_open_all')
+        self._all.callback = self._cb_all
+        self.add_item(self._all)
 
     @staticmethod
     def _line(c) -> str:
@@ -123,6 +127,7 @@ class PackRevealView(discord.ui.View):
             self._btn.disabled = True
             self._btn.label = 'Opened ✓'
             self._btn.style = discord.ButtonStyle.grey
+            self._all.disabled = True
         elif self.idx < 0:
             self._btn.label = '🎁 Open'
         else:
@@ -142,6 +147,23 @@ class PackRevealView(discord.ui.View):
                     self.done = True
                 self._sync_button()
             # attachments=[] clears the sealed cover file from card steps.
+            await finish(interaction, mode, embed=self._embed(), view=self, attachments=[])
+            if self.done:
+                self.stop()
+
+    async def _cb_all(self, interaction: discord.Interaction):
+        """Impatient path: jump straight to the full reveal."""
+        from utils.interactions import ack, finish
+        set_ctx_lang(interaction.user)
+        if interaction.user.id != self.author_id:
+            return await interaction.response.send_message(
+                'Not your pack — buy your own in `.shop`.', ephemeral=True)
+        async with self._lock:
+            mode = await ack(interaction)
+            if not self.done:
+                self.idx = len(self.pulls) - 1
+                self.done = True
+                self._sync_button()
             await finish(interaction, mode, embed=self._embed(), view=self, attachments=[])
             if self.done:
                 self.stop()

@@ -2,12 +2,82 @@
 
 Scalable to 2000+ cards: paginated queries, indexed, no full loads.
 """
+import asyncio
+
 import discord
 from discord.ext import commands
 
-from lang import t
+from lang import t, set_ctx_lang
 
-PAGE_SIZE = 15  # owned view: names are long, keep rows readable
+PAGE_SIZE = 15  # checklist rows per page (owned view is a binder now)
+
+
+class CardBinderView(discord.ui.View):
+    """One full-art card per page with ◀ ▶ flipping, rarest first.
+    Personal (ephemeral) message, owner-only buttons, 5-min timeout."""
+
+    def __init__(self, author_id: int, cards: list, owned: dict, buddy_id,
+                 head: str, timeout: int = 300):
+        super().__init__(timeout=timeout)
+        self.author_id = author_id
+        self.cards = cards
+        self.owned = owned
+        self.buddy_id = buddy_id
+        self.head = head
+        self.idx = 0
+        self.message = None
+        self._lock = asyncio.Lock()
+        for label, cid, cb in (('◀', 'binder_prev', self._cb_prev),
+                               ('▶', 'binder_next', self._cb_next)):
+            b = discord.ui.Button(label=label, style=discord.ButtonStyle.grey,
+                                  custom_id=cid)
+            b.callback = cb
+            self.add_item(b)
+
+    def _embed(self) -> discord.Embed:
+        from services.card_service import RAR_COLORS, RAR_EMOJI, DUST_VALUE
+        c = self.cards[self.idx]
+        star = ' ⭐' if c['id'] == self.buddy_id else ''
+        emb = discord.Embed(
+            title=f"{RAR_EMOJI.get(c['rarity'], '')} {c['name'] or c['code']}{star}",
+            description=self.head,
+            color=RAR_COLORS.get(c['rarity'], 0x9AA0A6))
+        if c.get('image_url'):
+            emb.set_image(url=c['image_url'])
+        emb.add_field(name='Rarity', value=f"**{c['rarity']}**", inline=True)
+        emb.add_field(name='Owned', value=f"x{self.owned.get(c['id'], 0)}", inline=True)
+        emb.add_field(name='Dust', value=str(DUST_VALUE.get(c['rarity'], 100)), inline=True)
+        if c.get('print_total'):
+            emb.add_field(name='Print', value=f"{c['print_total']} total", inline=True)
+        emb.set_footer(text=f"{self.idx + 1}/{len(self.cards)} • {c.get('code')} · {c.get('set_id')}")
+        return emb
+
+    async def _flip(self, interaction: discord.Interaction, step: int):
+        from utils.interactions import ack, finish
+        set_ctx_lang(interaction.user)
+        if interaction.user.id != self.author_id:
+            return await interaction.response.send_message(
+                'Not your collection.', ephemeral=True)
+        async with self._lock:
+            mode = await ack(interaction)
+            self.idx = (self.idx + step) % len(self.cards)
+            await finish(interaction, mode, embed=self._embed(), view=self)
+
+    async def _cb_prev(self, interaction: discord.Interaction):
+        await self._flip(interaction, -1)
+
+    async def _cb_next(self, interaction: discord.Interaction):
+        await self._flip(interaction, +1)
+
+    async def on_timeout(self):
+        try:
+            for child in self.children:
+                child.disabled = True
+            if self.message is not None:
+                await self.message.edit(embed=self._embed(), view=self)
+        except Exception:
+            pass
+        self.stop()
 
 
 class Cards(commands.Cog):
@@ -16,7 +86,7 @@ class Cards(commands.Cog):
 
     @commands.group(name='cards', aliases=['collection', 'animecards'], invoke_without_command=True)
     async def cards(self, ctx, set_name: str = '', page: str = ''):
-        """Collection view. `.cards [set] [page]` — your cards, rarest first.
+        """`.cards [set] [card#]` — flip through your cards, rarest first.
         `.cards all [set]` — full checklist incl. unowned."""
         from services.card_service import get_collection, set_progress, RAR_EMOJI, card_perks
         gid, uid = ctx.guild.id, ctx.author.id
@@ -30,33 +100,37 @@ class Cards(commands.Cog):
             p = 0
         checklist = set_name.lower() == 'all'
         sid = None if checklist or not set_name else set_name
+        if not checklist:
+            # Binder: whole owned list (small in practice), start at card #p.
+            data = get_collection(gid, uid, set_id=sid, page=0, per_page=1000,
+                                  owned_only=True)
+            perks = card_perks(gid, uid)
+            buddy = (perks['buddy'] or {}).get('code')
+            prog = ' · '.join(f'{s} {o}/{t_}' for s, o, t_ in set_progress(gid, uid))
+            owned_n = sum(1 for v in data['owned'].values() if v)
+            head = (f"Owned {owned_n}/{data['grand_total']} — Dust: {data['dust']}"
+                    + (f" — Buddy: ⭐{buddy}" if buddy else "")
+                    + (f"\n{prog}" if prog else ""))
+            if not data['cards']:
+                return await ctx.reply(f'**🃏 Cards**\n{head}\nNo cards yet — buy a pack in `.shop` → Cards.',
+                                       ephemeral=True)
+            view = CardBinderView(ctx.author.id, data['cards'], data['owned'],
+                                  (perks['buddy'] or {}).get('id'), head)
+            view.idx = min(p, len(data['cards']) - 1)
+            view.message = await ctx.reply(embed=view._embed(), view=view, ephemeral=True)
+            return
         data = get_collection(gid, uid, set_id=sid, page=p, per_page=PAGE_SIZE,
-                              owned_only=not checklist)
-        perks = card_perks(gid, uid)
-        buddy = (perks['buddy'] or {}).get('code')
-        prog = ' · '.join(f'{s} {o}/{t_}' for s, o, t_ in set_progress(gid, uid))
+                              owned_only=False)
         total_pages = max(1, (data['total'] + PAGE_SIZE - 1) // PAGE_SIZE)
-        owned_n = sum(1 for v in data['owned'].values() if v)
-        header = (f"🃏 Cards {p + 1}/{total_pages} — Owned {owned_n}/{data['grand_total']}"
-                  f" — Dust: {data['dust']}"
-                  + (f" — Buddy: ⭐{buddy}" if buddy else "")
-                  + (f"\n{prog}" if prog else ""))
+        header = f'🃏 Checklist {p + 1}/{total_pages}'
         if not data['cards']:
-            hint = 'No cards yet — packs coming soon. Check `.shop` → Cards.' if p == 0 \
-                else 'No more pages.'
-            if not checklist and p == 0:
-                hint = 'No cards yet — buy a pack in `.shop` → Cards.'
-            return await ctx.reply(f'**{header}**\n{hint}', ephemeral=True)
+            return await ctx.reply(f'**{header}**\nNo more pages.', ephemeral=True)
         lines = []
         for c in data['cards']:
             owned = data['owned'].get(c['id'], 0)
-            if checklist:
-                mark = '✅' if owned else '⬜'
-                lines.append(f"{mark} {RAR_EMOJI.get(c['rarity'], '')} **{c['name'] or c['code']}** [{c['rarity']}]"
-                             + (f" x{owned}" if owned else ""))
-            else:
-                star = ' ⭐' if buddy and c['id'] == (perks['buddy'] or {}).get('id') else ''
-                lines.append(f"{RAR_EMOJI.get(c['rarity'], '')} **{c['name'] or c['code']}** [{c['rarity']}] x{owned}{star}")
+            mark = '✅' if owned else '⬜'
+            lines.append(f"{mark} {RAR_EMOJI.get(c['rarity'], '')} **{c['name'] or c['code']}** [{c['rarity']}]"
+                         + (f" x{owned}" if owned else ""))
         await ctx.reply(f'**{header}**\n' + '\n'.join(lines[:PAGE_SIZE]), ephemeral=True)
 
     @commands.command(name='cardinfo', description='Card detail')
