@@ -1,5 +1,6 @@
 """Ticket loop: .drop earns, .wish spends, .burn recycles, .cd shows timers."""
 import asyncio
+import io
 
 import discord
 from discord.ext import commands
@@ -140,6 +141,7 @@ class Wish(commands.Cog):
     async def wish(self, ctx, amount: str = '1'):
         from services.card_service import wish as _wish, WISH_MULTI_MAX
         from services.card_service import RAR_COLORS, rar_em, tix_em, ssr_em
+        await ctx.defer()
         gid = ctx.guild.id
         use_ssr = (amount or '').lower() in ('ssr', 'ssr+ticket', 'guaranteed')
         try:
@@ -171,9 +173,21 @@ class Wish(commands.Cog):
                              f"Series\n{p['set_id']}\n"
                              f"Balance\n{_ticket_line(gid, st)}{note}"),
                 color=RAR_COLORS.get(p['rarity'], 0x9AA0A6))
+            emb.set_footer(text=_mile_footer(gid, st))
+            # Framed slab (cached per card); raw URL when anything fails.
+            try:
+                from services.cardframe import get_framed_card
+                framed = await asyncio.get_running_loop().run_in_executor(
+                    None, get_framed_card, p)
+            except Exception:
+                framed = None
+            if framed:
+                emb.set_image(url='attachment://card.png')
+                return await ctx.reply(embed=emb,
+                                       file=discord.File(io.BytesIO(framed), 'card.png'),
+                                       mention_author=False)
             if p.get('image_url'):
                 emb.set_image(url=p['image_url'])
-            emb.set_footer(text=_mile_footer(gid, st))
             return await ctx.reply(embed=emb, mention_author=False)
         view = WishRecapView(ctx.author.id, pulls, st, gid)
         view.message = await ctx.reply(embed=view._embed(), view=view, mention_author=False)

@@ -62,7 +62,21 @@ class CardBinderView(discord.ui.View):
         async with self._lock:
             mode = await ack(interaction)
             self.idx = (self.idx + step) % len(self.cards)
-            await finish(interaction, mode, embed=self._embed(), view=self)
+            emb = self._embed()
+            c = self.cards[self.idx]
+            # Framed slab when cached/fast; the URL paint is already correct.
+            try:
+                from services.cardframe import get_framed_card
+                framed = await asyncio.get_running_loop().run_in_executor(
+                    None, get_framed_card, c)
+            except Exception:
+                framed = None
+            if framed:
+                emb.set_image(url='attachment://card.png')
+                await finish(interaction, mode, embed=emb, view=self,
+                             attachments=[discord.File(__import__('io').BytesIO(framed), 'card.png')])
+            else:
+                await finish(interaction, mode, embed=emb, view=self)
 
     async def _cb_prev(self, interaction: discord.Interaction):
         await self._flip(interaction, -1)
@@ -138,6 +152,7 @@ class Cards(commands.Cog):
     async def cardinfo(self, ctx, code: str = ''):
         from services.card_service import card_perks, DUST_VALUE, RAR_COLORS, rar_em
         import database as db
+        await ctx.defer()
         gid = ctx.guild.id
         if not code:
             return await ctx.reply('Use: `.cardinfo NARUTO-5556`', ephemeral=True)
@@ -157,6 +172,17 @@ class Cards(commands.Cog):
         if c['print_total']:
             emb.add_field(name='Print', value=f'{c["print_total"]} total', inline=True)
         emb.add_field(name='Dust value', value=str(DUST_VALUE.get(c['rarity'], 100)), inline=True)
+        try:
+            from services.cardframe import get_framed_card
+            framed = await asyncio.get_running_loop().run_in_executor(
+                None, get_framed_card, c)
+        except Exception:
+            framed = None
+        if framed:
+            emb.set_image(url='attachment://card.png')
+            return await ctx.reply(embed=emb,
+                                   file=discord.File(__import__('io').BytesIO(framed), 'card.png'),
+                                   ephemeral=True)
         if c['image_url']:
             emb.set_image(url=c['image_url'])
         await ctx.reply(embed=emb, ephemeral=True)
