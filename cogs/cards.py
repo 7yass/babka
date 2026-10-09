@@ -17,13 +17,14 @@ class CardBinderView(discord.ui.View):
     Personal (ephemeral) message, owner-only buttons, 5-min timeout."""
 
     def __init__(self, author_id: int, cards: list, owned: dict, buddy_id,
-                 head: str, timeout: int = 300):
+                 head: str, gid=None, timeout: int = 300):
         super().__init__(timeout=timeout)
         self.author_id = author_id
         self.cards = cards
         self.owned = owned
         self.buddy_id = buddy_id
         self.head = head
+        self.gid = gid
         self.idx = 0
         self.message = None
         self._lock = asyncio.Lock()
@@ -35,11 +36,11 @@ class CardBinderView(discord.ui.View):
             self.add_item(b)
 
     def _embed(self) -> discord.Embed:
-        from services.card_service import RAR_COLORS, RAR_EMOJI, DUST_VALUE
+        from services.card_service import RAR_COLORS, DUST_VALUE, rar_em
         c = self.cards[self.idx]
         star = ' ⭐' if c['id'] == self.buddy_id else ''
         emb = discord.Embed(
-            title=f"{RAR_EMOJI.get(c['rarity'], '')} {c['name'] or c['code']}{star}",
+            title=f"{rar_em(self.gid, c['rarity'])} {c['name'] or c['code']}{star}",
             description=self.head,
             color=RAR_COLORS.get(c['rarity'], 0x9AA0A6))
         if c.get('image_url'):
@@ -88,7 +89,7 @@ class Cards(commands.Cog):
     async def cards(self, ctx, set_name: str = '', page: str = ''):
         """`.cards [set] [card#]` — flip through your cards, rarest first.
         `.cards all [set]` — full checklist incl. unowned."""
-        from services.card_service import get_collection, set_progress, RAR_EMOJI, card_perks
+        from services.card_service import get_collection, set_progress, card_perks, rar_em
         gid, uid = ctx.guild.id, ctx.author.id
         # parse page if set_name is digit
         if set_name.isdigit() and not page:
@@ -115,7 +116,7 @@ class Cards(commands.Cog):
                 return await ctx.reply(f'**🃏 Cards**\n{head}\nNo cards yet — buy a pack in `.shop` → Cards.',
                                        ephemeral=True)
             view = CardBinderView(ctx.author.id, data['cards'], data['owned'],
-                                  (perks['buddy'] or {}).get('id'), head)
+                                  (perks['buddy'] or {}).get('id'), head, gid)
             view.idx = min(p, len(data['cards']) - 1)
             view.message = await ctx.reply(embed=view._embed(), view=view, ephemeral=True)
             return
@@ -129,13 +130,13 @@ class Cards(commands.Cog):
         for c in data['cards']:
             owned = data['owned'].get(c['id'], 0)
             mark = '✅' if owned else '⬜'
-            lines.append(f"{mark} {RAR_EMOJI.get(c['rarity'], '')} **{c['name'] or c['code']}** [{c['rarity']}]"
+            lines.append(f"{mark} {rar_em(gid, c['rarity'])} **{c['name'] or c['code']}** [{c['rarity']}]"
                          + (f" x{owned}" if owned else ""))
         await ctx.reply(f'**{header}**\n' + '\n'.join(lines[:PAGE_SIZE]), ephemeral=True)
 
     @commands.command(name='cardinfo', aliases=['lv'], description='Card detail')
     async def cardinfo(self, ctx, code: str = ''):
-        from services.card_service import card_perks, DUST_VALUE, RAR_COLORS, RAR_EMOJI
+        from services.card_service import card_perks, DUST_VALUE, RAR_COLORS, rar_em
         import database as db
         gid = ctx.guild.id
         if not code:
@@ -148,7 +149,7 @@ class Cards(commands.Cog):
             owned = conn.execute('SELECT SUM(qty) c FROM anime_collection WHERE guild_id=? AND card_id=?', (str(gid), c['id'])).fetchone()['c'] or 0
         buddy = (card_perks(gid, ctx.author.id)['buddy'] or {}).get('id') == c['id']
         emb = discord.Embed(
-            title=f"{RAR_EMOJI.get(c['rarity'], '')} {c['name'] or c['code']}",
+            title=f"{rar_em(gid, c['rarity'])} {c['name'] or c['code']}",
             description=f"**{c['code']}** [{c['rarity']}] · Set: {c['set_id']}"
                         + (' · ⭐ YOUR BUDDY' if buddy else ''),
             color=RAR_COLORS.get(c['rarity'], 0x9AA0A6))

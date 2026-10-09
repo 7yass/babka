@@ -80,6 +80,33 @@ def set_progress(gid, uid) -> list:
 RAR_COLORS = {'C': 0x9AA0A6, 'R': 0x3498DB, 'SR': 0x9B59B6, 'LR': 0xF1C40F, 'UR': 0xE74C3C}
 RAR_EMOJI = {'C': '⚪', 'R': '🔵', 'SR': '🟣', 'LR': '🟡', 'UR': '🔴'}
 
+# Fleet custom emoji (assets/emojis: rare/sr/ssr/ur/lr/tix/ssrtix.png,
+# deployed with `.emojisetup confirm`). Unicode fallback until uploaded.
+CUSTOM_FALLBACK = {'rare': '🔵', 'sr': '🟣', 'ssr': '🟪', 'ur': '🔴', 'lr': '🟡',
+                   'tix': '🎟', 'ssrtix': '✨'}
+
+
+def cem(gid, name: str) -> str:
+    """`<:name:id>` from the emoji fleet, else the unicode fallback.
+    Never raises; safe before the fleet upload."""
+    try:
+        from utils.emojis import em as _em
+        return _em(gid, name, CUSTOM_FALLBACK.get(name, ''))
+    except Exception:
+        return CUSTOM_FALLBACK.get(name, '')
+
+
+def rar_em(gid, rar: str) -> str:
+    return cem(gid, {'C': 'rare', 'R': 'rare', 'SR': 'sr', 'LR': 'lr', 'UR': 'ur'}.get(rar, 'rare'))
+
+
+def tix_em(gid) -> str:
+    return cem(gid, 'tix')
+
+
+def ssr_em(gid) -> str:
+    return cem(gid, 'ssrtix')
+
 
 # ---------- ticket economy (wish loop) ----------
 # Tickets replace coin packs: .drop accrues them, .wish spends them.
