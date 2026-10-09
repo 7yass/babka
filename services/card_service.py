@@ -16,9 +16,9 @@ import database as db
 # Pack definitions: (pulls, guaranteed_min_rarity)
 # Rarity order C < R < SR < LR < UR
 PACKS = {
-    'card_pack_std': {'pulls': 3, 'guaranteed': None, 'weights': {'C': 70, 'R': 22, 'SR': 7, 'LR': 1}},
-    'card_pack_mono': {'pulls': 3, 'guaranteed': 'SR', 'weights': {'C': 60, 'R': 25, 'SR': 12, 'LR': 3}},
-    'card_pack_animated': {'pulls': 2, 'guaranteed': None, 'animated_one': True, 'weights': {'C': 50, 'R': 30, 'SR': 15, 'LR': 5}},
+    'card_pack_std': {'pulls': 3, 'guaranteed': None, 'weights': {'C': 70, 'R': 22, 'SR': 7, 'LR': 0.8, 'UR': 0.2}},
+    'card_pack_mono': {'pulls': 3, 'guaranteed': 'SR', 'weights': {'C': 60, 'R': 25, 'SR': 12, 'LR': 2.5, 'UR': 0.5}},
+    'card_pack_animated': {'pulls': 2, 'guaranteed': None, 'animated_one': True, 'weights': {'C': 50, 'R': 30, 'SR': 15, 'LR': 4, 'UR': 1}},
 }
 
 RARITY_ORDER = ['C', 'R', 'SR', 'LR', 'UR']
@@ -156,6 +156,7 @@ def open_pack(gid, uid, pack_key: str, rng=None) -> dict:
         new_pity = 0 if got_sr else pity + 1
         conn.execute('INSERT OR REPLACE INTO anime_pity (guild_id, user_id, pulls_without_sr) VALUES (?,?,?)', (gid, uid, new_pity))
 
+    invalidate_perks(gid, uid)  # collection changed: set-completion may flip
     return {'cards': cards, 'pity': new_pity, 'got_sr': got_sr}
 
 
@@ -219,6 +220,7 @@ def convert_duplicates(gid, uid) -> dict:
         if earned:
             conn.execute('INSERT OR IGNORE INTO anime_dust (guild_id, user_id, dust) VALUES (?,?,0)', (gid, uid))
             conn.execute('UPDATE anime_dust SET dust=dust+? WHERE guild_id=? AND user_id=?', (earned, gid, uid))
+    invalidate_perks(gid, uid)
     return {'dust_earned': earned}
 
 
@@ -246,4 +248,122 @@ def reroll_with_dust(gid, uid, cost=10000) -> dict:
             if print_no > print_total:
                 return {'ok': False, 'code': 'sold_out'}
         conn.execute('INSERT OR REPLACE INTO anime_collection (guild_id, user_id, card_id, print_no, obtained_at, qty) VALUES (?,?,?,?,?,1)', (gid, uid, pick, print_no, int(time.time())))
+    invalidate_perks(gid, uid)
     return {'ok': True, 'card': dict(card), 'print_no': print_no}
+
+
+# ---------- buddy + set-completion perks ----------
+# Buddy: one equipped owned card. Set bonus: owning every card in a series.
+# Both are computed lazily and cached briefly — user_boost() runs on every
+# XP tick, so this must never become N queries per message.
+BUDDY_XP_PCT = {'C': 1, 'R': 2, 'SR': 3, 'LR': 5, 'UR': 8}
+BUDDY_DAILY = {'C': 0, 'R': 50, 'SR': 150, 'LR': 400, 'UR': 1000}
+SET_DAILY_EACH = 250  # flat daily coins per completed series set
+_PERK_CACHE = {}
+_PERK_TTL = 300
+
+
+def _perk_cache_key(gid, uid):
+    return (str(gid), str(uid))
+
+
+def invalidate_perks(gid=None, uid=None):
+    """Drop cached perk math (call after pack opens/dust/reroll/buddy change)."""
+    if gid is None:
+        _PERK_CACHE.clear()
+    else:
+        _PERK_CACHE.pop(_perk_cache_key(gid, uid), None)
+
+
+def set_buddy(gid, uid, code: str) -> dict:
+    """Equip an owned card as buddy. Returns {ok, card} or {ok, code}."""
+    gid, uid = str(gid), str(uid)
+    with db.conn_ctx() as conn:
+        card = conn.execute('SELECT * FROM anime_cards WHERE code=? OR id=?',
+                            (code, code)).fetchone()
+        if not card:
+            return {'ok': False, 'code': 'no_card'}
+        c = dict(card)
+        own = conn.execute('SELECT SUM(qty) q FROM anime_collection '
+                           'WHERE guild_id=? AND user_id=? AND card_id=?',
+                           (gid, uid, c['id'])).fetchone()['q'] or 0
+        if not own:
+            return {'ok': False, 'code': 'not_owned'}
+        conn.execute('INSERT OR REPLACE INTO card_buddy (guild_id, user_id, card_id) '
+                     'VALUES (?,?,?)', (gid, uid, c['id']))
+    invalidate_perks(gid, uid)
+    return {'ok': True, 'card': c}
+
+
+def clear_buddy(gid, uid) -> None:
+    with db.conn_ctx() as conn:
+        conn.execute('DELETE FROM card_buddy WHERE guild_id=? AND user_id=?',
+                     (str(gid), str(uid)))
+    invalidate_perks(gid, uid)
+
+
+def get_buddy(gid, uid):
+    """Equipped card row, or None (missing / no longer owned)."""
+    gid, uid = str(gid), str(uid)
+    with db.conn_ctx() as conn:
+        row = conn.execute('SELECT card_id FROM card_buddy WHERE guild_id=? AND user_id=?',
+                           (gid, uid)).fetchone()
+        if not row:
+            return None
+        card = conn.execute('SELECT * FROM anime_cards WHERE id=?', (row['card_id'],)).fetchone()
+        if not card:
+            return None
+        own = conn.execute('SELECT SUM(qty) q FROM anime_collection '
+                           'WHERE guild_id=? AND user_id=? AND card_id=?',
+                           (gid, uid, row['card_id'])).fetchone()['q'] or 0
+        if not own:
+            return None
+        return dict(card)
+
+
+def set_completion(gid, uid) -> dict:
+    """{completed: [set_ids], count} — a set is complete when the user owns
+    every distinct card_id in it."""
+    gid, uid = str(gid), str(uid)
+    done = []
+    with db.conn_ctx() as conn:
+        sets = [r['id'] for r in conn.execute('SELECT id FROM anime_sets').fetchall()]
+        for sid in sets:
+            total = conn.execute('SELECT COUNT(*) c FROM anime_cards WHERE set_id=?',
+                                 (sid,)).fetchone()['c'] or 0
+            if not total:
+                continue
+            owned = conn.execute('SELECT COUNT(DISTINCT card_id) c FROM anime_collection '
+                                 'WHERE guild_id=? AND user_id=? AND card_id IN '
+                                 '(SELECT id FROM anime_cards WHERE set_id=?)',
+                                 (gid, uid, sid)).fetchone()['c'] or 0
+            if owned >= total:
+                done.append(sid)
+    return {'completed': done, 'count': len(done)}
+
+
+def card_perks(gid, uid) -> dict:
+    """{xp_pct, daily, buddy (row|None), sets_done} — cached 5 min."""
+    key = _perk_cache_key(gid, uid)
+    import time as _t
+    hit = _PERK_CACHE.get(key)
+    if hit and _t.time() - hit[0] < _PERK_TTL:
+        return hit[1]
+    buddy = get_buddy(gid, uid)
+    comp = set_completion(gid, uid)
+    rar = (buddy or {}).get('rarity', '')
+    out = {
+        'xp_pct': BUDDY_XP_PCT.get(rar, 0),
+        'daily': BUDDY_DAILY.get(rar, 0) + SET_DAILY_EACH * comp['count'],
+        'buddy': buddy,
+        'sets_done': comp['completed'],
+    }
+    _PERK_CACHE[key] = (_t.time(), out)
+    return out
+
+
+def card_daily_bonus(gid, uid) -> int:
+    try:
+        return int(card_perks(gid, uid)['daily'])
+    except Exception:
+        return 0

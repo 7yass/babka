@@ -896,7 +896,23 @@ class Shop(commands.Cog):
             lines.append(f"• **{code}** [{rar}]{pn}")
         if len(pulls) > 10:
             lines.append(f"... +{len(pulls)-10} more")
-        await ctx.reply(f"{t(gid, 'shop.card_open', n=len(pulls))}\n" + "\n".join(lines), ephemeral=True)
+        text = f"{t(gid, 'shop.card_open', n=len(pulls))}\n" + "\n".join(lines)
+        # Show the best pull's art (R2 URL — Discord proxies remote images,
+        # no download needed). Ephemeral embeds render images fine.
+        try:
+            from services.card_service import RARITY_ORDER
+            best = max((c for c in pulls if c.get('image_url')),
+                       key=lambda c: RARITY_ORDER.index(c.get('rarity', 'C'))
+                       if c.get('rarity') in RARITY_ORDER else -1, default=None)
+        except Exception:
+            best = None
+        if best:
+            import discord as _d
+            emb = _d.Embed(title=f"{best.get('code')} [{best.get('rarity')}]",
+                           description=text)
+            emb.set_image(url=best['image_url'])
+            return await ctx.reply(embed=emb, ephemeral=True)
+        await ctx.reply(text, ephemeral=True)
 
     async def _buy_bail(self, ctx, price: int):
         """Buy your way out through the shop (same as .bail)."""

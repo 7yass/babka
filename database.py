@@ -603,6 +603,9 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS anime_dust (
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL, dust INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS card_buddy (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, card_id TEXT NOT NULL,
+            PRIMARY KEY (guild_id, user_id))''')
         c.execute('''CREATE TABLE IF NOT EXISTS pk_codes (
             code TEXT PRIMARY KEY, kind TEXT DEFAULT 'cash',
             amount INTEGER DEFAULT 0, uses_left INTEGER DEFAULT 1)''')

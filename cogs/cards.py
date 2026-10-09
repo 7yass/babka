@@ -74,6 +74,75 @@ class Cards(commands.Cog):
             return await ctx.reply("No duplicates to convert.", ephemeral=True)
         await ctx.reply(f"Converted duplicates → **+{res['dust_earned']} dust**.", ephemeral=True)
 
+    @cards.command(name='buddy', description='Equip an owned card for buffs')
+    async def cards_buddy(self, ctx, code: str = ''):
+        """`.cards buddy NARUTO-5556` — equip. `.cards buddy clear` — unequip.
+        Buddy rarity gives +XP (C1/R2/SR3/LR5/UR8%) and +daily coins."""
+        from services.card_service import set_buddy, clear_buddy, card_perks
+        gid = ctx.guild.id
+        if not code or code.lower() == 'clear':
+            if code.lower() == 'clear':
+                clear_buddy(gid, ctx.author.id)
+                return await ctx.reply('Buddy unequipped.', ephemeral=True)
+            p = card_perks(gid, ctx.author.id)
+            b = p['buddy']
+            if not b:
+                return await ctx.reply('No buddy equipped. `.cards buddy <code>` — buffs: '
+                                       'C +1% XP, R +2%, SR +3%, LR +5%, UR +8% (+daily too).',
+                                       ephemeral=True)
+            return await ctx.reply(f"Buddy: **{b['code']}** [{b['rarity']}] — "
+                                   f"+{p['xp_pct']}% XP, +{p['daily']} daily "
+                                   f"({len(p['sets_done'])} sets complete).", ephemeral=True)
+        res = set_buddy(gid, ctx.author.id, code)
+        if not res['ok']:
+            if res['code'] == 'no_card':
+                return await ctx.reply('No such card.', ephemeral=True)
+            return await ctx.reply('You don\'t own that card yet — pull it from a pack first.',
+                                   ephemeral=True)
+        c = res['card']
+        await ctx.reply(f"Buddy equipped: **{c['code']}** [{c['rarity']}] {c['name']}.", ephemeral=True)
+
+    @cards.command(name='sync', description='Import R2 card manifest (house)')
+    async def cards_sync(self, ctx):
+        """House-only: load data/anime_cards_r2.json into anime_cards.
+        Inserts missing cards, backfills image_url on existing ones —
+        never touches collections, dust or pity."""
+        import json
+        import database as db
+        from pathlib import Path
+        if not db.is_house(ctx.author.id):
+            return await ctx.reply('House only.', ephemeral=True)
+        path = Path(__file__).parent.parent / 'data' / 'anime_cards_r2.json'
+        if not path.exists():
+            return await ctx.reply('No manifest (data/anime_cards_r2.json).', ephemeral=True)
+        try:
+            data = json.loads(path.read_text(encoding='utf-8'))
+        except Exception as e:
+            return await ctx.reply(f'Manifest unreadable: {e}', ephemeral=True)
+        ins = upd = 0
+        with db.conn_ctx() as conn:
+            sets = {}
+            for c in data:
+                sets[c.get('set_id', 'unknown')] = sets.get(c.get('set_id', 'unknown'), 0) + 1
+            for sid, cnt in sets.items():
+                conn.execute('INSERT OR IGNORE INTO anime_sets (id,name,total_cards) VALUES (?,?,?)',
+                             (sid, sid, cnt))
+                conn.execute('UPDATE anime_sets SET total_cards=? WHERE id=?', (cnt, sid))
+            for c in data:
+                row = conn.execute('SELECT id FROM anime_cards WHERE id=?', (c['id'],)).fetchone()
+                if row:
+                    conn.execute('UPDATE anime_cards SET image_url=? WHERE id=?',
+                                 (c.get('image_url', ''), c['id']))
+                    upd += 1
+                else:
+                    conn.execute('INSERT INTO anime_cards (id,set_id,code,rarity,print_total,'
+                                 'image_url,is_animated,name) VALUES (?,?,?,?,?,?,?,?)',
+                                 (c['id'], c['set_id'], c.get('code', ''), c.get('rarity', 'C'),
+                                  int(c.get('print_total', 0)), c.get('image_url', ''),
+                                  int(bool(c.get('is_animated', 0))), c.get('name', '')))
+                    ins += 1
+        await ctx.reply(f'Cards synced: **{ins}** new, **{upd}** image URLs refreshed.', ephemeral=True)
+
     @commands.command(name='reroll', description='Reroll missing card with dust')
     async def reroll(self, ctx):
         from services.card_service import reroll_with_dust

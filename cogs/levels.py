@@ -85,6 +85,12 @@ def user_boost(guild_id, user_id) -> float:
             mult *= 2.0
     except Exception:
         pass
+    try:
+        # Card buddy: a small XP aura from the equipped card (cached 5 min).
+        from services.card_service import card_perks
+        mult *= 1.0 + card_perks(guild_id, user_id)['xp_pct'] / 100.0
+    except Exception:
+        pass
     return mult
 
 

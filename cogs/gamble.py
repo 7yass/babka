@@ -1202,14 +1202,21 @@ class Gamble(commands.Cog):
         else:
             streak = (b.get('daily_streak') or 0) + 1
         bonus = min((streak - 1) * 100, 1000)
-        total = DAILY_CASH + bonus
+        try:
+            from services.card_service import card_perks
+            _perk = card_perks(gid, ctx.author.id)
+            card_bonus = int(_perk['daily'])
+        except Exception:
+            _perk, card_bonus = {'buddy': None, 'sets_done': []}, 0
+        total = DAILY_CASH + bonus + card_bonus
         add_cash(gid, ctx.author.id, total)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE eco SET last_daily=?, daily_streak=? WHERE guild_id=? AND user_id=?',
                          (now, streak, str(gid), str(ctx.author.id)))
         bar = '🔥' * min(streak, 7) + ('+' if streak > 7 else '')
         nxt = min(streak * 100, 1000)
-        desc = (f"🎁 **+{cshort(total)}** (base {cshort(DAILY_CASH)} + streak {cshort(bonus)})\n"
+        desc = (f"🎁 **+{cshort(total)}** (base {cshort(DAILY_CASH)} + streak {cshort(bonus)}"
+                + (f" + cards {cshort(card_bonus)}" if card_bonus else "") + ")\n"
                 f"{bar} **{streak}-day streak** — next bonus {cshort(nxt)}"
                 + _wallet_line(gid, ctx.author.id))
         await ctx.reply(view=_game_layout('📅 Daily reward', desc,
