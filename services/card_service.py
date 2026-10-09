@@ -17,6 +17,14 @@ import database as db
 
 RARITY_ORDER = ['C', 'R', 'SR', 'LR', 'UR']
 DUST_VALUE = {'C': 100, 'R': 400, 'SR': 1500, 'LR': 5000, 'UR': 10000}
+SET_NAMES = {'naruto': 'Naruto', 'rezero': 'Re:ZERO', 'bleach': 'Bleach',
+             'dragonball': 'Dragon Ball', 'onepiece': 'One Piece',
+             'demonslayer': 'Demon Slayer', 'jojo': "JoJo's Bizarre Adventure",
+             'bluelock': 'Blue Lock'}
+
+
+def set_name(sid: str) -> str:
+    return SET_NAMES.get(sid, (sid or '').replace('_', ' ').title() or 'Unknown')
 
 
 def get_collection(gid, uid, set_id=None, page=0, per_page=50, owned_only=False) -> dict:

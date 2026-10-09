@@ -140,7 +140,7 @@ class Wish(commands.Cog):
     @commands.command(name='wish', aliases=['w'], description='Wish for cards with tickets')
     async def wish(self, ctx, amount: str = '1'):
         from services.card_service import wish as _wish, WISH_MULTI_MAX
-        from services.card_service import RAR_COLORS, rar_em, tix_em, ssr_em
+        from services.card_service import RAR_COLORS, rar_em, tix_em, ssr_em, set_name
         await ctx.defer()
         gid = ctx.guild.id
         use_ssr = (amount or '').lower() in ('ssr', 'ssr+ticket', 'guaranteed')
@@ -168,9 +168,9 @@ class Wish(commands.Cog):
             emb = discord.Embed(
                 title=f'{ctx.author.display_name} just got a {new}card!',
                 description=(f"**{p['name']}**\n"
-                             f"{rar_em(gid, p['rarity'])} Rarity: **{p['rarity']}** | ID: `{p['code']}`\n"
-                             f"Banner Type\n✨ Permanent\n"
-                             f"Series\n{p['set_id']}\n"
+                             f"**Rarity:** {rar_em(gid, p['rarity'])} | **ID:** `{p['code']}`\n"
+                             f"**Banner Type**\nPermanent\n"
+                             f"**Series**\n{set_name(p['set_id'])}\n"
                              f"Balance\n{_ticket_line(gid, st)}{note}"),
                 color=RAR_COLORS.get(p['rarity'], 0x9AA0A6))
             emb.set_footer(text=_mile_footer(gid, st))
