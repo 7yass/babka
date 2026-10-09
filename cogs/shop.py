@@ -888,31 +888,40 @@ class Shop(commands.Cog):
             return await ctx.reply(t(gid, 'err.generic', e=str(e)), ephemeral=True)
         if not pulls:
             return await ctx.reply(t(gid, 'shop.card_empty'), ephemeral=True)
+        from services.card_service import RARITY_ORDER, RAR_COLORS, RAR_EMOJI
+        order = {r: i for i, r in enumerate(RARITY_ORDER)}
+        pulls_sorted = sorted(pulls, key=lambda c: order.get(c.get('rarity', 'C'), 0))
+        best = pulls_sorted[-1]
         lines = []
-        for c in pulls[:10]:
-            rar = c.get('rarity', '?')
-            code = c.get('code', c.get('id', '?'))
-            pn = f" #{c['print_no']}/{c['print_total']}" if c.get('print_no') else ""
-            lines.append(f"• **{code}** [{rar}]{pn}")
-        if len(pulls) > 10:
-            lines.append(f"... +{len(pulls)-10} more")
-        text = f"{t(gid, 'shop.card_open', n=len(pulls))}\n" + "\n".join(lines)
-        # Show the best pull's art (R2 URL — Discord proxies remote images,
-        # no download needed). Ephemeral embeds render images fine.
+        for c in pulls:
+            mark = ' ✨NEW!' if c.get('is_new') else ''
+            pn = f" #{c['print_no']}/{c['print_total']}" if c.get('print_no') else ''
+            lines.append(f"{RAR_EMOJI.get(c.get('rarity'), '')} **{c.get('name') or c.get('code')}** "
+                         f"[{c.get('rarity', '?')}]`{c.get('code', '')}`{pn}{mark}")
+        # Suspense: the pack lands first, the reveal edits in after a beat.
+        # Public message — pulls are for flexing.
+        spin = await ctx.reply(f'📦 {ctx.author.display_name} is opening {len(pulls)} card(s)...',
+                               mention_author=False)
+        await asyncio.sleep(1.5)
+        summary = discord.Embed(
+            title=f"📦 {ctx.author.display_name}'s pulls",
+            description='\n'.join(lines[:30]) + (f'\n... +{len(lines) - 30} more' if len(lines) > 30 else ''),
+            color=RAR_COLORS.get(best.get('rarity'), 0x9AA0A6))
+        embeds = [summary]
+        for c in pulls_sorted[-9:]:
+            if not c.get('image_url'):
+                continue
+            e = discord.Embed(
+                title=f"{RAR_EMOJI.get(c.get('rarity'), '')} {c.get('name')} [{c.get('rarity')}]"
+                      + (' ✨NEW!' if c.get('is_new') else ''),
+                color=RAR_COLORS.get(c.get('rarity'), 0x9AA0A6))
+            e.set_image(url=c['image_url'])
+            e.set_footer(text=f"{c.get('code')} · {c.get('set_id')}")
+            embeds.append(e)
         try:
-            from services.card_service import RARITY_ORDER
-            best = max((c for c in pulls if c.get('image_url')),
-                       key=lambda c: RARITY_ORDER.index(c.get('rarity', 'C'))
-                       if c.get('rarity') in RARITY_ORDER else -1, default=None)
+            await spin.edit(content=None, embeds=embeds[:10])
         except Exception:
-            best = None
-        if best:
-            import discord as _d
-            emb = _d.Embed(title=f"{best.get('code')} [{best.get('rarity')}]",
-                           description=text)
-            emb.set_image(url=best['image_url'])
-            return await ctx.reply(embed=emb, ephemeral=True)
-        await ctx.reply(text, ephemeral=True)
+            await ctx.reply(embeds=embeds[:10], mention_author=False)
 
     async def _buy_bail(self, ctx, price: int):
         """Buy your way out through the shop (same as .bail)."""

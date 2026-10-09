@@ -7,7 +7,7 @@ from discord.ext import commands
 
 from lang import t
 
-PAGE_SIZE = 24  # 4x6 grid like screenshot
+PAGE_SIZE = 15  # owned view: names are long, keep rows readable
 
 
 class Cards(commands.Cog):
@@ -16,8 +16,9 @@ class Cards(commands.Cog):
 
     @commands.group(name='cards', aliases=['collection', 'animecards'], invoke_without_command=True)
     async def cards(self, ctx, set_name: str = '', page: str = ''):
-        """Collection view. ;cards [set] [page]"""
-        from services.card_service import get_collection
+        """Collection view. `.cards [set] [page]` — your cards, rarest first.
+        `.cards all [set]` — full checklist incl. unowned."""
+        from services.card_service import get_collection, set_progress, RAR_EMOJI, card_perks
         gid, uid = ctx.guild.id, ctx.author.id
         # parse page if set_name is digit
         if set_name.isdigit() and not page:
@@ -27,44 +28,63 @@ class Cards(commands.Cog):
             p = max(0, int(page or 1) - 1)
         except:
             p = 0
-        data = get_collection(gid, uid, set_id=(set_name or None), page=p, per_page=PAGE_SIZE)
-        if not data['cards'] and p == 0 and data['total'] == 0:
-            return await ctx.reply("No cards yet — packs coming soon. Check `.shop` → Cards.", ephemeral=True)
+        checklist = set_name.lower() == 'all'
+        sid = None if checklist or not set_name else set_name
+        data = get_collection(gid, uid, set_id=sid, page=p, per_page=PAGE_SIZE,
+                              owned_only=not checklist)
+        perks = card_perks(gid, uid)
+        buddy = (perks['buddy'] or {}).get('code')
+        prog = ' · '.join(f'{s} {o}/{t_}' for s, o, t_ in set_progress(gid, uid))
+        total_pages = max(1, (data['total'] + PAGE_SIZE - 1) // PAGE_SIZE)
+        owned_n = sum(1 for v in data['owned'].values() if v)
+        header = (f"🃏 Cards {p + 1}/{total_pages} — Owned {owned_n}/{data['grand_total']}"
+                  f" — Dust: {data['dust']}"
+                  + (f" — Buddy: ⭐{buddy}" if buddy else "")
+                  + (f"\n{prog}" if prog else ""))
         if not data['cards']:
-            return await ctx.reply("No more cards on this page.", ephemeral=True)
-        # Build simple embed grid description
+            hint = 'No cards yet — packs coming soon. Check `.shop` → Cards.' if p == 0 \
+                else 'No more pages.'
+            if not checklist and p == 0:
+                hint = 'No cards yet — buy a pack in `.shop` → Cards.'
+            return await ctx.reply(f'**{header}**\n{hint}', ephemeral=True)
         lines = []
         for c in data['cards']:
             owned = data['owned'].get(c['id'], 0)
-            mark = "✅" if owned else "⬜"
-            pn = f" #{c['id']}" if c['code'] else ""
-            lines.append(f"{mark} **{c['code'] or c['id']}** [{c['rarity']}] x{owned}" + (f" LR {c['print_total']}" if c['rarity']=='LR' else ""))
-        total_pages = max(1, (data['total'] + PAGE_SIZE -1)//PAGE_SIZE)
-        header = f"Cards {p+1}/{total_pages} — Dust: {data['dust']} — Owned {len([k for k,v in data['owned'].items() if v])}/{data['total']}"
-        if data['sets']:
-            header += f" | Sets: {', '.join(s['id'] for s in data['sets'][:5])}"
-        await ctx.reply(f"**{header}**\n" + "\n".join(lines[:PAGE_SIZE]), ephemeral=True)
+            if checklist:
+                mark = '✅' if owned else '⬜'
+                lines.append(f"{mark} {RAR_EMOJI.get(c['rarity'], '')} **{c['name'] or c['code']}** [{c['rarity']}]"
+                             + (f" x{owned}" if owned else ""))
+            else:
+                star = ' ⭐' if buddy and c['id'] == (perks['buddy'] or {}).get('id') else ''
+                lines.append(f"{RAR_EMOJI.get(c['rarity'], '')} **{c['name'] or c['code']}** [{c['rarity']}] x{owned}{star}")
+        await ctx.reply(f'**{header}**\n' + '\n'.join(lines[:PAGE_SIZE]), ephemeral=True)
 
     @commands.command(name='cardinfo', description='Card detail')
     async def cardinfo(self, ctx, code: str = ''):
-        from services.card_service import get_collection
+        from services.card_service import card_perks, DUST_VALUE, RAR_COLORS, RAR_EMOJI
         import database as db
         gid = ctx.guild.id
         if not code:
-            return await ctx.reply("Use: `.cardinfo MONO-2026-008`", ephemeral=True)
+            return await ctx.reply('Use: `.cardinfo NARUTO-5556`', ephemeral=True)
         with db.conn_ctx() as conn:
             row = conn.execute('SELECT * FROM anime_cards WHERE code=? OR id=?', (code, code)).fetchone()
             if not row:
-                return await ctx.reply("No such card.", ephemeral=True)
+                return await ctx.reply('No such card.', ephemeral=True)
             c = dict(row)
             owned = conn.execute('SELECT SUM(qty) c FROM anime_collection WHERE guild_id=? AND card_id=?', (str(gid), c['id'])).fetchone()['c'] or 0
-        text = f"**{c['code']}** [{c['rarity']}] — {c['name'] or c['id']}\nSet: {c['set_id']} | Owned: x{owned}"
+        buddy = (card_perks(gid, ctx.author.id)['buddy'] or {}).get('id') == c['id']
+        emb = discord.Embed(
+            title=f"{RAR_EMOJI.get(c['rarity'], '')} {c['name'] or c['code']}",
+            description=f"**{c['code']}** [{c['rarity']}] · Set: {c['set_id']}"
+                        + (' · ⭐ YOUR BUDDY' if buddy else ''),
+            color=RAR_COLORS.get(c['rarity'], 0x9AA0A6))
+        emb.add_field(name='Owned', value=f'x{owned}', inline=True)
         if c['print_total']:
-            left = conn.execute('SELECT COUNT(*) c FROM anime_collection WHERE guild_id=? AND card_id=?', (str(gid), c['id'])).fetchone()['c'] if 'conn' in dir() else 0
-            text += f"\nPrint: {c['print_total']} total"
+            emb.add_field(name='Print', value=f'{c["print_total"]} total', inline=True)
+        emb.add_field(name='Dust value', value=str(DUST_VALUE.get(c['rarity'], 100)), inline=True)
         if c['image_url']:
-            text += f"\n{c['image_url']}"
-        await ctx.reply(text, ephemeral=True)
+            emb.set_image(url=c['image_url'])
+        await ctx.reply(embed=emb, ephemeral=True)
 
     @commands.command(name='dust', description='Convert duplicates to dust')
     async def dust(self, ctx):

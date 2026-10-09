@@ -144,12 +144,15 @@ def open_pack(gid, uid, pack_key: str, rng=None) -> dict:
                 conn.execute('UPDATE anime_collection SET qty=qty+1 WHERE guild_id=? AND user_id=? AND card_id=? AND print_no=?', (gid, uid, card['id'], print_no))
             else:
                 conn.execute('INSERT INTO anime_collection (guild_id, user_id, card_id, print_no, obtained_at, qty) VALUES (?,?,?,?,?,1)', (gid, uid, card['id'], print_no, int(time.time())))
+            tot = conn.execute('SELECT SUM(qty) q FROM anime_collection WHERE guild_id=? AND user_id=? AND card_id=?',
+                               (gid, uid, card['id'])).fetchone()['q'] or 0
 
             cards.append({
                 'id': card['id'], 'code': card['code'], 'rarity': card['rarity'],
                 'name': card['name'], 'set_id': card['set_id'],
                 'print_no': print_no, 'print_total': print_total,
-                'is_animated': is_animated, 'image_url': card['image_url']
+                'is_animated': is_animated, 'image_url': card['image_url'],
+                'is_new': tot <= 1,
             })
 
         # Update pity
@@ -160,10 +163,27 @@ def open_pack(gid, uid, pack_key: str, rng=None) -> dict:
     return {'cards': cards, 'pity': new_pity, 'got_sr': got_sr}
 
 
-def get_collection(gid, uid, set_id=None, page=0, per_page=50) -> dict:
+def get_collection(gid, uid, set_id=None, page=0, per_page=50, owned_only=False) -> dict:
     gid, uid = str(gid), str(uid)
     with db.conn_ctx() as conn:
-        if set_id:
+        if owned_only:
+            # Only cards the user actually holds, rarest first (the fun view).
+            filt = 'AND k.set_id=?' if set_id else ''
+            args = [gid, uid] + ([set_id] if set_id else [])
+            total = conn.execute(
+                f'SELECT COUNT(DISTINCT k.id) c FROM anime_cards k '
+                f'JOIN (SELECT DISTINCT card_id FROM anime_collection '
+                f'WHERE guild_id=? AND user_id=?) o ON o.card_id=k.id '
+                f'WHERE 1=1 {filt}', args).fetchone()['c']
+            cards = conn.execute(
+                f'SELECT k.* FROM anime_cards k '
+                f'JOIN (SELECT DISTINCT card_id FROM anime_collection '
+                f'WHERE guild_id=? AND user_id=?) o ON o.card_id=k.id '
+                f'WHERE 1=1 {filt} '
+                f"ORDER BY CASE k.rarity WHEN 'UR' THEN 0 WHEN 'LR' THEN 1 "
+                f"WHEN 'SR' THEN 2 WHEN 'R' THEN 3 ELSE 4 END, k.code "
+                f'LIMIT ? OFFSET ?', args + [per_page, page * per_page]).fetchall()
+        elif set_id:
             total = conn.execute('SELECT COUNT(*) c FROM anime_cards WHERE set_id=?', (set_id,)).fetchone()['c']
             cards = conn.execute('SELECT * FROM anime_cards WHERE set_id=? ORDER BY code LIMIT ? OFFSET ?', (set_id, per_page, page*per_page)).fetchall()
         else:
@@ -171,17 +191,38 @@ def get_collection(gid, uid, set_id=None, page=0, per_page=50) -> dict:
             cards = conn.execute('SELECT * FROM anime_cards ORDER BY set_id, code LIMIT ? OFFSET ?', (per_page, page*per_page)).fetchall()
         owned = {r['card_id']: r for r in conn.execute('SELECT card_id, SUM(qty) qty FROM anime_collection WHERE guild_id=? AND user_id=? GROUP BY card_id', (gid, uid)).fetchall()}
         sets = conn.execute('SELECT * FROM anime_sets').fetchall()
+        grand = conn.execute('SELECT COUNT(*) c FROM anime_cards').fetchone()['c'] or 0
         dust_row = conn.execute('SELECT dust FROM anime_dust WHERE guild_id=? AND user_id=?', (gid, uid)).fetchone()
         dust = int(dust_row['dust'] or 0) if dust_row else 0
     return {
         'cards': [dict(c) for c in cards],
         'owned': {k: int(v['qty'] or 0) for k, v in owned.items()},
         'total': total,
+        'grand_total': grand,
         'sets': [dict(s) for s in sets],
         'dust': dust,
         'page': page,
         'per_page': per_page,
     }
+
+
+def set_progress(gid, uid) -> list:
+    """[(set_id, owned_distinct, total)] — one grouped query for the header."""
+    gid, uid = str(gid), str(uid)
+    with db.conn_ctx() as conn:
+        rows = conn.execute(
+            'SELECT s.id sid, s.total_cards tot, COUNT(DISTINCT c.card_id) own '
+            'FROM anime_sets s '
+            'LEFT JOIN anime_cards k ON k.set_id=s.id '
+            'LEFT JOIN anime_collection c ON c.card_id=k.id '
+            'AND c.guild_id=? AND c.user_id=? '
+            'GROUP BY s.id ORDER BY s.id',
+            (gid, uid)).fetchall()
+    return [(r['sid'], int(r['own'] or 0), int(r['tot'] or 0)) for r in rows]
+
+
+RAR_COLORS = {'C': 0x9AA0A6, 'R': 0x3498DB, 'SR': 0x9B59B6, 'LR': 0xF1C40F, 'UR': 0xE74C3C}
+RAR_EMOJI = {'C': '⚪', 'R': '🔵', 'SR': '🟣', 'LR': '🟡', 'UR': '🔴'}
 
 
 def get_user_stats(gid, uid) -> dict:
