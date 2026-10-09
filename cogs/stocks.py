@@ -58,7 +58,9 @@ PAL = [(250, 200, 60), (96, 165, 250), (52, 211, 153),
 # in-memory market mood: (gid, sym) -> trend (persistent drift direction).
 # Regimes flip on their own — pumps run hot, then mean-revert and dump.
 TREND = {}
-# last reverse-split per symbol (brains of the bankruptcy rescue)
+# last reverse-split per symbol — REMOVED 2026-10-09: splits shrank share
+# counts and felt like theft (300k -> 500). Qty is now sacred: it only
+# ever changes on buy/sell. Price recovers via the bailout rally below.
 SPLIT_TS = {}
 # house float rig: sym -> (bias, expires_ts). Positive while the house
 # holds, hard negative after it exits. Decays on its own; restarts wipe it.
@@ -111,6 +113,16 @@ def _ensure(gid):
         for sym, spec in STOCKS.items():
             conn.execute('INSERT OR IGNORE INTO stocks (guild_id, symbol, price, updated_at) '
                          'VALUES (?,?,?,?)', (str(gid), sym, spec['start'], _now()))
+        # cleanup from the old reverse-split era (removed 2026-10-09): splits
+        # left fractional qty/spent (SQLite / is float division). Truncate back
+        # to integers so counts display and sell cleanly. Dust (<1 share) is dropped.
+        try:
+            conn.execute('UPDATE portfolio SET qty=CAST(qty AS INTEGER), '
+                         'spent=CAST(spent AS INTEGER) WHERE guild_id=? AND '
+                         '(qty != CAST(qty AS INTEGER) OR spent != CAST(spent AS INTEGER))',
+                         (str(gid),))
+        except Exception:
+            pass
     for sym in STOCKS:
         _seed_history(gid, sym)
     _ENSURED.add(str(gid))
@@ -206,19 +218,11 @@ def _tick_symbol(gid, sym):
         change = max(-0.45, min(0.45, change))
         new = max(1, int(d['price'] * (1 + change)))
         if new <= max(2, int(spec['start'] * 0.05)):
-            # bankruptcy zone: a bailout rally starts brewing (uptrend, no teleport)
+            # bankruptcy zone: a bailout rally starts brewing (uptrend, no teleport).
+            # Share counts NEVER change here — qty only moves on buy/sell.
+            # (Old reverse-split shrank qty on every crash; removed: it felt
+            # like losing shares instead of losing price.)
             TREND[key] = random.uniform(0.07, 0.11)
-            # ...and if the tape is truly dead, a reverse split relists it.
-            # Real mechanic, value-neutral: price jumps, share counts shrink.
-            last_split = SPLIT_TS.get(key, 0)
-            if now - last_split > 1800:
-                SPLIT_TS[key] = now
-                target = int(spec['start'] * random.uniform(0.25, 0.40))
-                ratio = max(2, round(target / max(1, new)))
-                new = max(10, new * ratio)
-                conn.execute('UPDATE portfolio SET qty=qty/?, spent=spent/? '
-                             'WHERE guild_id=? AND symbol=? AND qty>0',
-                             (ratio, ratio, str(gid), sym))
         botvol = random.randint(100, 900)
         today = _today_utc()
         if d.get('vol_day') != today or not (d.get('day_open') or 0):
