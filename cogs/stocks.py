@@ -863,7 +863,7 @@ class Stocks(commands.Cog):
                     b.callback = _mk_view_cb(sym)
                     row.add_item(b)
                 break
-        return layout, rows
+        return layout
 
     @commands.command(name='stocks', description='Giełda babki')
     async def stocks(self, ctx):
