@@ -35,12 +35,6 @@ def frame_art(art: bytes, name: str, rarity: str) -> bytes:
     x = (base.width - iw) // 2
     y = (base.height - ih) // 2
     base = base.crop((x, y, x + iw, y + ih))
-    # dim the bottom for the name plate
-    ov = _Img.new('L', (iw, ih), 0)
-    _od = _Dr.Draw(ov)
-    _od.rectangle([0, ih - 190, iw, ih], fill=200)
-    dark = _Img.new('RGB', (iw, ih), (5, 5, 10))
-    base = _Img.composite(dark, base, ov)
     img = _Img.new('RGB', (W, H), col)
     img.paste(base, (BORDER, BORDER))
     d = _Dr.Draw(img, 'RGBA')
@@ -52,22 +46,20 @@ def frame_art(art: bytes, name: str, rarity: str) -> bytes:
             d.polygon([(cx, cy - 9), (cx + 7, cy), (cx, cy + 9), (cx - 7, cy)], fill=light)
     try:
         _a = _P(__file__).parent.parent / 'assets'
-        f_name = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 44)
-        f_star = _F.truetype(str(_a / 'DejaVuSans.ttf'), 30)
+        f_star = _F.truetype(str(_a / 'DejaVuSans.ttf'), 46)
     except Exception:
-        f_name = f_star = _F.load_default()
-    label = (name or '')[:34]
-    try:
-        nw = d.textlength(label, font=f_name)
-    except Exception:
-        nw = len(label) * 24
-    d.text(((W - nw) / 2, H - 128), label, font=f_name, fill=(250, 250, 250))
+        f_star = _F.load_default()
+    # No name plate: the embed already carries the name, and most art has it
+    # baked in. Stars ride directly on the art, high and large, with a dark
+    # outline so they read on any background.
+    _ = name
     stars = '★' * STARS.get(rarity, 2)
     try:
         sw = d.textlength(stars, font=f_star)
     except Exception:
-        sw = len(stars) * 18
-    d.text(((W - sw) / 2, H - 72), stars, font=f_star, fill=col)
+        sw = len(stars) * 28
+    d.text(((W - sw) / 2, H - 108), stars, font=f_star, fill=col,
+           stroke_width=2, stroke_fill=(5, 5, 10))
     buf = io.BytesIO()
     img.save(buf, 'PNG')
     return buf.getvalue()
