@@ -1,5 +1,6 @@
 """Shop: nick tokens, force-nick scrolls, XP boosts, rob shields. Plus bail."""
 import asyncio
+import io
 import time
 
 import discord
@@ -11,6 +12,153 @@ from utils.economy import SHOP_PRICES
 from lang import t, set_ctx_lang
 from utils.embeds import card
 from utils.emojis import em
+
+PACK_META = {
+    'card_pack_std': ('Card Pack', 0x3498DB),
+    'card_pack_mono': ('Monochroma Pack', 0x9B59B6),
+    'card_pack_animated': ('Animated Pack', 0xF1C40F),
+}
+
+
+def pack_cover_image(label: str, accent: int, n: int) -> bytes:
+    """Sealed-pack wrapper: dark foil, accent glow border, pack name.
+    Rendered in a worker thread at buy time (never on the loop)."""
+    import random as _r
+    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
+    from pathlib import Path as _P
+    W, H = 600, 760
+    img = _Img.new('RGB', (W, H), (13, 13, 20))
+    d = _Dr.Draw(img, 'RGBA')
+    r, g, b = (accent >> 16) & 255, (accent >> 8) & 255, accent & 255
+    for x in range(-H, W, 90):  # foil shine
+        d.polygon([(x, 0), (x + 34, 0), (x + 34 + H, H), (x + H, H)],
+                  fill=(255, 255, 255, 9))
+    for _ in range(40):  # sparkle dust
+        sx, sy = _r.randint(40, W - 40), _r.randint(40, H - 40)
+        d.ellipse([sx - 2, sy - 2, sx + 2, sy + 2], fill=(r, g, b, 70))
+    d.rounded_rectangle([8, 8, W - 9, H - 9], radius=36, outline=(r, g, b), width=6)
+    d.rounded_rectangle([22, 22, W - 23, H - 23], radius=28, outline=(r, g, b, 90), width=2)
+    try:
+        _a = _P(__file__).parent.parent / 'assets'
+        f_big = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 62)
+        f_mid = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 34)
+        f_sm = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 26)
+    except Exception:
+        f_big = f_mid = f_sm = _F.load_default()
+    words, lines, cur = (label or 'Card Pack').split(), [], ''
+    for w in words:
+        t2 = (cur + ' ' + w).strip()
+        try:
+            wpx = d.textlength(t2, font=f_big)
+        except Exception:
+            wpx = len(t2) * 34
+        if wpx > W - 120 and cur:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = t2
+    lines.append(cur)
+    d.text((W // 2, 140), 'BABKA • ANIME CARDS', font=f_sm, fill=(r, g, b), anchor='mm')
+    y = H // 2 - len(lines) * 40
+    for ln in lines:
+        d.text((W // 2, y), ln, font=f_big, fill=(250, 250, 250), anchor='mm')
+        y += 78
+    d.text((W // 2, H - 170), f'{n} CARD{"S" if n != 1 else ""} INSIDE',
+           font=f_mid, fill=(r, g, b), anchor='mm')
+    d.text((W // 2, H - 108), 'tap  Open  below', font=f_sm, fill=(200, 200, 200), anchor='mm')
+    buf = io.BytesIO()
+    img.save(buf, 'PNG')
+    return buf.getvalue()
+
+
+class PackRevealView(discord.ui.View):
+    """Pokémon-style opening: sealed cover + Open, then one card per Next,
+    weakest first, rarest last. Buyer-only buttons, 5-min timeout."""
+
+    def __init__(self, author_id: int, pulls: list, pack_label: str, timeout: int = 300):
+        super().__init__(timeout=timeout)
+        from services.card_service import RARITY_ORDER
+        order = {r: i for i, r in enumerate(RARITY_ORDER)}
+        self.author_id = author_id
+        self.pulls = sorted(pulls or [], key=lambda c: order.get(c.get('rarity', 'C'), 0))
+        self.pack_label = pack_label
+        self.idx = -1  # sealed
+        self.done = False
+        self.message = None
+        self._lock = asyncio.Lock()
+        self._btn = discord.ui.Button(label='🎁 Open', style=discord.ButtonStyle.success,
+                                      custom_id='pack_open')
+        self._btn.callback = self._cb_advance
+        self.add_item(self._btn)
+
+    @staticmethod
+    def _line(c) -> str:
+        from services.card_service import RAR_EMOJI
+        mark = ' ✨NEW!' if c.get('is_new') else ''
+        pn = f" #{c['print_no']}/{c['print_total']}" if c.get('print_no') else ''
+        return (f"{RAR_EMOJI.get(c.get('rarity'), '')} **{c.get('name') or c.get('code')}** "
+                f"[{c.get('rarity', '?')}] `{c.get('code', '')}`{pn}{mark}")
+
+    def _embed(self) -> discord.Embed:
+        from services.card_service import RAR_COLORS, RAR_EMOJI
+        if self.idx < 0:
+            emb = discord.Embed(title=f'📦 {self.pack_label}',
+                                description=f'{len(self.pulls)} sealed card(s) inside.\nTap Open to reveal.',
+                                color=0xFAC43C)
+            emb.set_image(url='attachment://pack.png')
+            return emb
+        c = self.pulls[self.idx]
+        emb = discord.Embed(
+            title=f"{RAR_EMOJI.get(c.get('rarity'), '')} {c.get('name') or c.get('code')} "
+                  f"[{c.get('rarity', '?')}]" + (' ✨NEW!' if c.get('is_new') else ''),
+            description='\n'.join(self._line(x) for x in self.pulls[:self.idx + 1]),
+            color=RAR_COLORS.get(c.get('rarity'), 0x9AA0A6))
+        if c.get('image_url'):
+            emb.set_image(url=c['image_url'])
+        emb.set_footer(text=f"{self.idx + 1}/{len(self.pulls)} • {c.get('code', '')} · {c.get('set_id', '')}")
+        return emb
+
+    def _sync_button(self):
+        if self.done:
+            self._btn.disabled = True
+            self._btn.label = 'Opened ✓'
+            self._btn.style = discord.ButtonStyle.grey
+        elif self.idx < 0:
+            self._btn.label = '🎁 Open'
+        else:
+            self._btn.label = f'Next ({self.idx + 1}/{len(self.pulls)})'
+
+    async def _cb_advance(self, interaction: discord.Interaction):
+        from utils.interactions import ack, finish
+        set_ctx_lang(interaction.user)
+        if interaction.user.id != self.author_id:
+            return await interaction.response.send_message(
+                'Not your pack — buy your own in `.shop`.', ephemeral=True)
+        async with self._lock:
+            mode = await ack(interaction)
+            if not self.done:
+                self.idx += 1
+                if self.idx >= len(self.pulls) - 1:
+                    self.done = True
+                self._sync_button()
+            # attachments=[] clears the sealed cover file from card steps.
+            await finish(interaction, mode, embed=self._embed(), view=self, attachments=[])
+            if self.done:
+                self.stop()
+
+    async def on_timeout(self):
+        # Cards are already in the collection — never leave a dead sealed pack.
+        if self.done:
+            return
+        self.idx = len(self.pulls) - 1
+        self.done = True
+        self._sync_button()
+        try:
+            if self.message is not None:
+                await self.message.edit(embed=self._embed(), view=self, attachments=[])
+        except Exception:
+            pass
+        self.stop()
 
 ITEMS = {
     'cookie': {'price': SHOP_PRICES['cookie'].amount, 'use': 'shop.u_cookie'},
@@ -888,40 +1036,17 @@ class Shop(commands.Cog):
             return await ctx.reply(t(gid, 'err.generic', e=str(e)), ephemeral=True)
         if not pulls:
             return await ctx.reply(t(gid, 'shop.card_empty'), ephemeral=True)
-        from services.card_service import RARITY_ORDER, RAR_COLORS, RAR_EMOJI
-        order = {r: i for i, r in enumerate(RARITY_ORDER)}
-        pulls_sorted = sorted(pulls, key=lambda c: order.get(c.get('rarity', 'C'), 0))
-        best = pulls_sorted[-1]
-        lines = []
-        for c in pulls:
-            mark = ' ✨NEW!' if c.get('is_new') else ''
-            pn = f" #{c['print_no']}/{c['print_total']}" if c.get('print_no') else ''
-            lines.append(f"{RAR_EMOJI.get(c.get('rarity'), '')} **{c.get('name') or c.get('code')}** "
-                         f"[{c.get('rarity', '?')}]`{c.get('code', '')}`{pn}{mark}")
-        # Suspense: the pack lands first, the reveal edits in after a beat.
-        # Public message — pulls are for flexing.
-        spin = await ctx.reply(f'📦 {ctx.author.display_name} is opening {len(pulls)} card(s)...',
-                               mention_author=False)
-        await asyncio.sleep(1.5)
-        summary = discord.Embed(
-            title=f"📦 {ctx.author.display_name}'s pulls",
-            description='\n'.join(lines[:30]) + (f'\n... +{len(lines) - 30} more' if len(lines) > 30 else ''),
-            color=RAR_COLORS.get(best.get('rarity'), 0x9AA0A6))
-        embeds = [summary]
-        for c in pulls_sorted[-9:]:
-            if not c.get('image_url'):
-                continue
-            e = discord.Embed(
-                title=f"{RAR_EMOJI.get(c.get('rarity'), '')} {c.get('name')} [{c.get('rarity')}]"
-                      + (' ✨NEW!' if c.get('is_new') else ''),
-                color=RAR_COLORS.get(c.get('rarity'), 0x9AA0A6))
-            e.set_image(url=c['image_url'])
-            e.set_footer(text=f"{c.get('code')} · {c.get('set_id')}")
-            embeds.append(e)
-        try:
-            await spin.edit(content=None, embeds=embeds[:10])
-        except Exception:
-            await ctx.reply(embeds=embeds[:10], mention_author=False)
+        # Sealed-pack ceremony: cover + Open, then one card per Next (weakest
+        # first). Public message — pulls are for flexing. Rolls already happened
+        # above; the view only paginates, so clicks stay instant.
+        label, accent = PACK_META.get(key, ('Card Pack', 0xFAC43C))
+        cover = await self.bot.loop.run_in_executor(
+            None, pack_cover_image, label, accent, len(pulls))
+        view = PackRevealView(ctx.author.id, pulls, label)
+        view.message = await ctx.reply(
+            embed=view._embed(),
+            file=discord.File(io.BytesIO(cover), 'pack.png'),
+            view=view, mention_author=False)
 
     async def _buy_bail(self, ctx, price: int):
         """Buy your way out through the shop (same as .bail)."""
