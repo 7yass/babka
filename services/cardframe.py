@@ -58,7 +58,7 @@ def frame_art(art: bytes, name: str, rarity: str) -> bytes:
         sw = d.textlength(stars, font=f_star)
     except Exception:
         sw = len(stars) * 28
-    d.text(((W - sw) / 2, H - 175), stars, font=f_star, fill=col,
+    d.text(((W - sw) / 2, H - 225), stars, font=f_star, fill=col,
            stroke_width=2, stroke_fill=(5, 5, 10))
     buf = io.BytesIO()
     img.save(buf, 'PNG')
