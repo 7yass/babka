@@ -56,8 +56,9 @@ class WishRecapView(discord.ui.View):
             lines.append(f"{i} - {rar_em(self.gid, p['rarity'])} {p['rarity']} · "
                          f"{p['name']}" + (' ✨' if p.get('is_new') else ''))
         emb.description += '\n'.join(lines)
+        emb.description += f"\n{_mile_footer(self.gid, self.state)}"
         emb.add_field(name='Remaining Tickets', value=_ticket_line(self.gid, self.state), inline=False)
-        emb.set_footer(text=_mile_footer(self.gid, self.state) + (f' · Page {self.page + 1}/{pages}' if pages > 1 else ''))
+        emb.set_footer(text=(f'Page {self.page + 1}/{pages}' if pages > 1 else 'Multi-Wish Results'))
         return emb
 
     async def _flip(self, interaction: discord.Interaction, step: int):
@@ -171,9 +172,9 @@ class Wish(commands.Cog):
                              f"**Rarity:** {rar_em(gid, p['rarity'])} | **ID:** `{p['code']}`\n"
                              f"**Banner Type**\nPermanent\n"
                              f"**Series**\n{set_name(p['set_id'])}\n"
-                             f"Balance\n{_ticket_line(gid, st)}{note}"),
+                             f"Balance\n{_ticket_line(gid, st)}{note}\n"
+                             f"{_mile_footer(gid, st)}"),
                 color=RAR_COLORS.get(p['rarity'], 0x9AA0A6))
-            emb.set_footer(text=_mile_footer(gid, st))
             # Framed slab (cached per card); raw URL when anything fails.
             try:
                 from services.cardframe import get_framed_card
