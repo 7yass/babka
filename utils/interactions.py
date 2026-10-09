@@ -30,7 +30,10 @@ async def finish(ix, mode: str, **kw):
 
     'edit' edits the message the component sits on (view/attachments/content);
     'followup' posts a followup message instead. Falls back to a followup when
-    the original edit fails for any reason.
+    the original edit fails for any reason. Final fallback: edit the source
+    message with the bot's own credentials (no interaction token needed), so
+    a click that missed the 3s ack window still lands — late — instead of
+    dying as "the application did not respond".
     """
     if mode == 'edit':
         try:
@@ -40,4 +43,11 @@ async def finish(ix, mode: str, **kw):
     try:
         return await ix.followup.send(**kw)
     except Exception:
+        pass
+    try:
+        msg = getattr(ix, 'message', None)
+        if msg is not None:
+            return await msg.edit(**kw)
+    except Exception:
         return None
+    return None

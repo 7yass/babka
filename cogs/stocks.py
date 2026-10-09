@@ -793,7 +793,11 @@ class Stocks(commands.Cog):
             for g in gids:
                 for sym in STOCKS:
                     try:
-                        px = _tick_symbol(g, sym)
+                        # Ticks are pure sync SQLite: run them in a worker thread
+                        # so the loop stays free to ack button clicks inside
+                        # their 3s window (a blocked loop reads to players as
+                        # "the application did not respond" on Hit/Stand).
+                        px = await self.bot.loop.run_in_executor(None, _tick_symbol, g, sym)
                         await self._match_orders(g, sym, px)
                     except Exception:
                         continue
