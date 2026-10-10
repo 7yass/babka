@@ -2281,6 +2281,54 @@
       "",
       "Everyone",
       false
+    ],
+    "wl": [
+      "cards",
+      "Wishlist terms + owned matches: `.wl` / `.wl add`.",
+      [],
+      "",
+      "Everyone",
+      false
+    ],
+    "gallery": [
+      "cards",
+      "Set art showcase: `.gallery`.",
+      [],
+      "",
+      "Everyone",
+      false
+    ],
+    "album": [
+      "cards",
+      "9 favorite slots: `.album` / `.album CODE 1-9`.",
+      [],
+      "",
+      "Everyone",
+      false
+    ],
+    "auc": [
+      "cards",
+      "Auction house (24h, 5% fee): `.auc` / `.auc sell`.",
+      [],
+      "",
+      "Everyone",
+      false
+    ],
+    "wheel": [
+      "cards",
+      "12h fortune spin: `.wheel`.",
+      [],
+      "",
+      "Everyone",
+      false
+    ],
+    "rm": [
+      "cards",
+      "DM when drops are full: `.rm`.",
+      [],
+      "",
+      "Everyone",
+      false
     ]
   },
   "cats": {

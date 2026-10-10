@@ -440,6 +440,66 @@ class Trade(commands.Cog):
             return await ctx.reply('That offer isn\'t yours to cancel.', ephemeral=True)
         await ctx.reply(f'Offer **#{i}** cancelled.', ephemeral=True)
 
+    @commands.group(name='auc', description='Card auction house', invoke_without_command=True)
+    async def auc(self, ctx):
+        """`.auc` — open listings. `.auc sell CODE PRICE` · `.auc buy ID` · `.auc cancel ID`.
+        24h, 5% fee, expired lots return to seller."""
+        from services.card_service import auc_list
+        import time as _t
+        rows = auc_list(ctx.guild.id)
+        if not rows:
+            return await ctx.reply('No open lots — `.auc sell CODE PRICE` (min 100).', ephemeral=True)
+        lines = []
+        for r in rows:
+            left = max(0, (r['expires'] - int(_t.time())) // 3600)
+            lines.append(f"• #{r['id']} **{r['name']}** [{r['rarity']}] — **{r['price']}** coins "
+                         f"(~{left}h left) — `.auc buy {r['id']}`")
+        await ctx.reply('🏛 **Auction house**\n' + '\n'.join(lines[:10]), ephemeral=True)
+
+    @auc.command(name='sell', description='List a card')
+    async def auc_sell(self, ctx, code: str = '', price: str = ''):
+        from services.card_service import auc_sell
+        if not code or not price:
+            return await ctx.reply('Use: `.auc sell CODE PRICE` (min 100, 24h, 5% fee).', ephemeral=True)
+        try:
+            p = max(100, int(price.replace(',', '')))
+        except Exception:
+            return await ctx.reply('Price must be a number.', ephemeral=True)
+        res = auc_sell(ctx.guild.id, ctx.author.id, code, p)
+        if not res['ok']:
+            msgs = {'no_card': 'No such card.', 'not_owned': 'You don\'t own that.',
+                    'is_buddy': 'Unequip your buddy first.', 'locked': 'That card is 🔒 locked.'}
+            return await ctx.reply(msgs.get(res['code'], 'Listing failed.'), ephemeral=True)
+        await ctx.reply(f"🏛 Listed **{res['card']['code']}** for **{res['price']}** coins "
+                        f"(lot #{res['id']}, 24h).", ephemeral=True)
+
+    @auc.command(name='buy', description='Buy a lot now')
+    async def auc_buy(self, ctx, oid: str = ''):
+        from services.card_service import auc_buy
+        try:
+            i = int((oid or '').lstrip('#'))
+        except Exception:
+            return await ctx.reply('Use: `.auc buy <id>`.', ephemeral=True)
+        res = auc_buy(ctx.guild.id, ctx.author.id, i)
+        if not res['ok']:
+            msgs = {'gone': 'That lot is gone.', 'self': 'That\'s your own lot.',
+                    'broke': 'Not enough coins.'}
+            return await ctx.reply(msgs.get(res['code'], 'Buy failed.'), ephemeral=True)
+        await ctx.reply(f"🏛 Sold! Check `.cards`. (seller got {res['price'] - res['fee']} after fee)",
+                        ephemeral=True)
+
+    @auc.command(name='cancel', description='Pull your lot')
+    async def auc_cancel(self, ctx, oid: str = ''):
+        from services.card_service import auc_cancel
+        try:
+            i = int((oid or '').lstrip('#'))
+        except Exception:
+            return await ctx.reply('Use: `.auc cancel <id>`.', ephemeral=True)
+        res = auc_cancel(ctx.guild.id, ctx.author.id, i)
+        if not res['ok']:
+            return await ctx.reply('That lot isn\'t yours to pull.', ephemeral=True)
+        await ctx.reply(f'Lot **#{i}** pulled — card\'s back in your binder.', ephemeral=True)
+
 
 async def setup(bot):
     await bot.add_cog(Trade(bot))

@@ -624,6 +624,24 @@ def init_db():
             quest TEXT NOT NULL, progress INTEGER DEFAULT 0, done INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id, day, quest))''')
         c.execute('CREATE INDEX IF NOT EXISTS idx_quest_day ON quest_progress(day)')
+        c.execute('''CREATE TABLE IF NOT EXISTS card_wishlist (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, term TEXT NOT NULL,
+            PRIMARY KEY (guild_id, user_id, term))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS card_album (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, slot INTEGER NOT NULL,
+            card_id TEXT NOT NULL, PRIMARY KEY (guild_id, user_id, slot))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS auctions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id TEXT NOT NULL,
+            seller_id TEXT NOT NULL, card_id TEXT NOT NULL, price INTEGER NOT NULL,
+            created INTEGER DEFAULT 0, expires INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'open')''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_auctions_open ON auctions (guild_id, status, expires)')
+        c.execute('''CREATE TABLE IF NOT EXISTS wheel_spins (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, last_spin INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS reminders (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, kind TEXT NOT NULL,
+            created INTEGER DEFAULT 0, PRIMARY KEY (guild_id, user_id, kind))''')
         # ticket-economy columns added after the table first shipped
         for _col in ('msg_prog INTEGER DEFAULT 0', 'vc_prog INTEGER DEFAULT 0'):
             try:

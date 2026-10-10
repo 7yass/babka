@@ -457,5 +457,129 @@ class Cards(commands.Cog):
         await ctx.reply('Trade cancelled.', ephemeral=True)
 
 
+    @commands.group(name='wl', description='Card wishlist', invoke_without_command=True)
+    async def wl(self, ctx):
+        """`.wl` — list + owned matches. `.wl add term` / `.wl remove term`."""
+        from services.card_service import wl_list, wl_matches
+        terms = wl_list(ctx.guild.id, ctx.author.id)
+        if not terms:
+            return await ctx.reply('Wishlist empty — `.wl add <character or series>`.', ephemeral=True)
+        lines = ['**⭐ Wishlist**'] + [f'• {t}' for t in terms[:20]]
+        hits = wl_matches(ctx.guild.id, ctx.author.id)
+        if hits:
+            lines.append('**Owned matches**')
+            lines += [f"• **{c['name']}** [{c['rarity']}]" for c in hits[:10]]
+        await ctx.reply('\n'.join(lines), ephemeral=True)
+
+    @wl.command(name='add', description='Add wishlist term')
+    async def wl_add(self, ctx, *, term: str = ''):
+        from services.card_service import wl_set
+        if not (term or '').strip():
+            return await ctx.reply('Use: `.wl add <character or series>`.', ephemeral=True)
+        wl_set(ctx.guild.id, ctx.author.id, term, True)
+        await ctx.reply(f'⭐ Watching **{(term or "").strip()[:60]}**.', ephemeral=True)
+
+    @wl.command(name='remove', description='Remove wishlist term')
+    async def wl_remove(self, ctx, *, term: str = ''):
+        from services.card_service import wl_set
+        wl_set(ctx.guild.id, ctx.author.id, term or '', False)
+        await ctx.reply('Removed.', ephemeral=True)
+
+    @commands.command(name='inv', description='Item inventory')
+    async def inv(self, ctx):
+        from services.card_service import ticket_state
+        import database as db
+        gid = ctx.guild.id
+        st = ticket_state(gid, ctx.author.id)
+        with db.conn_ctx() as conn:
+            dust = conn.execute('SELECT dust FROM anime_dust WHERE guild_id=? AND user_id=?',
+                                (str(gid), str(ctx.author.id))).fetchone()
+            locks = conn.execute('SELECT COUNT(*) c FROM card_locks WHERE guild_id=? AND user_id=?',
+                                 (str(gid), str(ctx.author.id))).fetchone()['c']
+            alb = conn.execute('SELECT COUNT(*) c FROM card_album WHERE guild_id=? AND user_id=?',
+                               (str(gid), str(ctx.author.id))).fetchone()['c']
+        await ctx.reply(f"🎒 **{ctx.author.display_name}'s inventory**\n"
+                        f"🎟 Tickets x{st['tickets'] or 0} · ✨ SSR tickets x{st['ssr_tickets'] or 0}\n"
+                        f"💨 Dust x{dust['dust'] if dust else 0} · 🎖 Milestone {st['milestone'] or 0}/200\n"
+                        f"🔒 Locked cards x{locks or 0} · 🖼 Album {alb or 0}/9", ephemeral=True)
+
+    @commands.command(name='info', description='Character / series lookup')
+    async def info(self, ctx, *, query: str = ''):
+        import database as db
+        from services.card_service import set_name
+        if not (query or '').strip():
+            return await ctx.reply('Use: `.info <character, series or code>`.', ephemeral=True)
+        q = f"%{(query or '').strip().lower()}%"
+        with db.conn_ctx() as conn:
+            rows = conn.execute(
+                'SELECT id, code, name, rarity, set_id FROM anime_cards '
+                'WHERE LOWER(name) LIKE ? OR LOWER(code) LIKE ? OR LOWER(set_id) LIKE ? '
+                'ORDER BY CASE rarity WHEN \'UR\' THEN 0 WHEN \'LR\' THEN 1 WHEN \'SR\' THEN 2 '
+                'WHEN \'R\' THEN 3 ELSE 4 END, code LIMIT 8',
+                (q, q, q)).fetchall()
+            total = conn.execute(
+                'SELECT COUNT(*) c FROM anime_cards WHERE LOWER(name) LIKE ? OR LOWER(set_id) LIKE ?',
+                (q, q)).fetchone()['c']
+        if not rows:
+            return await ctx.reply('No matches.', ephemeral=True)
+        lines = [f"• **{r['name']}** [{r['rarity']}] `{r['code']}` · {set_name(r['set_id'])}" for r in rows]
+        if total > 8:
+            lines.append(f'… +{total - 8} more')
+        await ctx.reply('**🔍 Matches**\n' + '\n'.join(lines), ephemeral=True)
+
+    @commands.command(name='gallery', description='Set art showcase')
+    async def gallery(self, ctx, set_name: str = ''):
+        import database as db
+        with db.conn_ctx() as conn:
+            rows = conn.execute(
+                'SELECT code, name, rarity, image_url FROM anime_cards '
+                'WHERE (? = \'\' OR set_id=?) AND rarity IN (\'UR\',\'LR\') '
+                'ORDER BY CASE rarity WHEN \'UR\' THEN 0 ELSE 1 END, code LIMIT 10',
+                ((set_name or '').lower(), (set_name or '').lower())).fetchall()
+        if not rows:
+            return await ctx.reply('Use: `.gallery <set>` (naruto, onepiece, …).', ephemeral=True)
+        embeds = []
+        for r in rows:
+            e = __import__('discord').Embed(title=f"{r['name']} [{r['rarity']}]")
+            if r['image_url']:
+                e.set_image(url=r['image_url'])
+            e.set_footer(text=r['code'])
+            embeds.append(e)
+        await ctx.reply(embeds=embeds[:10], mention_author=False)
+
+    @commands.command(name='album', description='Favorite cards showcase')
+    async def album(self, ctx, code: str = '', slot: str = ''):
+        """`.album` view · `.album CODE 1-9` pin · `.album clear [SLOT]`."""
+        from services.card_service import album_get, album_set, album_clear, ALBUM_SLOTS
+        gid = ctx.guild.id
+        if (code or '').lower() == 'clear':
+            try:
+                album_clear(gid, ctx.author.id, int(slot or 0))
+            except Exception:
+                pass
+            return await ctx.reply('Album cleared.', ephemeral=True)
+        if code and slot:
+            try:
+                res = album_set(gid, ctx.author.id, code, int(slot))
+            except Exception:
+                return await ctx.reply(f'Use: `.album CODE 1-{ALBUM_SLOTS}`.', ephemeral=True)
+            if not res['ok']:
+                return await ctx.reply('No such card, or you don\'t own it.', ephemeral=True)
+            return await ctx.reply(f"🖼 Slot {res['slot']}: **{res['card']['name']}**.", ephemeral=True)
+        if code and not slot:
+            return await ctx.reply(f'Use: `.album {code} 1-{ALBUM_SLOTS}`.', ephemeral=True)
+        alb = album_get(gid, ctx.author.id)
+        if not alb:
+            return await ctx.reply(f'Album empty — `.album set CODE 1-{ALBUM_SLOTS}` with an owned card.',
+                                   ephemeral=True)
+        lines = [f"**{s}.** {alb[s]['name']} [{alb[s]['rarity']}]" for s in sorted(alb)]
+        first = alb[sorted(alb)[0]]
+        emb = __import__('discord').Embed(title=f"🖼 {ctx.author.display_name}'s album",
+                                          description='\n'.join(lines))
+        if first.get('image_url'):
+            emb.set_image(url=first['image_url'])
+        await ctx.reply(embed=emb, mention_author=False)
+
+
 async def setup(bot):
     await bot.add_cog(Cards(bot))

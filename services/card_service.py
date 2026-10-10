@@ -227,6 +227,7 @@ def wish(gid, uid, n: int = 1, use_ssr: bool = False, rng=None) -> dict:
         return {'ok': False, 'code': 'no_tickets', 'need': n,
                 'have': st['tickets'] or 0, 'state': st}
     weights = SSR_ODDS if use_ssr else WISH_ODDS
+    feat, _ = banner_set()
     pulls = []
     with db.conn_ctx() as conn:
         for _ in range(n):
@@ -237,6 +238,11 @@ def wish(gid, uid, n: int = 1, use_ssr: bool = False, rng=None) -> dict:
                 rar = 'R'
             if not pool:
                 continue
+            # Featured banner: 15% of pulls redirect into this week's set.
+            if rng.random() < BANNER_FEATURE_CHANCE:
+                fb = [c for c in pool if (c['set_id'] or '') == feat]
+                if fb:
+                    pool = fb
             card = dict(rng.choice(pool))
             is_new = _grant_wish_card(conn, gid, uid, card)
             pulls.append({'id': card['id'], 'code': card.get('code') or card['id'],
@@ -721,3 +727,321 @@ def card_daily_bonus(gid, uid) -> int:
         return int(card_perks(gid, uid)['daily'])
     except Exception:
         return 0
+
+
+# ---------- featured banner (weekly rotation, real effect) ----------
+BANNER_SETS = ['naruto', 'rezero', 'bleach', 'dragonball', 'onepiece',
+               'demonslayer', 'jojo', 'bluelock']
+BANNER_FEATURE_CHANCE = 0.15  # wishes redirecting into the featured set
+
+
+def banner_set(now: int = None):
+    """(set_id, ends_ts): deterministic ISO-week rotation over the 8 sets."""
+    import datetime as _dt
+    now = int(now if now is not None else __import__('time').time())
+    d = _dt.datetime.fromtimestamp(now, tz=_dt.timezone.utc)
+    iso_year, iso_week, _ = d.isocalendar()
+    sid = BANNER_SETS[(iso_year * 53 + iso_week) % len(BANNER_SETS)]
+    days_ahead = 7 - d.isoweekday()
+    end = int((_dt.datetime(d.year, d.month, d.day, tzinfo=_dt.timezone.utc)
+               + _dt.timedelta(days=days_ahead + 1)).timestamp())
+    return sid, end
+
+
+# ---------- wishlist ----------
+def wl_list(gid, uid) -> list:
+    with db.conn_ctx() as conn:
+        return [r['term'] for r in conn.execute(
+            'SELECT term FROM card_wishlist WHERE guild_id=? AND user_id=? ORDER BY term',
+            (str(gid), str(uid))).fetchall()]
+
+
+def wl_set(gid, uid, term: str, add: bool) -> None:
+    term = (term or '').strip()[:60]
+    if not term:
+        return
+    with db.conn_ctx() as conn:
+        if add:
+            conn.execute('INSERT OR IGNORE INTO card_wishlist (guild_id, user_id, term) VALUES (?,?,?)',
+                         (str(gid), str(uid), term))
+        else:
+            conn.execute('DELETE FROM card_wishlist WHERE guild_id=? AND user_id=? AND term=?',
+                         (str(gid), str(uid), term))
+
+
+def wl_matches(gid, uid, limit: int = 10) -> list:
+    """Owned cards matching any wishlist term (name or set)."""
+    terms = wl_list(gid, uid)
+    if not terms:
+        return []
+    gid, uid = str(gid), str(uid)
+    with db.conn_ctx() as conn:
+        owned = conn.execute(
+            'SELECT k.id, k.code, k.name, k.rarity, k.set_id FROM anime_cards k '
+            'JOIN (SELECT DISTINCT card_id FROM anime_collection WHERE guild_id=? AND user_id=?) o '
+            'ON o.card_id=k.id', (gid, uid)).fetchall()
+    out = []
+    for r in owned:
+        hay = f"{r['name'] or ''} {r['set_id'] or ''}".lower()
+        if any(t.lower() in hay for t in terms):
+            out.append(dict(r))
+        if len(out) >= limit:
+            break
+    return out
+
+
+# ---------- album (9 favorite slots) ----------
+ALBUM_SLOTS = 9
+
+
+def album_get(gid, uid) -> dict:
+    """slot -> card row."""
+    with db.conn_ctx() as conn:
+        rows = conn.execute('SELECT slot, card_id FROM card_album WHERE guild_id=? AND user_id=?',
+                            (str(gid), str(uid))).fetchall()
+        if not rows:
+            return {}
+        cards = {r['id']: dict(r) for r in conn.execute(
+            f"SELECT * FROM anime_cards WHERE id IN ({','.join('?' for _ in rows)})",
+            [r['card_id'] for r in rows]).fetchall()}
+    return {int(r['slot']): cards.get(r['card_id']) for r in rows if r['card_id'] in cards}
+
+
+def album_set(gid, uid, code: str, slot: int) -> dict:
+    gid, uid = str(gid), str(uid)
+    slot = max(1, min(ALBUM_SLOTS, int(slot or 1)))
+    with db.conn_ctx() as conn:
+        card = conn.execute('SELECT * FROM anime_cards WHERE code=? OR id=?',
+                            (code, code)).fetchone()
+        if not card:
+            return {'ok': False, 'code': 'no_card'}
+        own = conn.execute('SELECT SUM(qty) q FROM anime_collection WHERE guild_id=? AND user_id=? '
+                           'AND card_id=?', (gid, uid, card['id'])).fetchone()['q'] or 0
+        if not own:
+            return {'ok': False, 'code': 'not_owned'}
+        conn.execute('INSERT OR REPLACE INTO card_album (guild_id, user_id, slot, card_id) '
+                     'VALUES (?,?,?,?)', (gid, uid, slot, card['id']))
+    return {'ok': True, 'card': dict(card), 'slot': slot}
+
+
+def album_clear(gid, uid, slot: int = 0) -> None:
+    with db.conn_ctx() as conn:
+        if slot:
+            conn.execute('DELETE FROM card_album WHERE guild_id=? AND user_id=? AND slot=?',
+                         (str(gid), str(uid), int(slot)))
+        else:
+            conn.execute('DELETE FROM card_album WHERE guild_id=? AND user_id=?',
+                         (str(gid), str(uid)))
+
+
+# ---------- auctions (BIN, 24h, 5% fee, lazy expiry) ----------
+AUC_TTL = 86400
+AUC_FEE_PCT = 5
+AUC_MIN_PRICE = 100
+
+
+def _sweep_auctions(conn, now: int):
+    """Return expired escrow to sellers."""
+    import time as _t
+    rows = conn.execute("SELECT id, guild_id, seller_id, card_id FROM auctions "
+                        "WHERE status='open' AND expires<?", (now,)).fetchall()
+    for r in rows:
+        conn.execute('INSERT INTO anime_collection (guild_id, user_id, card_id, print_no, '
+                     'obtained_at, qty) VALUES (?,?,?,?,?,1)',
+                     (r['guild_id'], r['seller_id'], r['card_id'], 0, int(_t.time())))
+        conn.execute("UPDATE auctions SET status='expired' WHERE id=?", (r['id'],))
+
+
+def auc_sell(gid, uid, code: str, price: int) -> dict:
+    import time as _t
+    gid, uid = str(gid), str(uid)
+    price = max(AUC_MIN_PRICE, int(price or 0))
+    with db.conn_ctx() as conn:
+        _sweep_auctions(conn, int(_t.time()))
+        card = conn.execute('SELECT * FROM anime_cards WHERE code=? OR id=?',
+                            (code, code)).fetchone()
+        if not card:
+            return {'ok': False, 'code': 'no_card'}
+        c = dict(card)
+        oka, ca, _ = _check_tradable(conn, gid, uid, [c['id']])
+        if not oka:
+            return {'ok': False, 'code': ca}
+        row = conn.execute('SELECT qty FROM anime_collection WHERE guild_id=? AND user_id=? '
+                           'AND card_id=? AND print_no=0', (gid, uid, c['id'])).fetchone()
+        if int(row['qty'] or 0) - 1 <= 0:
+            conn.execute('DELETE FROM anime_collection WHERE guild_id=? AND user_id=? '
+                         'AND card_id=? AND print_no=0', (gid, uid, c['id']))
+        else:
+            conn.execute('UPDATE anime_collection SET qty=qty-1 WHERE guild_id=? AND user_id=? '
+                         'AND card_id=? AND print_no=0', (gid, uid, c['id']))
+        now = int(_t.time())
+        cur = conn.execute('INSERT INTO auctions (guild_id, seller_id, card_id, price, created, '
+                           'expires, status) VALUES (?,?,?,?,?,?,?)',
+                           (gid, uid, c['id'], price, now, now + AUC_TTL, 'open'))
+    invalidate_perks(gid, uid)
+    return {'ok': True, 'id': cur.lastrowid, 'card': c, 'price': price}
+
+
+def auc_list(gid, limit: int = 10) -> list:
+    import time as _t
+    with db.conn_ctx() as conn:
+        _sweep_auctions(conn, int(_t.time()))
+        rows = conn.execute(
+            'SELECT a.id, a.seller_id, a.price, a.expires, k.code, k.name, k.rarity, k.set_id '
+            'FROM auctions a JOIN anime_cards k ON k.id=a.card_id '
+            "WHERE a.guild_id=? AND a.status='open' ORDER BY a.id DESC LIMIT ?",
+            (str(gid), limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def auc_buy(gid, uid, oid: int) -> dict:
+    import time as _t
+    gid, uid = str(gid), str(uid)
+    with db.conn_ctx() as conn:
+        _sweep_auctions(conn, int(_t.time()))
+        o = conn.execute('SELECT * FROM auctions WHERE id=? AND guild_id=?', (oid, gid)).fetchone()
+        if not o or o['status'] != 'open':
+            return {'ok': False, 'code': 'gone'}
+        o = dict(o)
+        if o['seller_id'] == uid:
+            return {'ok': False, 'code': 'self'}
+        fee = max(1, o['price'] * AUC_FEE_PCT // 100)
+        gain = o['price'] - fee
+        eco = conn.execute('SELECT cash FROM eco WHERE guild_id=? AND user_id=?',
+                           (gid, uid)).fetchone()
+        if (eco['cash'] if eco else 1000) < o['price']:
+            return {'ok': False, 'code': 'broke'}
+        conn.execute('INSERT OR IGNORE INTO eco (guild_id, user_id, cash) VALUES (?,?,1000)', (gid, uid))
+        conn.execute('UPDATE eco SET cash=cash-? WHERE guild_id=? AND user_id=?',
+                     (o['price'], gid, uid))
+        conn.execute('INSERT OR IGNORE INTO eco (guild_id, user_id, cash) VALUES (?,?,1000)',
+                     (gid, o['seller_id']))
+        conn.execute('UPDATE eco SET cash=cash+? WHERE guild_id=? AND user_id=?',
+                     (gain, gid, o['seller_id']))
+        conn.execute('INSERT INTO anime_collection (guild_id, user_id, card_id, print_no, '
+                     'obtained_at, qty) VALUES (?,?,?,?,?,1)',
+                     (gid, uid, o['card_id'], 0, int(_t.time())))
+        conn.execute("UPDATE auctions SET status='sold' WHERE id=?", (oid,))
+    invalidate_perks(gid, uid)
+    invalidate_perks(gid, o['seller_id'])
+    return {'ok': True, 'price': o['price'], 'fee': fee, 'seller': o['seller_id']}
+
+
+def auc_cancel(gid, uid, oid: int) -> dict:
+    import time as _t
+    gid, uid = str(gid), str(uid)
+    with db.conn_ctx() as conn:
+        _sweep_auctions(conn, int(_t.time()))
+        o = conn.execute('SELECT * FROM auctions WHERE id=? AND guild_id=?', (oid, gid)).fetchone()
+        if not o or o['status'] != 'open' or o['seller_id'] != uid:
+            return {'ok': False, 'code': 'nope'}
+        o = dict(o)
+        conn.execute('INSERT INTO anime_collection (guild_id, user_id, card_id, print_no, '
+                     'obtained_at, qty) VALUES (?,?,?,?,?,1)',
+                     (gid, uid, o['card_id'], 0, int(_t.time())))
+        conn.execute("UPDATE auctions SET status='cancelled' WHERE id=?", (oid,))
+    invalidate_perks(gid, uid)
+    return {'ok': True}
+
+
+# ---------- wheel (12h fortune spin) ----------
+WHEEL_CD = 12 * 3600
+WHEEL_PRIZES = [
+    ('tickets', 1, 30), ('tickets', 2, 12), ('coins', 500, 22), ('coins', 1500, 10),
+    ('dust', 300, 14), ('dust', 1000, 6), ('card_r', 1, 4), ('card_lr', 1, 2),
+]
+
+
+def wheel_state(gid, uid) -> dict:
+    import time as _t
+    with db.conn_ctx() as conn:
+        row = conn.execute('SELECT last_spin FROM wheel_spins WHERE guild_id=? AND user_id=?',
+                           (str(gid), str(uid))).fetchone()
+    last = int(row['last_spin'] or 0) if row else 0
+    left = WHEEL_CD - (int(_t.time()) - last)
+    return {'ready': left <= 0, 'wait': max(0, left)}
+
+
+def wheel_spin(gid, uid, rng=None) -> dict:
+    import random as _r
+    import time as _t
+    gid, uid = str(gid), str(uid)
+    rng = rng or _r
+    st = wheel_state(gid, uid)
+    if not st['ready']:
+        return {'ok': False, 'wait': st['wait']}
+    total = sum(w for _, _, w in WHEEL_PRIZES)
+    roll = rng.uniform(0, total)
+    acc, pick = 0.0, WHEEL_PRIZES[0]
+    for kind, amt, w in WHEEL_PRIZES:
+        acc += w
+        if roll < acc:
+            pick = (kind, amt, w)
+            break
+    kind, amt, _ = pick
+    detail = ''
+    with db.conn_ctx() as conn:
+        conn.execute('INSERT OR REPLACE INTO wheel_spins (guild_id, user_id, last_spin) VALUES (?,?,?)',
+                     (gid, uid, int(_t.time())))
+        if kind == 'tickets':
+            conn.execute('INSERT OR IGNORE INTO card_tickets (guild_id, user_id) VALUES (?,?)', (gid, uid))
+            conn.execute('UPDATE card_tickets SET tickets=tickets+? WHERE guild_id=? AND user_id=?',
+                         (amt, gid, uid))
+            detail = f'+{amt} 🎟'
+        elif kind == 'coins':
+            conn.execute('INSERT OR IGNORE INTO eco (guild_id, user_id, cash) VALUES (?,?,1000)', (gid, uid))
+            conn.execute('UPDATE eco SET cash=cash+? WHERE guild_id=? AND user_id=?', (amt, gid, uid))
+            detail = f'+{amt} coins'
+        elif kind == 'dust':
+            conn.execute('INSERT OR IGNORE INTO anime_dust (guild_id, user_id, dust) VALUES (?,?,0)', (gid, uid))
+            conn.execute('UPDATE anime_dust SET dust=dust+? WHERE guild_id=? AND user_id=?', (amt, gid, uid))
+            detail = f'+{amt} dust'
+        else:
+            rar = 'R' if kind == 'card_r' else 'LR'
+            pool = conn.execute('SELECT * FROM anime_cards WHERE rarity=?', (rar,)).fetchall()
+            if pool:
+                card = dict(rng.choice(pool))
+                _grant_wish_card(conn, gid, uid, card)
+                detail = f"{card.get('code')} [{rar}]"
+            else:
+                detail = '+1 🎟'
+                conn.execute('INSERT OR IGNORE INTO card_tickets (guild_id, user_id) VALUES (?,?)', (gid, uid))
+                conn.execute('UPDATE card_tickets SET tickets=tickets+1 WHERE guild_id=? AND user_id=?',
+                             (gid, uid))
+    invalidate_perks(gid, uid)
+    return {'ok': True, 'kind': kind, 'amount': amt, 'detail': detail}
+
+
+# ---------- drop reminders (one-shot DMs when the stack fills) ----------
+def rm_arm(gid, uid) -> bool:
+    """Returns False if already armed."""
+    import time as _t
+    with db.conn_ctx() as conn:
+        row = conn.execute('SELECT 1 FROM reminders WHERE guild_id=? AND user_id=? AND kind=?',
+                           (str(gid), str(uid), 'drop')).fetchone()
+        if row:
+            return False
+        conn.execute('INSERT INTO reminders (guild_id, user_id, kind, created) VALUES (?,?,?,?)',
+                     (str(gid), str(uid), 'drop', int(_t.time())))
+    return True
+
+
+def rm_due() -> list:
+    """Reminder rows whose drop stack is full (fires once, then disarms)."""
+    import time as _t
+    out = []
+    with db.conn_ctx() as conn:
+        rows = conn.execute('SELECT guild_id, user_id FROM reminders WHERE kind=?', ('drop',)).fetchall()
+        for r in rows:
+            gid, uid = r['guild_id'], r['user_id']
+            t = conn.execute('SELECT drop_stack, last_drop FROM card_tickets WHERE guild_id=? AND user_id=?',
+                             (gid, uid)).fetchone()
+            stack = int(t['drop_stack'] or 0) if t else 0
+            last = int(t['last_drop'] or 0) if t else 0
+            if last:
+                stack = min(DROP_STACK_MAX, stack + (int(_t.time()) - last) // DROP_CD)
+            if stack >= DROP_STACK_MAX:
+                out.append((gid, uid))
+                conn.execute('DELETE FROM reminders WHERE guild_id=? AND user_id=? AND kind=?',
+                             (gid, uid, 'drop'))
+    return out

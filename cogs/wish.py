@@ -3,7 +3,7 @@ import asyncio
 import io
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from lang import t, set_ctx_lang
 
@@ -91,6 +91,31 @@ class WishRecapView(discord.ui.View):
 class Wish(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._rm_loop.start()
+
+    def cog_unload(self):
+        try:
+            self._rm_loop.cancel()
+        except Exception:
+            pass
+
+    @tasks.loop(seconds=60)
+    async def _rm_loop(self):
+        try:
+            await self.bot.wait_until_ready()
+        except Exception:
+            return
+        try:
+            from services.card_service import rm_due
+            due = await self.bot.loop.run_in_executor(None, rm_due)
+        except Exception:
+            return
+        for gid, uid in due[:20]:
+            try:
+                u = self.bot.get_user(int(uid)) or await self.bot.fetch_user(int(uid))
+                await u.send(f'🎟 Your card drops are FULL (3/3) — `.drop` to claim!')
+            except Exception:
+                continue
 
     @commands.command(name='drop', aliases=['d', 'ldrop'], description='Claim ticket drops')
     async def drop(self, ctx):
@@ -249,6 +274,38 @@ class Wish(commands.Cog):
             lines.append(f"\n**{c['code']}** [{c['rarity']}] — **{personal:.4f}%** per wish "
                          f"({base}% ÷ {n} {c['rarity']} cards)")
         await ctx.reply('\n'.join(lines), ephemeral=True)
+
+    @commands.command(name='banner', description='Weekly featured set')
+    async def banner(self, ctx):
+        from services.card_service import banner_set, set_name
+        import datetime as _dt
+        sid, ends = banner_set()
+        dt = _dt.datetime.fromtimestamp(ends, tz=_dt.timezone.utc).strftime('%a %H:%M UTC')
+        await ctx.reply(f'✨ **Featured banner: {set_name(sid)}** (until {dt})\n'
+                        f'15% of wishes redirect into this set. `.w` while it\'s hot.',
+                        ephemeral=True)
+
+    @commands.command(name='wheel', description='12h fortune spin')
+    async def wheel(self, ctx):
+        from services.card_service import wheel_spin, wheel_state
+        st = wheel_state(ctx.guild.id, ctx.author.id)
+        if not st['ready']:
+            h, rem = divmod(st['wait'], 3600)
+            m, _ = divmod(rem, 60)
+            return await ctx.reply(f'🎡 Wheel back in {h}h {m}m.', ephemeral=True)
+        res = wheel_spin(ctx.guild.id, ctx.author.id)
+        if not res['ok']:
+            return await ctx.reply('Wheel jammed — try again.', ephemeral=True)
+        await ctx.reply(f"🎡 {ctx.author.display_name} spun **{res['detail']}**!",
+                        mention_author=False)
+
+    @commands.command(name='rm', description='Remind me when drops are full')
+    async def rm(self, ctx):
+        from services.card_service import rm_arm
+        if rm_arm(ctx.guild.id, ctx.author.id):
+            await ctx.reply('🔔 Armed — I\'ll DM you next time your drops hit 3/3.', ephemeral=True)
+        else:
+            await ctx.reply('Already armed.', ephemeral=True)
 
     @commands.command(name='burn', aliases=['lburn'], description='Burn cards for dust + tickets')
     async def burn(self, ctx, code: str = '', count: str = '1'):
