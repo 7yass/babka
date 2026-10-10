@@ -51,11 +51,18 @@ def frame_art(art: bytes, name: str, rarity: str) -> bytes:
         pass
     # cover-crop to the inner area
     iw, ih = W - BORDER * 2, H - BORDER * 2
-    scale = max(iw / max(1, base.width), ih / max(1, base.height))
-    base = base.resize((max(1, int(base.width * scale)), max(1, int(base.height * scale))))
-    x = (base.width - iw) // 2
-    y = (base.height - ih) // 2
-    base = base.crop((x, y, x + iw, y + ih))
+    # Blur-fill: full art always visible (baked names never clip). A blurred,
+    # darkened cover copy fills the frame; the sharp art fits centered on top.
+    from PIL import ImageFilter as _Fl
+    _scale = max(iw / max(1, base.width), ih / max(1, base.height))
+    _bg = base.resize((max(1, int(base.width * _scale)), max(1, int(base.height * _scale))))
+    _x, _y = (_bg.width - iw) // 2, (_bg.height - ih) // 2
+    _bg = _bg.crop((_x, _y, _x + iw, _y + ih)).filter(_Fl.GaussianBlur(25))
+    _bg = _Img.blend(_bg, _Img.new('RGB', (iw, ih), (5, 5, 10)), 0.45)
+    _fit = min(iw / max(1, base.width), ih / max(1, base.height))
+    _fg = base.resize((max(1, int(base.width * _fit)), max(1, int(base.height * _fit))))
+    _bg.paste(_fg, ((iw - _fg.width) // 2, (ih - _fg.height) // 2))
+    base = _bg
     img = _Img.new('RGB', (W, H), col)
     img.paste(base, (BORDER, BORDER))
     d = _Dr.Draw(img, 'RGBA')
