@@ -2353,6 +2353,14 @@
       "",
       "Everyone",
       false
+    ],
+    "cinfo": [
+      "cards",
+      "Character / series lookup: `.cinfo`.",
+      [],
+      "",
+      "Everyone",
+      false
     ]
   },
   "cats": {

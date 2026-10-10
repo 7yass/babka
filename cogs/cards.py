@@ -542,7 +542,7 @@ class Cards(commands.Cog):
                         f"💨 Dust x{dust['dust'] if dust else 0} · 🎖 Milestone {st['milestone'] or 0}/200\n"
                         f"🔒 Locked cards x{locks or 0} · 🖼 Album {alb or 0}/9", ephemeral=True)
 
-    @commands.command(name='info', description='Character / series lookup')
+    @commands.command(name='cinfo', description='Character / series lookup')
     async def info(self, ctx, *, query: str = ''):
         import database as db
         from services.card_service import set_name
