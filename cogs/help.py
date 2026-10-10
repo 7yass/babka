@@ -65,7 +65,7 @@ HELP_GROUPS = {
         'related': ('pokemon', 'economy'),
     },
     'cards': {
-        'primary': ('drop', 'wish', 'cd', 'quest', 'guide', 'cards', 'cardinfo', 'burn', 'rates', 'compl', 'lock', 'offer', 'cards trade', 'auc', 'album', 'inv', 'info', 'banner', 'wheel'),
+        'primary': ('drop', 'wish', 'cd', 'quest', 'guide', 'cards', 'cardinfo', 'burn', 'rates', 'compl', 'lock', 'offer', 'cards trade', 'auc', 'album', 'cinv', 'info', 'cbanner', 'wheel'),
         'related': ('economy',),
     },
     'server': {
@@ -183,7 +183,7 @@ def cards_sheet_layout(gid, prefix):
         f'`{prefix}cardinfo <code>` — Full card sheet with art.\n'
         f'`{prefix}album` — Your 9 favorite slots (`{prefix}album CODE 1-9`).\n'
         f'`{prefix}compl` — Collection completion per series.\n'
-        f'`{prefix}inv` — Tickets, dust, milestone, locks.\n'
+        f'`{prefix}cinv` — Tickets, dust, milestone, locks.\n'
         f'`{prefix}custom` — Card cosmetics. {soon}\n'
         f'`{prefix}special` — Special cards. {soon}\n'
         f'`{prefix}premium` — Premium pass. {soon}',
@@ -201,7 +201,7 @@ def cards_sheet_layout(gid, prefix):
         f'`{prefix}wl` — Wishlist terms + owned matches.',
         '**Info & Odds**\n'
         f'`{prefix}rates [code]` — Live pull odds, per-card math.\n'
-        f'`{prefix}banner` — Weekly featured set (15% wish pull).\n'
+        f'`{prefix}cbanner` — Weekly featured set (15% wish pull).\n'
         f'`{prefix}info <text>` — Character / series lookup.\n'
         f'`{prefix}gallery <set>` — LR/UR art showcase.',
     ]

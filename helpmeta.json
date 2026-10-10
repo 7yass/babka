@@ -2337,6 +2337,22 @@
       "",
       "Everyone",
       false
+    ],
+    "cinv": [
+      "cards",
+      "Card inventory: `.cinv`.",
+      [],
+      "",
+      "Everyone",
+      false
+    ],
+    "cbanner": [
+      "cards",
+      "Weekly featured set: `.cbanner`.",
+      [],
+      "",
+      "Everyone",
+      false
     ]
   },
   "cats": {

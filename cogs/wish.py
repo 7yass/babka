@@ -275,7 +275,7 @@ class Wish(commands.Cog):
                          f"({base}% ÷ {n} {c['rarity']} cards)")
         await ctx.reply('\n'.join(lines), ephemeral=True)
 
-    @commands.command(name='banner', description='Weekly featured set')
+    @commands.command(name='cbanner', description='Weekly featured set')
     async def banner(self, ctx):
         from services.card_service import banner_set, set_name
         import datetime as _dt

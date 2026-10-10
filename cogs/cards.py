@@ -524,7 +524,7 @@ class Cards(commands.Cog):
         wl_set(ctx.guild.id, ctx.author.id, term or '', False)
         await ctx.reply('Removed.', ephemeral=True)
 
-    @commands.command(name='inv', description='Item inventory')
+    @commands.command(name='cinv', description='Card inventory')
     async def inv(self, ctx):
         from services.card_service import ticket_state
         import database as db
