@@ -1407,7 +1407,7 @@
     "ar.allow_empty": "No age-gate exemptions. `.antiraid allow <id>` to add one.",
     "ar.allow_title": "Age-gate exemptions:",
     "hc.nav_cards_t": "Cards",
-    "hc.nav_cards_d": "Quick start: `.drop` banks tickets (1 per 5 min, up to 3), `.wish` spends 1 ticket per card, `.cd` shows timers, `.cards` flips your binder.\nComing soon — Quests & bonus: `.quest` daily quests, `.wheel` 12h fortune spin, `.use` items, `.rm` drop reminder.\nComing soon — Profile & style: `.profile`, `.custom` card cosmetics, `.album` favorites, `.special` special cards, `.premium` pass, `.shop` cosmetic shop, `.evshop` event shop.\nComing soon — Trading: `.trade @user`, `.offer @user` (3-day offers), `.auc` auctions, `.bid`.\nComing soon — More: `.inv` item inventory, `.wl` wishlist, `.blacklist`/`.toggles` pull filters, `.banner` current banner, `.info` lookup, `.gallery` card images."
+    "hc.nav_cards_d": "Quick start: `.drop` banks tickets (1 per 5 min, up to 3), `.wish` spends 1 ticket per card, `.cd` shows timers, `.cards` flips your binder.\nComing soon — Quests & bonus: `.quest` daily quests, `.wheel` 12h fortune spin, `.use` items, `.rm` drop reminder.\nComing soon — Profile & style: `.profile`, `.custom` card cosmetics, `.album` favorites, `.special` special cards, `.premium` pass, `.shop` cosmetic shop, `.evshop` event shop.\nComing soon — Trading: `.trade @user`, `.offer @user` (3-day offers), `.auc` auctions, `.bid`.\nComing soon — More: `.inv` item inventory, `.wl` wishlist, `.banner` current banner, `.info` lookup, `.gallery` card images."
   },
   "pl": {
     "staff.only": "Tylko dla ekipy.",
@@ -3050,6 +3050,6 @@
     "ar.allow_empty": "Brak zwolnien. `.antiraid allow <id>` zeby dodac.",
     "ar.allow_title": "Zwolnienia z limitu wieku:",
     "hc.nav_cards_t": "Karty",
-    "hc.nav_cards_d": "Szybki start: `.drop` zbiera bilety (1 na 5 min, max 3), `.wish` wydaje 1 bilet na karte, `.cd` pokazuje czasy, `.cards` to twoj klaser.\nWkrotce — Zadania i bonusy: `.quest` dzienne misje, `.wheel` kolo fortuny co 12h, `.use` przedmioty, `.rm` przypomnienie o dropie.\nWkrotce — Profil i styl: `.profile`, `.custom` wyglad kart, `.album` ulubione, `.special` karty specjalne, `.premium` przepustka, `.shop` sklep, `.evshop` sklep eventu.\nWkrotce — Handel: `.trade @user`, `.offer @user` (oferty 3-dniowe), `.auc` aukcje, `.bid`.\nWkrotce — Wiecej: `.inv` ekwipunek, `.wl` wishlist, `.blacklist`/`.toggles` filtry losowan, `.banner` aktualny banner, `.info` info, `.gallery` grafiki."
+    "hc.nav_cards_d": "Szybki start: `.drop` zbiera bilety (1 na 5 min, max 3), `.wish` wydaje 1 bilet na karte, `.cd` pokazuje czasy, `.cards` to twoj klaser.\nWkrotce — Zadania i bonusy: `.quest` dzienne misje, `.wheel` kolo fortuny co 12h, `.use` przedmioty, `.rm` przypomnienie o dropie.\nWkrotce — Profil i styl: `.profile`, `.custom` wyglad kart, `.album` ulubione, `.special` karty specjalne, `.premium` przepustka, `.shop` sklep, `.evshop` sklep eventu.\nWkrotce — Handel: `.trade @user`, `.offer @user` (oferty 3-dniowe), `.auc` aukcje, `.bid`.\nWkrotce — Wiecej: `.inv` ekwipunek, `.wl` wishlist, `.banner` aktualny banner, `.info` info, `.gallery` grafiki."
   }
 }
