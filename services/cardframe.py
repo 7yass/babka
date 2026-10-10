@@ -1,8 +1,9 @@
-"""Per-rarity card frames (Lumina-style slabs).
+"""Per-rarity card presentation (borderless bleed).
 
-Art stays on R2; the frame is composited at reveal time: rarity-colored
-border (+ inner pinstripe on LR/UR), bottom name plate with stars.
-Framed results are cached in memory by card id — art never re-downloads.
+Art stays on R2; the look is composited at reveal time: trimmed art floats
+sharp at full height over its own blurred bleed, rarity stars overlaid.
+No frames, no plates — the embed carries the name. Results are cached in
+memory by card id — art never re-downloads.
 """
 import io
 import urllib.request
@@ -16,14 +17,14 @@ FRAME = {
     'UR': (231, 76, 60),
 }
 STARS = {'C': 1, 'R': 2, 'SR': 3, 'LR': 4, 'UR': 5}
-W, H, BORDER = 600, 800, 14
+W, H = 600, 800
 _CACHE = OrderedDict()
 _CACHE_MAX = 150
 _UA = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
 
 def frame_art(art: bytes, name: str, rarity: str) -> bytes:
-    """Composite raw art -> framed card PNG."""
+    """Composite raw art -> borderless card PNG."""
     from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
     from pathlib import Path as _P
     col = FRAME.get(rarity, FRAME['R'])
@@ -49,29 +50,18 @@ def frame_art(art: bytes, name: str, rarity: str) -> bytes:
             base = base.crop((_l, _t, _r + 1, _b + 1))
     except Exception:
         pass
-    # cover-crop to the inner area
-    iw, ih = W - BORDER * 2, H - BORDER * 2
-    # Blur-fill: full art always visible (baked names never clip). A blurred,
-    # darkened cover copy fills the frame; the sharp art fits centered on top.
+    # Borderless bleed: blurred cover fills the whole canvas edge to edge,
+    # sharp art fits centered on top. Baked names never clip.
     from PIL import ImageFilter as _Fl
-    _scale = max(iw / max(1, base.width), ih / max(1, base.height))
-    _bg = base.resize((max(1, int(base.width * _scale)), max(1, int(base.height * _scale))))
-    _x, _y = (_bg.width - iw) // 2, (_bg.height - ih) // 2
-    _bg = _bg.crop((_x, _y, _x + iw, _y + ih)).filter(_Fl.GaussianBlur(25))
-    _bg = _Img.blend(_bg, _Img.new('RGB', (iw, ih), (5, 5, 10)), 0.45)
-    _fit = min(iw / max(1, base.width), ih / max(1, base.height))
+    _scale = max(W / max(1, base.width), H / max(1, base.height))
+    img = base.resize((max(1, int(base.width * _scale)), max(1, int(base.height * _scale))))
+    _x, _y = (img.width - W) // 2, (img.height - H) // 2
+    img = img.crop((_x, _y, _x + W, _y + H)).filter(_Fl.GaussianBlur(25))
+    img = _Img.blend(img, _Img.new('RGB', (W, H), (5, 5, 10)), 0.35)
+    _fit = min(W / max(1, base.width), H / max(1, base.height))
     _fg = base.resize((max(1, int(base.width * _fit)), max(1, int(base.height * _fit))))
-    _bg.paste(_fg, ((iw - _fg.width) // 2, (ih - _fg.height) // 2))
-    base = _bg
-    img = _Img.new('RGB', (W, H), col)
-    img.paste(base, (BORDER, BORDER))
+    img.paste(_fg, ((W - _fg.width) // 2, (H - _fg.height) // 2))
     d = _Dr.Draw(img, 'RGBA')
-    if rarity in ('LR', 'UR'):  # premium inner pinstripe + corner pips
-        light = tuple(min(255, c + 70) for c in col)
-        d.rectangle([BORDER + 6, BORDER + 6, W - BORDER - 7, H - BORDER - 7],
-                    outline=light, width=3)
-        for cx, cy in ((40, 40), (W - 40, 40), (40, H - 40), (W - 40, H - 40)):
-            d.polygon([(cx, cy - 9), (cx + 7, cy), (cx, cy + 9), (cx - 7, cy)], fill=light)
     try:
         _a = _P(__file__).parent.parent / 'assets'
         f_star = _F.truetype(str(_a / 'DejaVuSans.ttf'), 46)
