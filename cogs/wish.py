@@ -92,7 +92,7 @@ class Wish(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name='drop', aliases=['d'], description='Claim ticket drops')
+    @commands.command(name='drop', aliases=['d', 'ldrop'], description='Claim ticket drops')
     async def drop(self, ctx):
         from services.card_service import claim_drop, DROP_STACK_MAX, tix_em
         gid = ctx.guild.id
@@ -109,7 +109,7 @@ class Wish(commands.Cog):
         emb.add_field(name='Stacked', value=f"{res['stack']}/{DROP_STACK_MAX}", inline=True)
         await ctx.reply(embed=emb, mention_author=False)
 
-    @commands.command(name='cd', description='Cooldowns + ticket balance')
+    @commands.command(name='cd', aliases=['lcd'], description='Cooldowns + ticket balance')
     async def cd(self, ctx):
         from services.card_service import ticket_state, claim_drop, DROP_CD, DROP_STACK_MAX, BURN_TICKET_EVERY, MILESTONE_EVERY, tix_em
         from cogs.gamble import bal, DAILY_CD
@@ -138,7 +138,7 @@ class Wish(commands.Cog):
         emb.add_field(name='Balance', value=_ticket_line(gid, st), inline=False)
         await ctx.reply(embed=emb, ephemeral=True)
 
-    @commands.command(name='wish', aliases=['w'], description='Wish for cards with tickets')
+    @commands.command(name='wish', aliases=['w', 'lwish'], description='Wish for cards with tickets')
     async def wish(self, ctx, amount: str = '1'):
         from services.card_service import wish as _wish, WISH_MULTI_MAX
         from services.card_service import RAR_COLORS, rar_em, tix_em, ssr_em, set_name
@@ -195,7 +195,38 @@ class Wish(commands.Cog):
         if note:
             await ctx.send(f'🎖 {ctx.author.mention} Milestone! +{res["ssr_earned"]} guaranteed LR+ ticket(s).')
 
-    @commands.command(name='burn', description='Burn cards for dust + tickets')
+    @commands.command(name='rates', aliases=['lrates'], description='Live pull rates')
+    async def rates(self, ctx, code: str = ''):
+        """`.rates` — pool odds. `.rates NARUTO-5556` — that card's personal odds."""
+        from services.card_service import (WISH_ODDS, SSR_ODDS, MILESTONE_EVERY,
+                                           BURN_TICKET_EVERY, wish_pool_counts, rar_em)
+        import database as db
+        gid = ctx.guild.id
+        pools = wish_pool_counts()
+        lines = ['**🎟 Normal wish (1 ticket)**']
+        for rar, rate in WISH_ODDS.items():
+            n = pools.get(rar, 0)
+            per = f' — ~1/{int(round(n / rate * 100))} per card' if n and rate else ''
+            lines.append(f"{rar_em(gid, rar)} {rar}: **{rate}%** ({n} cards{per})")
+        lines.append(f'\n**✨ Guaranteed LR+ ticket** (every {MILESTONE_EVERY} 🎟 spent)')
+        for rar, rate in SSR_ODDS.items():
+            lines.append(f"{rar_em(gid, rar)} {rar}: **{rate}%**")
+        lines.append(f'\n🔥 Every {BURN_TICKET_EVERY} burns = 1 🎟 · `.drop` banks 3 · `.daily` +3 🎟')
+        if code:
+            with db.conn_ctx() as conn:
+                row = conn.execute('SELECT * FROM anime_cards WHERE code=? OR id=?',
+                                   (code, code)).fetchone()
+            if not row:
+                return await ctx.reply('No such card.', ephemeral=True)
+            c = dict(row)
+            base = WISH_ODDS.get(c['rarity'], 0)
+            n = pools.get(c['rarity'], 0)
+            personal = base / max(1, n)
+            lines.append(f"\n**{c['code']}** [{c['rarity']}] — **{personal:.4f}%** per wish "
+                         f"({base}% ÷ {n} {c['rarity']} cards)")
+        await ctx.reply('\n'.join(lines), ephemeral=True)
+
+    @commands.command(name='burn', aliases=['lburn'], description='Burn cards for dust + tickets')
     async def burn(self, ctx, code: str = '', count: str = '1'):
         from services.card_service import burn_cards, tix_em
         gid = ctx.guild.id
@@ -208,7 +239,8 @@ class Wish(commands.Cog):
         res = burn_cards(ctx.guild.id, ctx.author.id, code, n)
         if not res['ok']:
             msgs = {'no_card': 'No such card.', 'not_owned': 'You don\'t own that card.',
-                    'is_buddy': 'Unequip your buddy first (`.cards buddy clear`).'}
+                    'is_buddy': 'Unequip your buddy first (`.cards buddy clear`).',
+                    'locked': 'That card is 🔒 locked — `.unlock` it first.'}
             return await ctx.reply(msgs.get(res['code'], 'Burn failed.'), ephemeral=True)
         c = res['card']
         msg = (f"🔥 Burned **{c['code']}** x{res['burned']} → **+{res['dust']} dust**."

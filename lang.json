@@ -1405,7 +1405,9 @@
     "ar.allow_ok": "ID `{uid}` is now exempt from the age gate. They can join with a fresh account.",
     "ar.unallow_ok": "ID `{uid}` removed from the age-gate exemptions.",
     "ar.allow_empty": "No age-gate exemptions. `.antiraid allow <id>` to add one.",
-    "ar.allow_title": "Age-gate exemptions:"
+    "ar.allow_title": "Age-gate exemptions:",
+    "hc.nav_cards_t": "Cards",
+    "hc.nav_cards_d": "Quick start: `.drop` banks tickets (1 per 5 min, up to 3), `.wish` spends 1 ticket per card, `.cd` shows timers, `.cards` flips your binder."
   },
   "pl": {
     "staff.only": "Tylko dla ekipy.",
@@ -3046,6 +3048,8 @@
     "ar.allow_ok": "ID `{uid}` jest zwolnione z limitu wieku. Moze wejsc z nowego konta.",
     "ar.unallow_ok": "ID `{uid}` usuniete ze zwolnien.",
     "ar.allow_empty": "Brak zwolnien. `.antiraid allow <id>` zeby dodac.",
-    "ar.allow_title": "Zwolnienia z limitu wieku:"
+    "ar.allow_title": "Zwolnienia z limitu wieku:",
+    "hc.nav_cards_t": "Karty",
+    "hc.nav_cards_d": "Szybki start: `.drop` zbiera bilety (1 na 5 min, max 3), `.wish` wydaje 1 bilet na karte, `.cd` pokazuje czasy, `.cards` to twoj klaser."
   }
 }

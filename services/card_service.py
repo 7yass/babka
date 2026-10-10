@@ -272,6 +272,10 @@ def burn_cards(gid, uid, code: str, count: int = 1) -> dict:
                            (gid, uid)).fetchone()
         if bud and bud['card_id'] == c['id']:
             return {'ok': False, 'code': 'is_buddy'}
+        locked = conn.execute('SELECT 1 FROM card_locks WHERE guild_id=? AND user_id=? AND card_id=?',
+                              (gid, uid, c['id'])).fetchone()
+        if locked:
+            return {'ok': False, 'code': 'locked'}
         rows = conn.execute('SELECT print_no, qty FROM anime_collection WHERE guild_id=? AND user_id=? '
                             'AND card_id=? ORDER BY print_no', (gid, uid, c['id'])).fetchall()
         owned = sum(int(r['qty'] or 0) for r in rows)
@@ -486,6 +490,29 @@ def card_perks(gid, uid) -> dict:
     }
     _PERK_CACHE[key] = (_t.time(), out)
     return out
+
+
+def is_locked(gid, uid, card_id: str) -> bool:
+    with db.conn_ctx() as conn:
+        return bool(conn.execute('SELECT 1 FROM card_locks WHERE guild_id=? AND user_id=? AND card_id=?',
+                                 (str(gid), str(uid), card_id)).fetchone())
+
+
+def set_locked(gid, uid, card_id: str, locked: bool) -> None:
+    with db.conn_ctx() as conn:
+        if locked:
+            conn.execute('INSERT OR IGNORE INTO card_locks (guild_id, user_id, card_id) VALUES (?,?,?)',
+                         (str(gid), str(uid), card_id))
+        else:
+            conn.execute('DELETE FROM card_locks WHERE guild_id=? AND user_id=? AND card_id=?',
+                         (str(gid), str(uid), card_id))
+
+
+def wish_pool_counts() -> dict:
+    """Live card counts per rarity (for /rates math)."""
+    with db.conn_ctx() as conn:
+        rows = conn.execute('SELECT rarity, COUNT(*) c FROM anime_cards GROUP BY rarity').fetchall()
+    return {r['rarity']: int(r['c'] or 0) for r in rows}
 
 
 def card_daily_bonus(gid, uid) -> int:

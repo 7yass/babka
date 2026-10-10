@@ -148,7 +148,7 @@ class Cards(commands.Cog):
                          + (f" x{owned}" if owned else ""))
         await ctx.reply(f'**{header}**\n' + '\n'.join(lines[:PAGE_SIZE]), ephemeral=True)
 
-    @commands.command(name='cardinfo', aliases=['lv'], description='Card detail')
+    @commands.command(name='cardinfo', aliases=['lv', 'lview'], description='Card detail')
     async def cardinfo(self, ctx, code: str = ''):
         from services.card_service import card_perks, DUST_VALUE, RAR_COLORS, rar_em
         import database as db
@@ -276,6 +276,56 @@ class Cards(commands.Cog):
             return await ctx.reply(f"Reroll failed: {res['code']}", ephemeral=True)
         c = res['card']
         await ctx.reply(f"Rerolled → **{c['code']}** [{c['rarity']}]!", ephemeral=True)
+
+    @commands.command(name='compl', aliases=['lcompl'], description='Collection completion')
+    async def compl(self, ctx):
+        """Per-series owned/total + grand total. `.compl`."""
+        from services.card_service import set_progress
+        import database as db
+        gid = ctx.guild.id
+        prog = set_progress(gid, ctx.author.id)
+        if not prog:
+            return await ctx.reply('No card sets yet.', ephemeral=True)
+        own = sum(o for _, o, _ in prog)
+        tot = sum(t for _, _, t in prog)
+        pct = (own / tot * 100) if tot else 0
+        lines = [f"• **{s}** — {o}/{t}" + (' ✅' if o >= t and t else '') for s, o, t in prog]
+        await ctx.reply(f"🃏 **Completion — {own}/{tot} ({pct:.1f}%)**\n" + '\n'.join(lines),
+                        ephemeral=True)
+
+    @commands.command(name='lock', aliases=['llock'], description='Lock a card from burning')
+    async def lock(self, ctx, code: str = ''):
+        import database as db
+        from services.card_service import set_locked
+        gid = ctx.guild.id
+        if not code:
+            return await ctx.reply('Use: `.lock NARUTO-5556`.', ephemeral=True)
+        with db.conn_ctx() as conn:
+            row = conn.execute('SELECT id, code FROM anime_cards WHERE code=? OR id=?',
+                               (code, code)).fetchone()
+            if not row:
+                return await ctx.reply('No such card.', ephemeral=True)
+            own = conn.execute('SELECT SUM(qty) q FROM anime_collection WHERE guild_id=? AND user_id=? AND card_id=?',
+                               (str(gid), str(ctx.author.id), row['id'])).fetchone()['q'] or 0
+            if not own:
+                return await ctx.reply('You don\'t own that card.', ephemeral=True)
+            set_locked(gid, ctx.author.id, row['id'], True)
+        await ctx.reply(f'🔒 **{row["code"]}** locked — safe from `.burn`.', ephemeral=True)
+
+    @commands.command(name='unlock', aliases=['lunlock'], description='Unlock a card')
+    async def unlock(self, ctx, code: str = ''):
+        import database as db
+        from services.card_service import set_locked
+        gid = ctx.guild.id
+        if not code:
+            return await ctx.reply('Use: `.unlock NARUTO-5556`.', ephemeral=True)
+        with db.conn_ctx() as conn:
+            row = conn.execute('SELECT id, code FROM anime_cards WHERE code=? OR id=?',
+                               (code, code)).fetchone()
+            if not row:
+                return await ctx.reply('No such card.', ephemeral=True)
+            set_locked(gid, ctx.author.id, row['id'], False)
+        await ctx.reply(f'🔓 **{row["code"]}** unlocked.', ephemeral=True)
 
 
 async def setup(bot):

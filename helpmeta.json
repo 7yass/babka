@@ -2186,6 +2186,91 @@
       [],
       "@user",
       "Owner"
+    ],
+    "drop": [
+      "cards",
+      "Claim ticket drops: `.drop` (1 per 5 min, banks to 3).",
+      [
+        "d",
+        "ldrop"
+      ],
+      "",
+      "Everyone",
+      false
+    ],
+    "wish": [
+      "cards",
+      "Wish cards with tickets: `.w` / `.w 10` / `.w ssr`.",
+      [
+        "w",
+        "lwish"
+      ],
+      "",
+      "Everyone",
+      false
+    ],
+    "cd": [
+      "cards",
+      "Drop/daily timers, balances, milestone progress: `.cd`.",
+      [
+        "lcd"
+      ],
+      "",
+      "Everyone",
+      false
+    ],
+    "burn": [
+      "cards",
+      "Burn dupes for dust (+1 ticket per 10 burns): `.burn CODE [n]`.",
+      [
+        "lburn"
+      ],
+      "",
+      "Everyone",
+      false
+    ],
+    "rates": [
+      "cards",
+      "Live pull odds, per-card math: `.rates [code]`.",
+      [
+        "lrates"
+      ],
+      "",
+      "Everyone",
+      false
+    ],
+    "compl": [
+      "cards",
+      "Per-series completion: `.compl`.",
+      [
+        "lcompl"
+      ],
+      "",
+      "Everyone",
+      false
+    ],
+    "cards": [
+      "cards",
+      "Your binder (rarest first): `.cards [set] [#]`. `.cards all` = checklist.",
+      [
+        "collection",
+        "animecards",
+        "lc"
+      ],
+      "",
+      "Everyone",
+      false
+    ],
+    "cardinfo": [
+      "cards",
+      "Card sheet with art: `.cardinfo CODE`.",
+      [
+        "lv",
+        "lview"
+      ],
+      "",
+      "Everyone",
+      false
     ]
   },
   "cats": {

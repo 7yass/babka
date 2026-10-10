@@ -606,6 +606,9 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS card_buddy (
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL, card_id TEXT NOT NULL,
             PRIMARY KEY (guild_id, user_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS card_locks (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, card_id TEXT NOT NULL,
+            PRIMARY KEY (guild_id, user_id, card_id))''')
         c.execute('''CREATE TABLE IF NOT EXISTS card_tickets (
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL,
             tickets INTEGER DEFAULT 0, ssr_tickets INTEGER DEFAULT 0,

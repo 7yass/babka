@@ -64,6 +64,10 @@ HELP_GROUPS = {
         'primary': ('profile', 'rank', 'achievements', 'trainer'),
         'related': ('pokemon', 'economy'),
     },
+    'cards': {
+        'primary': ('drop', 'wish', 'cd', 'cards', 'cardinfo', 'burn', 'rates', 'compl', 'lock'),
+        'related': ('economy',),
+    },
     'server': {
         'primary': ('setup', 'tickets', 'verify', 'welcome'),
         'related': (),
