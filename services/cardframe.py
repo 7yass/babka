@@ -28,6 +28,27 @@ def frame_art(art: bytes, name: str, rarity: str) -> bytes:
     from pathlib import Path as _P
     col = FRAME.get(rarity, FRAME['R'])
     base = _Img.open(io.BytesIO(art)).convert('RGB')
+    # Strip baked-in letterbox bars: many arts ship centered on solid black.
+    # Trim near-black edges (>=98% dark rows/cols), keep a 2px margin, and
+    # bail out if the trim would eat real content (dark scenes stay intact).
+    try:
+        _g = base.convert('L')
+        _px, _w, _h = _g.load(), _g.width, _g.height
+        _dark = lambda v: v < 14
+        _l = next((x for x in range(_w)
+                   if sum(1 for y in range(_h) if _dark(_px[x, y])) / _h < 0.98), 0)
+        _r = next((x for x in range(_w - 1, -1, -1)
+                   if sum(1 for y in range(_h) if _dark(_px[x, y])) / _h < 0.98), _w - 1)
+        _t = next((y for y in range(_h)
+                   if sum(1 for x in range(_w) if _dark(_px[x, y])) / _w < 0.98), 0)
+        _b = next((y for y in range(_h - 1, -1, -1)
+                   if sum(1 for x in range(_w) if _dark(_px[x, y])) / _w < 0.98), _h - 1)
+        _l, _t = max(0, _l - 2), max(0, _t - 2)
+        _r, _b = min(_w - 1, _r + 2), min(_h - 1, _b + 2)
+        if (_r - _l) * (_b - _t) >= (base.width * base.height) * 0.5:
+            base = base.crop((_l, _t, _r + 1, _b + 1))
+    except Exception:
+        pass
     # cover-crop to the inner area
     iw, ih = W - BORDER * 2, H - BORDER * 2
     scale = max(iw / max(1, base.width), ih / max(1, base.height))
