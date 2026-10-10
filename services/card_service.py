@@ -20,7 +20,7 @@ DUST_VALUE = {'C': 100, 'R': 400, 'SR': 1500, 'LR': 5000, 'UR': 10000}
 SET_NAMES = {'naruto': 'Naruto', 'rezero': 'Re:ZERO', 'bleach': 'Bleach',
              'dragonball': 'Dragon Ball', 'onepiece': 'One Piece',
              'demonslayer': 'Demon Slayer', 'jojo': "JoJo's Bizarre Adventure",
-             'bluelock': 'Blue Lock'}
+             'bluelock': 'Blue Lock', 'fairytail': 'Fairy Tail'}
 
 
 def set_name(sid: str) -> str:
@@ -731,7 +731,7 @@ def card_daily_bonus(gid, uid) -> int:
 
 # ---------- featured banner (weekly rotation, real effect) ----------
 BANNER_SETS = ['naruto', 'rezero', 'bleach', 'dragonball', 'onepiece',
-               'demonslayer', 'jojo', 'bluelock']
+               'demonslayer', 'jojo', 'bluelock', 'fairytail']
 BANNER_FEATURE_CHANCE = 0.15  # wishes redirecting into the featured set
 
 

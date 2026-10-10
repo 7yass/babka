@@ -16,7 +16,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 
 SERIES_PREFIXES = ('naruto_', 'boruto_', 're_zero_', 'bleach_', 'dragon_ball_',
-                   'one_piece_', 'demon_slayer_', 'jojo_', 'blue_lock_')
+                   'one_piece_', 'demon_slayer_', 'jojo_', 'blue_lock_', 'fairy_tail_')
 SRC = r'F:\Files\Documents\!! Projects\babka cards'
 KEY_PREFIX = 'cards/'
 

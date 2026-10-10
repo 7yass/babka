@@ -25,6 +25,7 @@ SETS = [
     ('demonslayer', 'DS', ('demon_slayer_',)),
     ('jojo', 'JOJO', ('jojo_',)),
     ('bluelock', 'BLK', ('blue_lock_',)),
+    ('fairytail', 'FT', ('fairy_tail_',)),
 ]
 PAT = re.compile(r'^(.*)_#(\d+)_(R|SR|LR|UR)_(\d+)\.png$', re.IGNORECASE)
 KEY_PREFIX = 'cards/'

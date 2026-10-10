@@ -198,7 +198,7 @@ class Cards(commands.Cog):
         T, S = tix_em(gid), ssr_em(gid)
         desc = (
             '**What is Babka cards?**\n'
-            'Chill anime gacha: collect, trade and flex 1,892 cards across 8 series at your own pace. '
+            'Chill anime gacha: collect, trade and flex 2,120 cards across 9 series at your own pace. '
             'Flat odds for everyone — no print system, every pull has the same chance at something rare.\n\n'
             '**How do I start playing?**\n'
             f'To play you need {T} tickets:\n'
