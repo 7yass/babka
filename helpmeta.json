@@ -2329,6 +2329,14 @@
       "",
       "Everyone",
       false
+    ],
+    "guide": [
+      "cards",
+      "Quick-start guides: `.guide cards`.",
+      [],
+      "",
+      "Everyone",
+      false
     ]
   },
   "cats": {

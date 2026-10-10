@@ -65,7 +65,7 @@ HELP_GROUPS = {
         'related': ('pokemon', 'economy'),
     },
     'cards': {
-        'primary': ('drop', 'wish', 'cd', 'quest', 'cards', 'cardinfo', 'burn', 'rates', 'compl', 'lock', 'offer', 'cards trade', 'auc', 'album', 'inv', 'info', 'banner', 'wheel'),
+        'primary': ('drop', 'wish', 'cd', 'quest', 'guide', 'cards', 'cardinfo', 'burn', 'rates', 'compl', 'lock', 'offer', 'cards trade', 'auc', 'album', 'inv', 'info', 'banner', 'wheel'),
         'related': ('economy',),
     },
     'server': {
