@@ -2271,6 +2271,16 @@
       "",
       "Everyone",
       false
+    ],
+    "offer": [
+      "cards",
+      "3-day card offers (DM-friendly): `.offer @user CODES`.",
+      [
+        "loffer"
+      ],
+      "",
+      "Everyone",
+      false
     ]
   },
   "cats": {

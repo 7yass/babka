@@ -609,6 +609,14 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS card_locks (
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL, card_id TEXT NOT NULL,
             PRIMARY KEY (guild_id, user_id, card_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS trade_offers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id TEXT NOT NULL,
+            from_id TEXT NOT NULL, to_id TEXT NOT NULL,
+            give_json TEXT DEFAULT '[]', want_json TEXT DEFAULT '[]',
+            created INTEGER DEFAULT 0, expires INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'open')''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_trade_offers_users '
+                  'ON trade_offers (guild_id, from_id, to_id, status)')
         c.execute('''CREATE TABLE IF NOT EXISTS card_tickets (
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL,
             tickets INTEGER DEFAULT 0, ssr_tickets INTEGER DEFAULT 0,

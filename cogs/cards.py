@@ -328,5 +328,134 @@ class Cards(commands.Cog):
         await ctx.reply(f'🔓 **{row["code"]}** unlocked.', ephemeral=True)
 
 
+    @cards.group(name='trade', description='Live card trade', invoke_without_command=True)
+    async def cards_trade(self, ctx, member: 'discord.Member' = None):
+        """`.cards trade @user` — challenge. Then add/remove/note/accept/cancel.
+        `.cards trade` alone — your active trade status."""
+        import cogs.trade as _tr
+        gid = ctx.guild.id
+        if member is None:
+            ses = _tr._my_session(gid, ctx.author.id)
+            if not ses:
+                return await ctx.reply('Use: `.cards trade @user` to challenge someone.',
+                                       ephemeral=True)
+            return await ctx.reply(embed=_tr.trade_embed(ses), ephemeral=True)
+        if member.id == ctx.author.id:
+            return await ctx.reply('You can\'t trade with yourself.', ephemeral=True)
+        if member.bot:
+            return await ctx.reply('Bots don\'t trade.', ephemeral=True)
+        res = _tr.start_challenge(gid, ctx.author.id, member.id)
+        if not res['ok']:
+            return await ctx.reply('One of you is already in a trade — cancel it first.',
+                                   ephemeral=True)
+        ses = res['session']
+        view = _tr.ChallengeView(ses['id'])
+        ses['message'] = await ctx.reply(
+            embed=__import__('discord').Embed(
+                title=f"🔁 {ctx.author.display_name} challenges {member.display_name} to trade",
+                description=f'<@{member.id}> — Join in 5 min, or it expires.',
+                color=0xFAC43C),
+            view=view, mention_author=False)
+        view.message = ses['message']
+
+    @cards_trade.command(name='add', description='Add cards to your side')
+    async def trade_add(self, ctx, *codes):
+        import cogs.trade as _tr
+        import database as db
+        from services.card_service import _check_tradable
+        ses = _tr._my_session(ctx.guild.id, ctx.author.id)
+        if not ses or ses['state'] != 'live':
+            return await ctx.reply('No live trade — accept a challenge first.', ephemeral=True)
+        if not codes:
+            return await ctx.reply('Use: `.cards trade add CODE [CODE...]`.', ephemeral=True)
+        with db.conn_ctx() as conn:
+            ids = []
+            for code in codes:
+                row = conn.execute('SELECT id FROM anime_cards WHERE code=? OR id=?',
+                                   (code, code)).fetchone()
+                if not row:
+                    return await ctx.reply(f'No such card: `{code}`.', ephemeral=True)
+                ids.append(row['id'])
+            ok, err, _ = _check_tradable(conn, ses['gid'], ctx.author.id,
+                                         ses['give'][ctx.author.id] + ids)
+            if not ok:
+                return await ctx.reply(_tr._trade_err(err), ephemeral=True)
+            ses['give'][ctx.author.id].extend(ids)
+        ses['ok'][ses['a']] = ses['ok'][ses['b']] = False
+        await ctx.reply(embed=_tr.trade_embed(ses),
+                        view=ses.get('view'), ephemeral=True)
+
+    @cards_trade.command(name='remove', description='Remove cards from your side')
+    async def trade_remove(self, ctx, *codes):
+        import cogs.trade as _tr
+        import database as db
+        ses = _tr._my_session(ctx.guild.id, ctx.author.id)
+        if not ses or ses['state'] != 'live':
+            return await ctx.reply('No live trade.', ephemeral=True)
+        with db.conn_ctx() as conn:
+            for code in codes:
+                row = conn.execute('SELECT id FROM anime_cards WHERE code=? OR id=?',
+                                   (code, code)).fetchone()
+                if row and row['id'] in ses['give'][ctx.author.id]:
+                    ses['give'][ctx.author.id].remove(row['id'])
+        ses['ok'][ses['a']] = ses['ok'][ses['b']] = False
+        await ctx.reply(embed=_tr.trade_embed(ses),
+                        view=ses.get('view'), ephemeral=True)
+
+    @cards_trade.command(name='note', description='Attach a note')
+    async def trade_note(self, ctx, *, text: str = ''):
+        import cogs.trade as _tr
+        ses = _tr._my_session(ctx.guild.id, ctx.author.id)
+        if not ses or ses['state'] != 'live':
+            return await ctx.reply('No live trade.', ephemeral=True)
+        ses['note'] = (text or '')[:_tr.NOTE_MAX]
+        ses['ok'][ses['a']] = ses['ok'][ses['b']] = False
+        await ctx.reply(embed=_tr.trade_embed(ses),
+                        view=ses.get('view'), ephemeral=True)
+
+    @cards_trade.command(name='accept', description='Accept the trade')
+    async def trade_accept(self, ctx):
+        import cogs.trade as _tr
+        from services.card_service import swap_cards
+        ses = _tr._my_session(ctx.guild.id, ctx.author.id)
+        if not ses or ses['state'] != 'live':
+            return await ctx.reply('No live trade.', ephemeral=True)
+        ses['ok'][ctx.author.id] = True
+        if ses['ok'][ses['a']] and ses['ok'][ses['b']]:
+            res = swap_cards(ses['gid'], ses['a'], ses['give'][ses['a']],
+                             ses['b'], ses['give'][ses['b']])
+            if res['ok']:
+                emb = _tr.trade_embed(ses)
+                emb.title += ' — SWAPPED ✓'
+                emb.color = 0x2ECC71
+                _tr._drop_session(ses)
+                try:
+                    if ses.get('message') is not None:
+                        await ses['message'].edit(embed=emb, view=None)
+                except Exception:
+                    pass
+                return await ctx.reply(embed=emb, ephemeral=True)
+            ses['ok'][ses['a']] = ses['ok'][ses['b']] = False
+            return await ctx.reply('⚠️ Swap failed: ' + _tr._trade_err(res.get('code', '')),
+                                   ephemeral=True)
+        await ctx.reply('Accepted — waiting on the other side.', ephemeral=True)
+
+    @cards_trade.command(name='cancel', description='Cancel the trade')
+    async def trade_cancel(self, ctx):
+        import cogs.trade as _tr
+        ses = _tr._my_session(ctx.guild.id, ctx.author.id)
+        if not ses:
+            return await ctx.reply('No active trade.', ephemeral=True)
+        _tr._drop_session(ses)
+        try:
+            if ses.get('message') is not None:
+                await ses['message'].edit(
+                    embed=__import__('discord').Embed(title='Trade cancelled', color=0xE74C3C),
+                    view=None)
+        except Exception:
+            pass
+        await ctx.reply('Trade cancelled.', ephemeral=True)
+
+
 async def setup(bot):
     await bot.add_cog(Cards(bot))

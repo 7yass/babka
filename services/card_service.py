@@ -515,6 +515,192 @@ def wish_pool_counts() -> dict:
     return {r['rarity']: int(r['c'] or 0) for r in rows}
 
 
+def _check_tradable(conn, gid, uid, card_ids) -> tuple:
+    """All-or-nothing ownership + flag check. Returns (ok, code, cards)."""
+    from collections import Counter
+    need = Counter(card_ids)
+    bud = conn.execute('SELECT card_id FROM card_buddy WHERE guild_id=? AND user_id=?',
+                       (gid, uid)).fetchone()
+    buddy_id = bud['card_id'] if bud else None
+    cards = {}
+    for cid, n in need.items():
+        card = conn.execute('SELECT * FROM anime_cards WHERE id=?', (cid,)).fetchone()
+        if not card:
+            return False, 'no_card', {}
+        if cid == buddy_id:
+            return False, 'is_buddy', {}
+        if conn.execute('SELECT 1 FROM card_locks WHERE guild_id=? AND user_id=? AND card_id=?',
+                        (gid, uid, cid)).fetchone():
+            return False, 'locked', {}
+        have = conn.execute('SELECT SUM(qty) q FROM anime_collection WHERE guild_id=? AND user_id=? '
+                            'AND card_id=?', (gid, uid, cid)).fetchone()['q'] or 0
+        if have < n:
+            return False, 'not_owned', {}
+        cards[cid] = dict(card)
+    return True, '', cards
+
+
+def _move_card(conn, gid, frm, to, cid):
+    """Move one copy frm -> to (print_no 0 everywhere in our sets)."""
+    import time as _t
+    row = conn.execute('SELECT qty FROM anime_collection WHERE guild_id=? AND user_id=? '
+                       'AND card_id=? AND print_no=0', (gid, frm, cid)).fetchone()
+    left = int(row['qty'] or 0) - 1
+    if left <= 0:
+        conn.execute('DELETE FROM anime_collection WHERE guild_id=? AND user_id=? '
+                     'AND card_id=? AND print_no=0', (gid, frm, cid))
+    else:
+        conn.execute('UPDATE anime_collection SET qty=? WHERE guild_id=? AND user_id=? '
+                     'AND card_id=? AND print_no=0', (left, gid, frm, cid))
+    got = conn.execute('SELECT qty FROM anime_collection WHERE guild_id=? AND user_id=? '
+                       'AND card_id=? AND print_no=0', (gid, to, cid)).fetchone()
+    if got:
+        conn.execute('UPDATE anime_collection SET qty=qty+1 WHERE guild_id=? AND user_id=? '
+                     'AND card_id=? AND print_no=0', (gid, to, cid))
+    else:
+        conn.execute('INSERT INTO anime_collection (guild_id, user_id, card_id, print_no, '
+                     'obtained_at, qty) VALUES (?,?,?,?,?,1)', (gid, to, cid, 0, int(_t.time())))
+
+
+def swap_cards(gid, a_uid, a_cards, b_uid, b_cards) -> dict:
+    """Atomic two-way swap (live trades). Nothing moves unless all checks pass."""
+    gid, a_uid, b_uid = str(gid), str(a_uid), str(b_uid)
+    if a_uid == b_uid:
+        return {'ok': False, 'code': 'self'}
+    with db.conn_ctx() as conn:
+        oka, ca, _ = _check_tradable(conn, gid, a_uid, list(a_cards))
+        if not oka:
+            return {'ok': False, 'code': ca, 'side': 'a'}
+        okb, cb, _ = _check_tradable(conn, gid, b_uid, list(b_cards))
+        if not okb:
+            return {'ok': False, 'code': cb, 'side': 'b'}
+        for cid in a_cards:
+            _move_card(conn, gid, a_uid, b_uid, cid)
+        for cid in b_cards:
+            _move_card(conn, gid, b_uid, a_uid, cid)
+    invalidate_perks(gid, a_uid)
+    invalidate_perks(gid, b_uid)
+    return {'ok': True}
+
+
+OFFER_TTL = 3 * 86400
+
+
+def create_offer(gid, frm, to, give, want) -> dict:
+    """Async offer: frm gives card ids, optionally wants codes. Validated now AND at accept."""
+    import time as _t
+    gid, frm, to = str(gid), str(frm), str(to)
+    if frm == to:
+        return {'ok': False, 'code': 'self'}
+    give, want = list(give or []), list(want or [])
+    if not give:
+        return {'ok': False, 'code': 'empty'}
+    with db.conn_ctx() as conn:
+        oka, ca, _ = _check_tradable(conn, gid, frm, give)
+        if not oka:
+            return {'ok': False, 'code': ca}
+        # want codes must exist (ownership checked at accept, they may pull meanwhile)
+        for code in want:
+            if not conn.execute('SELECT 1 FROM anime_cards WHERE code=? OR id=?',
+                                (code, code)).fetchone():
+                return {'ok': False, 'code': 'no_card'}
+        now = int(_t.time())
+        cur = conn.execute('INSERT INTO trade_offers (guild_id, from_id, to_id, give_json, want_json, '
+                           'created, expires, status) VALUES (?,?,?,?,?,?,?,?)',
+                           (gid, frm, to, __import__('json').dumps(give),
+                            __import__('json').dumps(want), now, now + OFFER_TTL, 'open'))
+    return {'ok': True, 'id': cur.lastrowid}
+
+
+def _expire_due(conn, now: int):
+    conn.execute("UPDATE trade_offers SET status='expired' WHERE status='open' AND expires<?", (now,))
+
+
+def get_offer(oid: int):
+    with db.conn_ctx() as conn:
+        row = conn.execute('SELECT * FROM trade_offers WHERE id=?', (int(oid),)).fetchone()
+        return dict(row) if row else None
+
+
+def list_offers(gid, uid) -> dict:
+    import time as _t
+    gid, uid = str(gid), str(uid)
+    with db.conn_ctx() as conn:
+        _expire_due(conn, int(_t.time()))
+        recv = [dict(r) for r in conn.execute(
+            "SELECT * FROM trade_offers WHERE guild_id=? AND to_id=? AND status='open' ORDER BY id",
+            (gid, uid)).fetchall()]
+        sent = [dict(r) for r in conn.execute(
+            "SELECT * FROM trade_offers WHERE guild_id=? AND from_id=? AND status='open' ORDER BY id",
+            (gid, uid)).fetchall()]
+        hist = [dict(r) for r in conn.execute(
+            "SELECT * FROM trade_offers WHERE guild_id=? AND (from_id=? OR to_id=?) "
+            "AND status!='open' ORDER BY id DESC LIMIT 5", (gid, uid, uid)).fetchall()]
+    return {'received': recv, 'sent': sent, 'history': hist}
+
+
+def accept_offer(gid, uid, oid: int) -> dict:
+    """Recipient accepts: re-validates everything, swaps atomically."""
+    import json as _j
+    import time as _t
+    gid, uid = str(gid), str(uid)
+    with db.conn_ctx() as conn:
+        _expire_due(conn, int(_t.time()))
+        o = conn.execute('SELECT * FROM trade_offers WHERE id=? AND guild_id=?', (oid, gid)).fetchone()
+        if not o:
+            return {'ok': False, 'code': 'no_offer'}
+        o = dict(o)
+        if o['status'] != 'open':
+            return {'ok': False, 'code': o['status']}
+        if o['to_id'] != uid:
+            return {'ok': False, 'code': 'not_yours'}
+        give = _j.loads(o['give_json'] or '[]')
+        want_codes = _j.loads(o['want_json'] or '[]')
+        # resolve wanted codes -> card ids (recipient's copies)
+        want = []
+        for code in want_codes:
+            row = conn.execute('SELECT id FROM anime_cards WHERE code=? OR id=?',
+                               (code, code)).fetchone()
+            if not row:
+                return {'ok': False, 'code': 'no_card'}
+            want.append(row['id'])
+        oka, ca, _ = _check_tradable(conn, gid, o['from_id'], give)
+        if not oka:
+            conn.execute('UPDATE trade_offers SET status=? WHERE id=?',
+                         ('cancelled' if ca in ('locked', 'is_buddy') else 'stale', oid))
+            return {'ok': False, 'code': 'giver_' + ca}
+        okb, cb, _ = _check_tradable(conn, gid, uid, want)
+        if not okb:
+            return {'ok': False, 'code': 'taker_' + cb}
+        for cid in give:
+            _move_card(conn, gid, o['from_id'], uid, cid)
+        for cid in want:
+            _move_card(conn, gid, uid, o['from_id'], cid)
+        conn.execute("UPDATE trade_offers SET status='filled' WHERE id=?", (oid,))
+    invalidate_perks(gid, o['from_id'])
+    invalidate_perks(gid, uid)
+    return {'ok': True, 'offer': o, 'give': give, 'want': want}
+
+
+def close_offer(gid, uid, oid: int, status: str) -> dict:
+    """Decline (recipient) or cancel (sender)."""
+    gid, uid = str(gid), str(uid)
+    assert status in ('declined', 'cancelled')
+    with db.conn_ctx() as conn:
+        o = conn.execute('SELECT * FROM trade_offers WHERE id=? AND guild_id=?', (oid, gid)).fetchone()
+        if not o:
+            return {'ok': False, 'code': 'no_offer'}
+        o = dict(o)
+        if o['status'] != 'open':
+            return {'ok': False, 'code': o['status']}
+        if status == 'declined' and o['to_id'] != uid:
+            return {'ok': False, 'code': 'not_yours'}
+        if status == 'cancelled' and o['from_id'] != uid:
+            return {'ok': False, 'code': 'not_yours'}
+        conn.execute('UPDATE trade_offers SET status=? WHERE id=?', (status, oid))
+    return {'ok': True}
+
+
 def card_daily_bonus(gid, uid) -> int:
     try:
         return int(card_perks(gid, uid)['daily'])

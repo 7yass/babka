@@ -83,6 +83,7 @@ COGS = [
     'cogs.crafting',
     'cogs.cards',
     'cogs.wish',
+    'cogs.trade',
     'cogs.emojis',
     'cogs.ping',
     'cogs.health',
