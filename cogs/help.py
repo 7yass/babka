@@ -160,6 +160,54 @@ def _cmd_ref(bot, gid, guild_prefix, dotted: str) -> str:
     return f'`{_cmd_prefix(bot, gid, guild_prefix, dotted)}{dotted}`'
 
 
+def cards_sheet_layout(gid, prefix):
+    """Lumina-style single sheet: every card command, grouped, live first.
+    Unbuilt systems are marked (soon) — never a dead target."""
+    soon = '· *soon*'
+    blocks = [
+        '# 🃏 Cards',
+        'Quick start: `.drop` banks tickets, `.wish` spends them, `.cd` shows timers.',
+        '**General Usage**\n'
+        f'`{prefix}drop` — Drop 1 ticket (or more!) every 5 minutes.\n'
+        f'`{prefix}wish <amount>` — Wish for cards with tickets (max 50).\n'
+        f'`{prefix}wish ssr` — Guaranteed LR+ pull with an SSR ticket.\n'
+        f'`{prefix}cd` — View all your cooldowns.\n'
+        f'`{prefix}quest` — View your daily quests.\n'
+        f'`{prefix}daily` — Coins + 3 tickets every 24 hours.\n'
+        f'`{prefix}wheel` — Spin the fortune wheel every 12 hours.\n'
+        f'`{prefix}rm` — DM reminder when drops are full.\n'
+        f'`{prefix}use` — Use an item. {soon}',
+        '**Profile & Collection**\n'
+        f'`{prefix}profile` — View your profile.\n'
+        f'`{prefix}cards` — Flip your binder, rarest first.\n'
+        f'`{prefix}cardinfo <code>` — Full card sheet with art.\n'
+        f'`{prefix}album` — Your 9 favorite slots (`{prefix}album CODE 1-9`).\n'
+        f'`{prefix}compl` — Collection completion per series.\n'
+        f'`{prefix}inv` — Tickets, dust, milestone, locks.\n'
+        f'`{prefix}custom` — Card cosmetics. {soon}\n'
+        f'`{prefix}special` — Special cards. {soon}\n'
+        f'`{prefix}premium` — Premium pass. {soon}',
+        '**Trades & Market**\n'
+        f'`{prefix}cards trade @user` — Live two-party trade, both accept to swap.\n'
+        f'`{prefix}offer @user` — 3-day offer, answerable from DMs.\n'
+        f'`{prefix}auc` — Auction house: sell, buy, 24h lots.\n'
+        f'`{prefix}bid` — Bid on auctions. {soon}',
+        '**Card Management**\n'
+        f'`{prefix}burn <code>` — Burn dupes for dust (+1 🎟 per 10 burns).\n'
+        f'`{prefix}lock` / `{prefix}unlock` — Protect cards from burning.\n'
+        f'`{prefix}cards buddy <code>` — Equip for +XP and +daily.\n'
+        f'`{prefix}dust` — Convert all duplicates at once.\n'
+        f'`{prefix}reroll` — 10k dust for a missing card.\n'
+        f'`{prefix}wl` — Wishlist terms + owned matches.',
+        '**Info & Odds**\n'
+        f'`{prefix}rates [code]` — Live pull odds, per-card math.\n'
+        f'`{prefix}banner` — Weekly featured set (15% wish pull).\n'
+        f'`{prefix}info <text>` — Character / series lookup.\n'
+        f'`{prefix}gallery <set>` — LR/UR art showcase.',
+    ]
+    return _box(gid, *blocks)
+
+
 def nav_layout(bot, gid, key, guild_prefix):
     """One system page: purpose, primary commands, related pages, next hint.
     Unresolvable primaries are omitted (health flags them)."""
@@ -341,7 +389,7 @@ class Help(commands.Cog):
             return
         q = query.lower().strip()
         if q in HELP_GROUPS:
-            layout = nav_layout(self.bot, gid, q, prefix)
+            layout = cards_sheet_layout(gid, prefix) if q == 'cards' else nav_layout(self.bot, gid, q, prefix)
             layout.invoker_id = ctx.author.id
             _attach_select(layout, HelpSelect(gid))
             msg = await ctx.reply(view=layout, mention_author=False)
