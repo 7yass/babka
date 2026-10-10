@@ -177,6 +177,11 @@ def claim_drop(gid, uid, now: int = None) -> dict:
                      'WHERE guild_id=? AND user_id=?', (stack, last, gid, uid))
     st = ticket_state(gid, uid)
     st.update(ok=True, granted=1, stack=stack)
+    try:
+        from services.quests import bump
+        bump(gid, uid, 'dropper')
+    except Exception:
+        pass
     return st
 
 
@@ -255,6 +260,11 @@ def wish(gid, uid, n: int = 1, use_ssr: bool = False, rng=None) -> dict:
                              'WHERE guild_id=? AND user_id=?', (MILESTONE_EVERY, gid, uid))
             earned += 1
             st = ticket_state(gid, uid)
+    try:
+        from services.quests import bump
+        bump(gid, uid, 'wisher', len(pulls))
+    except Exception:
+        pass
     return {'ok': True, 'pulls': pulls, 'state': st, 'ssr_earned': earned,
             'guaranteed': use_ssr}
 
@@ -310,6 +320,11 @@ def burn_cards(gid, uid, code: str, count: int = 1) -> dict:
             conn.execute('UPDATE card_tickets SET tickets=tickets+? WHERE guild_id=? AND user_id=?',
                          (tickets_earned, gid, uid))
     invalidate_perks(gid, uid)
+    try:
+        from services.quests import bump
+        bump(gid, uid, 'burner', n)
+    except Exception:
+        pass
     return {'ok': True, 'card': c, 'burned': n, 'dust': dust,
             'tickets_earned': tickets_earned, 'state': ticket_state(gid, uid)}
 

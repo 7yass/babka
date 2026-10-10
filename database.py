@@ -68,6 +68,10 @@ def prune() -> dict:
     with conn_ctx() as conn:
         cur = conn.execute("DELETE FROM msg_stats WHERE day < date('now','-30 days')")
         out['msg_stats'] = cur.rowcount or 0
+        try:
+            conn.execute("DELETE FROM quest_progress WHERE day < date('now','-2 days')")
+        except Exception:
+            pass
         syms = conn.execute('SELECT DISTINCT guild_id, symbol FROM stock_hist').fetchall()
         for r in syms:
             cut = conn.execute('SELECT ts FROM stock_hist WHERE guild_id=? AND symbol=? '
@@ -615,6 +619,17 @@ def init_db():
             give_json TEXT DEFAULT '[]', want_json TEXT DEFAULT '[]',
             created INTEGER DEFAULT 0, expires INTEGER DEFAULT 0,
             status TEXT DEFAULT 'open')''')
+        c.execute('''CREATE TABLE IF NOT EXISTS quest_progress (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, day TEXT NOT NULL,
+            quest TEXT NOT NULL, progress INTEGER DEFAULT 0, done INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, day, quest))''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_quest_day ON quest_progress(day)')
+        # ticket-economy columns added after the table first shipped
+        for _col in ('msg_prog INTEGER DEFAULT 0', 'vc_prog INTEGER DEFAULT 0'):
+            try:
+                c.execute(f'ALTER TABLE card_tickets ADD COLUMN {_col}')
+            except Exception:
+                pass
         c.execute('CREATE INDEX IF NOT EXISTS idx_trade_offers_users '
                   'ON trade_offers (guild_id, from_id, to_id, status)')
         c.execute('''CREATE TABLE IF NOT EXISTS card_tickets (
@@ -622,6 +637,7 @@ def init_db():
             tickets INTEGER DEFAULT 0, ssr_tickets INTEGER DEFAULT 0,
             drop_stack INTEGER DEFAULT 0, last_drop INTEGER DEFAULT 0,
             milestone INTEGER DEFAULT 0, burns INTEGER DEFAULT 0,
+            msg_prog INTEGER DEFAULT 0, vc_prog INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id))''')
         c.execute('''CREATE TABLE IF NOT EXISTS pk_codes (
             code TEXT PRIMARY KEY, kind TEXT DEFAULT 'cash',

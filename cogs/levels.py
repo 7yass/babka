@@ -511,6 +511,12 @@ class Levels(commands.Cog):
                              (str(message.guild.id), str(message.author.id)))
         except Exception:
             pass
+        # quest + activity-ticket tick (own txn, never breaks the XP path)
+        try:
+            from services.quests import message_tick
+            message_tick(message.guild.id, message.author.id)
+        except Exception:
+            pass
         now_ms = int(time.time() * 1000)
         fast_key = (message.guild.id, message.author.id)
         if now_ms - _XP_FAST.get(fast_key, 0) < COOLDOWN * 1000:
@@ -596,6 +602,11 @@ class Levels(commands.Cog):
                     with db.conn_ctx() as conn:
                         conn.execute('UPDATE levels SET voice_minutes = voice_minutes + 1 WHERE guild_id=? AND user_id=?',
                                      (str(guild.id), str(m.id)))
+                    try:
+                        from services.quests import voice_tick
+                        voice_tick(guild.id, m.id)
+                    except Exception:
+                        pass
                 except Exception as e:
                     print(f'[voice] xp failed for {m.id}: {e}')
                     continue

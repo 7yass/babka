@@ -112,9 +112,11 @@ class Wish(commands.Cog):
     @commands.command(name='cd', aliases=['lcd'], description='Cooldowns + ticket balance')
     async def cd(self, ctx):
         from services.card_service import ticket_state, claim_drop, DROP_CD, DROP_STACK_MAX, BURN_TICKET_EVERY, MILESTONE_EVERY, tix_em
+        from services.quests import QUESTS, quests_done
         from cogs.gamble import bal, DAILY_CD
         import time as _t
         gid = ctx.guild.id
+        ndone, NTOT = quests_done(gid, ctx.author.id), len(QUESTS)
         st = ticket_state(gid, ctx.author.id)
         now = int(_t.time())
         # Peek without claiming: accrue virtually.
@@ -133,7 +135,8 @@ class Wish(commands.Cog):
         emb.add_field(name='Daily Cooldown', value=daily_txt, inline=False)
         emb.add_field(name='Rewards Progress',
                       value=(f"🔥 {st['burns'] or 0} burns (ticket every {BURN_TICKET_EVERY})\n"
-                             f"🎖 {st['milestone'] or 0}/{MILESTONE_EVERY} · Guaranteed LR+ Ticket"),
+                             f"🎖 {st['milestone'] or 0}/{MILESTONE_EVERY} · Guaranteed LR+ Ticket\n"
+                             f"📜 {ndone}/{NTOT} · Daily Quests Done"),
                       inline=False)
         emb.add_field(name='Balance', value=_ticket_line(gid, st), inline=False)
         await ctx.reply(embed=emb, ephemeral=True)
@@ -194,6 +197,27 @@ class Wish(commands.Cog):
         view.message = await ctx.reply(embed=view._embed(), view=view, mention_author=False)
         if note:
             await ctx.send(f'🎖 {ctx.author.mention} Milestone! +{res["ssr_earned"]} guaranteed LR+ ticket(s).')
+
+    @commands.command(name='quest', aliases=['lquest'], description='Daily quests')
+    async def quest(self, ctx):
+        from services.quests import QUESTS, quest_state
+        st = quest_state(ctx.guild.id, ctx.author.id)
+        lines = []
+        for q in QUESTS:
+            prog, done = st.get(q['id'], (0, False))
+            kind, amt = q['reward']
+            rw = f'{amt} 🎟' if kind == 'tickets' else (f'{amt} dust' if kind == 'dust' else f'{amt} coins')
+            if done:
+                lines.append(f"✅ **{q['label']}** — {rw}")
+                continue
+            fill = int(prog / max(1, q['goal']) * 10)
+            lines.append(f"{'█' * fill}{'░' * (10 - fill)} **{q['label']}** {prog}/{q['goal']} — {rw}")
+        n = sum(1 for _, d in st.values() if d)
+        emb = discord.Embed(title=f'{ctx.author.display_name} · Daily Quests ({n}/{len(QUESTS)})',
+                            description='\n'.join(lines)
+                            + '\n\n💬 100 msgs = 1 🎟 · 🔊 20 VC min = 1 🎟 (passive, stacks with quests)',
+                            color=0xFAC43C)
+        await ctx.reply(embed=emb, ephemeral=True)
 
     @commands.command(name='rates', aliases=['lrates'], description='Live pull rates')
     async def rates(self, ctx, code: str = ''):

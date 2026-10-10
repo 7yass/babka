@@ -515,6 +515,11 @@ def _gamble_use(gid, uid):
         else:
             conn.execute('UPDATE eco SET gamble_n=gamble_n+1 WHERE guild_id=? AND user_id=?',
                          (str(gid), str(uid)))
+    try:
+        from services.quests import bump
+        bump(gid, uid, 'gambler')
+    except Exception:
+        pass
 
 
 def god_tick(gid, uid) -> int:
