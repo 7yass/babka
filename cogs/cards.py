@@ -193,37 +193,67 @@ class Cards(commands.Cog):
         if (topic or '').lower() not in ('cards', 'card', 'gacha'):
             return await ctx.reply('Guides: `.guide cards` — everything to begin pulling.', ephemeral=True)
         from services.card_service import rar_em, tix_em, ssr_em, WISH_ODDS, SSR_ODDS
+        from lang import cur_lang
         gid = ctx.guild.id
         R, LR, UR = rar_em(gid, 'R'), rar_em(gid, 'LR'), rar_em(gid, 'UR')
         T, S = tix_em(gid), ssr_em(gid)
-        desc = (
-            '**What is Babka cards?**\n'
-            'Chill anime gacha: collect, trade and flex 2,120 cards across 9 series at your own pace. '
-            'Flat odds for everyone — no print system, every pull has the same chance at something rare.\n\n'
-            '**How do I start playing?**\n'
-            f'To play you need {T} tickets:\n'
-            f'• `.drop` or `.d` — every 5 minutes for 1 (or more!) {T} (banks to 3).\n'
-            '• `.daily` — coins + 3 tickets every 24 hours.\n'
-            'Check cooldowns with `.cd`.\n\n'
-            '**How do I get cards?**\n'
-            f'• `.w` — wish a card with 1 {T}.\n'
-            f'• `.w <amount>` — multi-wish (up to 50).\n\n'
-            '**Cards have the following rarities:**\n'
-            f'• {R} (Rare) — {WISH_ODDS["R"]}% drop rate.\n'
-            f'• {LR} (Legendary Rare) — {WISH_ODDS["LR"]}% drop rate.\n'
-            f'• {UR} (Ultra Rare) — {WISH_ODDS["UR"]}% drop rate.\n'
-            'Exact per-card odds: `.rates`.\n\n'
-            f'💡 Bonus: spend 200 {T} to earn 1 {S} Guaranteed LR+ Ticket.\n'
-            f'• `.w ssr` — Guaranteed LR+ pull.\n'
-            f'{S} Tickets: {SSR_ODDS["LR"]}% {LR} / {SSR_ODDS["UR"]}% {UR}.\n\n'
-            '💡 Bonus: every 10 burns 🔥, you earn 1 ticket.\n'
-            '• `.burn CODE` — burn dupes for dust.\n\n'
-            '**Check your collection**\n'
-            '• `.cards` — flip your binder, rarest first.\n'
-            '• `.cardinfo CODE` — full sheet with art.\n\n'
-            'You are all set! `.help cards` lists every command. ⛵')
-        emb = __import__('discord').Embed(title=f'{ctx.author.display_name} · Quick Start Guide',
-                                          description=desc, color=0xFAC43C)
+        if cur_lang(gid) == 'pl':
+            title = f'{ctx.author.display_name} · Poradnik startowy'
+            desc = (
+                '**Czym sa karty Babki?**\n'
+                'Chillowe anime gacha: zbieraj, handluj i chwal sie 2,120 kartami z 9 serii, we wlasnym tempie. '
+                ' rowne szanse dla wszystkich — zadnych printow, kazdy pull ma taka sama szanse na rzadkosc.\n\n'
+                '**Jak zaczac grac?**\n'
+                f'Potrzebujesz {T} biletow:\n'
+                f'• `.drop` albo `.d` — co 5 minut po 1 (albo wiecej!) {T} (bankuje do 3).\n'
+                '• `.daily` — monety + 3 bilety co 24 godziny.\n'
+                'Czasy sprawdzisz przez `.cd`.\n\n'
+                '**Jak zdobyc karty?**\n'
+                f'• `.w` — zycz karte za 1 {T}.\n'
+                f'• `.w <liczba>` — multi-wish (do 50).\n\n'
+                '**Karty maja takie rzadkosci:**\n'
+                f'• {R} (Rare) — {WISH_ODDS["R"]}% szans.\n'
+                f'• {LR} (Legendary Rare) — {WISH_ODDS["LR"]}% szans.\n'
+                f'• {UR} (Ultra Rare) — {WISH_ODDS["UR"]}% szans.\n'
+                'Dokladne szanse: `.rates`.\n\n'
+                f'💡 Bonus: wydaj 200 {T} i dostaniesz 1 {S} bilet gwarantowany LR+.\n'
+                f'• `.w ssr` — gwarantowany pull LR+.\n'
+                f'Bilety {S}: {SSR_ODDS["LR"]}% {LR} / {SSR_ODDS["UR"]}% {UR}.\n\n'
+                '💡 Bonus: co 10 burnow 🔥 dostajesz 1 bilet.\n'
+                '• `.burn KOD` — pal duplikaty na dust.\n\n'
+                '**Sprawdz kolekcje**\n'
+                '• `.cards` — twoj klaser, od najrzadszych.\n'
+                '• `.cardinfo KOD` — pelna karta z grafika.\n\n'
+                'Gotowe! `.help cards` listuje wszystkie komendy. ⛵')
+        else:
+            title = f'{ctx.author.display_name} · Quick Start Guide'
+            desc = (
+                '**What is Babka cards?**\n'
+                'Chill anime gacha: collect, trade and flex 2,120 cards across 9 series at your own pace. '
+                'Flat odds for everyone — no print system, every pull has the same chance at something rare.\n\n'
+                '**How do I start playing?**\n'
+                f'To play you need {T} tickets:\n'
+                f'• `.drop` or `.d` — every 5 minutes for 1 (or more!) {T} (banks to 3).\n'
+                '• `.daily` — coins + 3 tickets every 24 hours.\n'
+                'Check cooldowns with `.cd`.\n\n'
+                '**How do I get cards?**\n'
+                f'• `.w` — wish a card with 1 {T}.\n'
+                f'• `.w <amount>` — multi-wish (up to 50).\n\n'
+                '**Cards have the following rarities:**\n'
+                f'• {R} (Rare) — {WISH_ODDS["R"]}% drop rate.\n'
+                f'• {LR} (Legendary Rare) — {WISH_ODDS["LR"]}% drop rate.\n'
+                f'• {UR} (Ultra Rare) — {WISH_ODDS["UR"]}% drop rate.\n'
+                'Exact per-card odds: `.rates`.\n\n'
+                f'💡 Bonus: spend 200 {T} to earn 1 {S} Guaranteed LR+ Ticket.\n'
+                f'• `.w ssr` — Guaranteed LR+ pull.\n'
+                f'{S} Tickets: {SSR_ODDS["LR"]}% {LR} / {SSR_ODDS["UR"]}% {UR}.\n\n'
+                '💡 Bonus: every 10 burns 🔥, you earn 1 ticket.\n'
+                '• `.burn CODE` — burn dupes for dust.\n\n'
+                '**Check your collection**\n'
+                '• `.cards` — flip your binder, rarest first.\n'
+                '• `.cardinfo CODE` — full sheet with art.\n\n'
+                'You are all set! `.help cards` lists every command. ⛵')
+        emb = __import__('discord').Embed(title=title, description=desc, color=0xFAC43C)
         await ctx.reply(embed=emb, ephemeral=True)
 
     @commands.command(name='dust', description='Convert duplicates to dust')
