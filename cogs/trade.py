@@ -76,9 +76,9 @@ class _CodeModal(discord.ui.Modal):
         set_ctx_lang(interaction.user)
         ses = SESSIONS.get(self.sid)
         if not ses or ses['state'] != 'live':
-            return await interaction.response.send_message('That trade is over.', ephemeral=True)
+            return await interaction.response.send_message(t(interaction.guild.id if interaction.guild else 0, 'tr.trade_over'), ephemeral=True)
         if interaction.user.id != self.uid:
-            return await interaction.response.send_message('Not your side of the trade.', ephemeral=True)
+            return await interaction.response.send_message(t(interaction.guild.id if interaction.guild else 0, 'tr.side_trade'), ephemeral=True)
         from utils.interactions import ack, finish
         mode = await ack(interaction)
         if self.kind == 'note':
@@ -95,7 +95,7 @@ class _CodeModal(discord.ui.Modal):
                     row = conn.execute('SELECT id FROM anime_cards WHERE code=? OR id=?',
                                        (code, code)).fetchone()
                     if not row:
-                        return await interaction.followup.send(f'No such card: `{code}`.',
+                        return await interaction.followup.send(t(interaction.guild.id if interaction.guild else 0, 'cd.such_card_a0', a0=code),
                                                                ephemeral=True)
                     ids.append(row['id'])
                 if self.kind == 'add':
@@ -103,7 +103,7 @@ class _CodeModal(discord.ui.Modal):
                                                       ses['give'][self.uid] + ids)
                     if not ok:
                         return await interaction.followup.send(
-                            _trade_err(code_err), ephemeral=True)
+                            _trade_err(interaction.guild.id if interaction.guild else 0, code_err), ephemeral=True)
                     ses['give'][self.uid].extend(ids)
                 else:
                     for cid in ids:
@@ -116,10 +116,10 @@ class _CodeModal(discord.ui.Modal):
             pass
 
 
-def _trade_err(code: str) -> str:
-    return {'no_card': 'No such card.', 'not_owned': 'You don\'t own that (anymore).',
-            'is_buddy': 'That\'s your equipped buddy — unequip first.',
-            'locked': 'That card is 🔒 locked.'}.get(code, 'Can\'t add that.')
+def _trade_err(gid, code: str) -> str:
+    keys = {'no_card': 'tr.err.no_card', 'not_owned': 'tr.err.not_owned',
+            'is_buddy': 'tr.err.is_buddy', 'locked': 'tr.err.locked'}
+    return t(gid, keys.get(code, 'tr.err.add_failed'))
 
 
 class TradeView(discord.ui.View):
@@ -143,10 +143,10 @@ class TradeView(discord.ui.View):
     async def _guard(self, interaction) -> bool:
         ses = self._ses()
         if not ses or ses['state'] != 'live':
-            await interaction.response.send_message('That trade is over.', ephemeral=True)
+            await interaction.response.send_message(t(interaction.guild.id if interaction.guild else 0, 'tr.trade_over'), ephemeral=True)
             return False
         if interaction.user.id not in (ses['a'], ses['b']):
-            await interaction.response.send_message('You\'re not in this trade.', ephemeral=True)
+            await interaction.response.send_message(t(interaction.guild.id if interaction.guild else 0, 'tr.re_trade'), ephemeral=True)
             return False
         return True
 
@@ -191,7 +191,8 @@ class TradeView(discord.ui.View):
                 ses['ok'][ses['a']] = ses['ok'][ses['b']] = False
                 emb = trade_embed(ses)
                 emb.add_field(name='⚠️ Swap failed',
-                              value=_trade_err(res.get('code', '')) + ' Fix it and accept again.',
+                              value=_trade_err(ctx.guild.id if ctx.guild else 0, res.get('code', ''))
+                              + t(ctx.guild.id if ctx.guild else 0, 'tr.err.fix_and_accept'),
                               inline=False)
                 return await finish(interaction, mode, embed=emb, view=self)
             await finish(interaction, mode, embed=trade_embed(ses), view=self)
@@ -240,9 +241,9 @@ class ChallengeView(discord.ui.View):
         set_ctx_lang(interaction.user)
         ses = SESSIONS.get(self.sid)
         if not ses or ses['state'] != 'pending':
-            return await interaction.response.send_message('That challenge is over.', ephemeral=True)
+            return await interaction.response.send_message(t(interaction.guild.id if interaction.guild else 0, 'tr.challenge_over'), ephemeral=True)
         if interaction.user.id != ses['b']:
-            return await interaction.response.send_message('This challenge isn\'t for you.', ephemeral=True)
+            return await interaction.response.send_message(t(interaction.guild.id if interaction.guild else 0, 'tr.challenge_isn'), ephemeral=True)
         mode = await ack(interaction)
         ses['state'] = 'live'
         view = TradeView(self.sid)
@@ -268,7 +269,7 @@ class ChallengeView(discord.ui.View):
                 pass
         else:
             try:
-                await interaction.response.send_message('This challenge isn\'t for you.', ephemeral=True)
+                await interaction.response.send_message(t(interaction.guild.id if interaction.guild else 0, 'tr.challenge_isn'), ephemeral=True)
             except Exception:
                 pass
         self.stop()
@@ -320,7 +321,7 @@ class Trade(commands.Cog):
         gid = ctx.guild.id if ctx.guild else None
         if member is None:
             if gid is None:
-                return await ctx.reply('Use: `.offer accept <id>`.', ephemeral=True)
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.offer_accept_id'), ephemeral=True)
             data = list_offers(gid, ctx.author.id)
             lines = ['**📥 Received**']
             for o in data['received'][:10]:
@@ -337,9 +338,9 @@ class Trade(commands.Cog):
                     lines.append(f"• #{o['id']} ({o['status']})")
             return await ctx.reply('\n'.join(lines), ephemeral=True)
         if member.id == ctx.author.id:
-            return await ctx.reply('You can\'t offer to yourself.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.can_offer_yourself'), ephemeral=True)
         if member.bot:
-            return await ctx.reply('Bots don\'t trade.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.bots_don_trade'), ephemeral=True)
         give, want = [], []
         for tok in codes:
             if tok.lower().startswith('want:'):
@@ -352,26 +353,25 @@ class Trade(commands.Cog):
                 row = conn.execute('SELECT id FROM anime_cards WHERE code=? OR id=?',
                                    (code, code)).fetchone()
                 if not row:
-                    return await ctx.reply(f'No such card: `{code}`.', ephemeral=True)
+                    return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.such_card_a0', a0=code), ephemeral=True)
                 give_ids.append(row['id'])
         res = create_offer(gid, ctx.author.id, member.id, give_ids, want)
         if not res['ok']:
-            msgs = {'self': 'You can\'t offer to yourself.', 'empty': 'Offer at least one card.',
-                    'no_card': 'A card in there doesn\'t exist.',
-                    'not_owned': 'You don\'t own everything you offered.',
-                    'is_buddy': 'Your equipped buddy can\'t be offered — unequip first.',
-                    'locked': 'A card is 🔒 locked.'}
-            return await ctx.reply(msgs.get(res['code'], 'Offer failed.'), ephemeral=True)
+            keys = {'self': 'tr.can_offer_yourself', 'empty': 'tr.oe.empty',
+                    'no_card': 'tr.oe.no_card', 'not_owned': 'tr.oe.not_owned',
+                    'is_buddy': 'tr.oe.is_buddy', 'locked': 'tr.oe.locked'}
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0,
+                                     keys.get(res['code'], 'tr.oe.failed')), ephemeral=True)
         try:
-            await member.send(f'🎁 **<@{ctx.author.id}>** offered you cards on **{ctx.guild.name}** '
-                              f'(offer #{res["id"]}, 3 days):\n'
+            _g = ctx.guild.id if ctx.guild else 0
+            await member.send(t(_g, 'tr.offer_dm_head', a0=ctx.author.id, a1=ctx.guild.name, a2=res['id'])
                               + '\n'.join(f'• `{c}`' for c in give)
-                              + (f'\nThey want: ' + ', '.join(f'`{c}`' for c in want) if want else '')
-                              + f'\nAccept: `.offer accept {res["id"]}` · Decline: `.offer decline {res["id"]}`')
+                              + (t(_g, 'tr.offer_dm_want', a0=', '.join(f'`{c}`' for c in want)) if want else '')
+                              + t(_g, 'tr.offer_dm_actions', a0=res['id']))
             dm = ' (DM sent)'
         except Exception:
             dm = ' (DMs closed — they can still `.offer` to see it)'
-        await ctx.reply(f'Offer **#{res["id"]}** sent to {member.display_name}{dm} — open 3 days.',
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.offer_a0_sent', a0=res['id'], a1=member.display_name, a2=dm),
                         ephemeral=True)
 
     @offer.command(name='accept', description='Accept an offer')
@@ -381,28 +381,25 @@ class Trade(commands.Cog):
         try:
             i = int((oid or '').lstrip('#'))
         except Exception:
-            return await ctx.reply('Use: `.offer accept <id>`.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.offer_accept_id'), ephemeral=True)
         if gid is None:
             from services.card_service import get_offer
             o = get_offer(i)
             if not o:
-                return await ctx.reply('No such offer.', ephemeral=True)
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.such_offer'), ephemeral=True)
             gid = o['guild_id']
         res = accept_offer(gid, ctx.author.id, i)
         if not res['ok']:
-            msgs = {'no_offer': 'No such offer.', 'not_yours': 'That offer isn\'t for you.',
-                    'expired': 'That offer expired.', 'declined': 'Already declined.',
-                    'cancelled': 'That offer was cancelled.', 'filled': 'Already filled.',
-                    'stale': 'The other side no longer owns everything — offer marked stale.',
-                    'no_card': 'A card in there no longer exists.',
-                    'giver_locked': 'Giver locked a card — offer cancelled.',
-                    'giver_is_buddy': 'Giver equipped a card — offer cancelled.',
-                    'giver_not_owned': 'Giver no longer owns everything — offer marked stale.',
-                    'taker_locked': 'You locked one of the wanted cards — unlock first.',
-                    'taker_is_buddy': 'One of those is your equipped buddy.',
-                    'taker_not_owned': 'You don\'t own everything they want.'}
-            return await ctx.reply(msgs.get(res['code'], 'Accept failed.'), ephemeral=True)
-        await ctx.reply(f'🔁 Offer **#{i}** filled — cards swapped. Check `.cards`.', ephemeral=True)
+            keys = {'no_offer': 'tr.such_offer', 'not_yours': 'tr.acc.not_yours',
+                    'expired': 'tr.acc.expired', 'declined': 'tr.acc.declined',
+                    'cancelled': 'tr.acc.cancelled', 'filled': 'tr.acc.filled',
+                    'stale': 'tr.acc.stale', 'no_card': 'tr.acc.no_card',
+                    'giver_locked': 'tr.acc.giver_locked', 'giver_is_buddy': 'tr.acc.giver_is_buddy',
+                    'giver_not_owned': 'tr.acc.giver_not_owned', 'taker_locked': 'tr.acc.taker_locked',
+                    'taker_is_buddy': 'tr.acc.taker_is_buddy', 'taker_not_owned': 'tr.acc.taker_not_owned'}
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0,
+                                     keys.get(res['code'], 'tr.acc.failed')), ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.offer_a0_filled', a0=i), ephemeral=True)
 
     @offer.command(name='decline', description='Decline an offer')
     async def offer_decline(self, ctx, oid: str = ''):
@@ -410,17 +407,17 @@ class Trade(commands.Cog):
         try:
             i = int((oid or '').lstrip('#'))
         except Exception:
-            return await ctx.reply('Use: `.offer decline <id>`.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.offer_decline_id'), ephemeral=True)
         gid = ctx.guild.id if ctx.guild else None
         if gid is None:
             o = get_offer(i)
             gid = o['guild_id'] if o else None
             if gid is None:
-                return await ctx.reply('No such offer.', ephemeral=True)
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.such_offer'), ephemeral=True)
         res = close_offer(gid, ctx.author.id, i, 'declined')
         if not res['ok']:
-            return await ctx.reply('That offer isn\'t open for you.', ephemeral=True)
-        await ctx.reply(f'Offer **#{i}** declined.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.offer_isn_open'), ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.offer_a0_declined', a0=i), ephemeral=True)
 
     @offer.command(name='cancel', description='Cancel your sent offer')
     async def offer_cancel(self, ctx, oid: str = ''):
@@ -428,17 +425,17 @@ class Trade(commands.Cog):
         try:
             i = int((oid or '').lstrip('#'))
         except Exception:
-            return await ctx.reply('Use: `.offer cancel <id>`.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.offer_cancel_id'), ephemeral=True)
         gid = ctx.guild.id if ctx.guild else None
         if gid is None:
             o = get_offer(i)
             gid = o['guild_id'] if o else None
             if gid is None:
-                return await ctx.reply('No such offer.', ephemeral=True)
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.such_offer'), ephemeral=True)
         res = close_offer(gid, ctx.author.id, i, 'cancelled')
         if not res['ok']:
-            return await ctx.reply('That offer isn\'t yours to cancel.', ephemeral=True)
-        await ctx.reply(f'Offer **#{i}** cancelled.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.offer_isn_yours'), ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.offer_a0_cancelled', a0=i), ephemeral=True)
 
     @commands.group(name='auc', description='Card auction house', invoke_without_command=True)
     async def auc(self, ctx):
@@ -448,30 +445,31 @@ class Trade(commands.Cog):
         import time as _t
         rows = auc_list(ctx.guild.id)
         if not rows:
-            return await ctx.reply('No open lots — `.auc sell CODE PRICE` (min 100).', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.open_lots_auc'), ephemeral=True)
         lines = []
         for r in rows:
             left = max(0, (r['expires'] - int(_t.time())) // 3600)
             lines.append(f"• #{r['id']} **{r['name']}** [{r['rarity']}] — **{r['price']}** coins "
                          f"(~{left}h left) — `.auc buy {r['id']}`")
-        await ctx.reply('🏛 **Auction house**\n' + '\n'.join(lines[:10]), ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.auc_house') + '\n'.join(lines[:10]), ephemeral=True)
 
     @auc.command(name='sell', description='List a card')
     async def auc_sell(self, ctx, code: str = '', price: str = ''):
         from services.card_service import auc_sell
         if not code or not price:
-            return await ctx.reply('Use: `.auc sell CODE PRICE` (min 100, 24h, 5% fee).', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.auc_sell_code'), ephemeral=True)
         try:
             p = max(100, int(price.replace(',', '')))
         except Exception:
-            return await ctx.reply('Price must be a number.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.price_must_number'), ephemeral=True)
         res = auc_sell(ctx.guild.id, ctx.author.id, code, p)
         if not res['ok']:
-            msgs = {'no_card': 'No such card.', 'not_owned': 'You don\'t own that.',
-                    'is_buddy': 'Unequip your buddy first.', 'locked': 'That card is 🔒 locked.'}
-            return await ctx.reply(msgs.get(res['code'], 'Listing failed.'), ephemeral=True)
-        await ctx.reply(f"🏛 Listed **{res['card']['code']}** for **{res['price']}** coins "
-                        f"(lot #{res['id']}, 24h).", ephemeral=True)
+            keys = {'no_card': 'tr.such_card', 'not_owned': 'tr.ls.not_owned',
+                    'is_buddy': 'tr.ls.is_buddy', 'locked': 'tr.err.locked'}
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0,
+                                     keys.get(res['code'], 'tr.ls.failed')), ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.listed_a0_a1', a0=res['card']['code'], a1=res['price'], a2=res['id']), ephemeral=True)
+
 
     @auc.command(name='buy', description='Buy a lot now')
     async def auc_buy(self, ctx, oid: str = ''):
@@ -479,13 +477,13 @@ class Trade(commands.Cog):
         try:
             i = int((oid or '').lstrip('#'))
         except Exception:
-            return await ctx.reply('Use: `.auc buy <id>`.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.auc_buy_id'), ephemeral=True)
         res = auc_buy(ctx.guild.id, ctx.author.id, i)
         if not res['ok']:
-            msgs = {'gone': 'That lot is gone.', 'self': 'That\'s your own lot.',
-                    'broke': 'Not enough coins.'}
-            return await ctx.reply(msgs.get(res['code'], 'Buy failed.'), ephemeral=True)
-        await ctx.reply(f"🏛 Sold! Check `.cards`. (seller got {res['price'] - res['fee']} after fee)",
+            keys = {'gone': 'tr.buy.gone', 'self': 'tr.buy.self', 'broke': 'tr.buy.broke'}
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0,
+                                     keys.get(res['code'], 'tr.buy.failed')), ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.sold_check_cards', a0=res['price'] - res['fee']),
                         ephemeral=True)
 
     @auc.command(name='cancel', description='Pull your lot')
@@ -494,11 +492,11 @@ class Trade(commands.Cog):
         try:
             i = int((oid or '').lstrip('#'))
         except Exception:
-            return await ctx.reply('Use: `.auc cancel <id>`.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.auc_cancel_id'), ephemeral=True)
         res = auc_cancel(ctx.guild.id, ctx.author.id, i)
         if not res['ok']:
-            return await ctx.reply('That lot isn\'t yours to pull.', ephemeral=True)
-        await ctx.reply(f'Lot **#{i}** pulled — card\'s back in your binder.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.lot_isn_yours'), ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.lot_a0_pulled', a0=i), ephemeral=True)
 
 
 async def setup(bot):

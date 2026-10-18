@@ -1,4 +1,4 @@
-"""Anime cards — collection display, pack opening via shop, dust.
+﻿"""Anime cards — collection display, pack opening via shop, dust.
 
 Scalable to 2000+ cards: paginated queries, indexed, no full loads.
 """
@@ -58,7 +58,7 @@ class CardBinderView(discord.ui.View):
         set_ctx_lang(interaction.user)
         if interaction.user.id != self.author_id:
             return await interaction.response.send_message(
-                'Not your collection.', ephemeral=True)
+                t(interaction.guild.id if interaction.guild else 0, 'cd.collection'), ephemeral=True)
         async with self._lock:
             mode = await ack(interaction)
             self.idx = (self.idx + step) % len(self.cards)
@@ -127,7 +127,7 @@ class Cards(commands.Cog):
                     + (f" — Buddy: ⭐{buddy}" if buddy else "")
                     + (f"\n{prog}" if prog else ""))
             if not data['cards']:
-                return await ctx.reply(f'**🃏 Cards**\n{head}\nNo cards yet — buy a pack in `.shop` → Cards.',
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.cards_a0_cards', a0=head),
                                        ephemeral=True)
             view = CardBinderView(ctx.author.id, data['cards'], data['owned'],
                                   (perks['buddy'] or {}).get('id'), head, gid)
@@ -139,7 +139,7 @@ class Cards(commands.Cog):
         total_pages = max(1, (data['total'] + PAGE_SIZE - 1) // PAGE_SIZE)
         header = f'🃏 Checklist {p + 1}/{total_pages}'
         if not data['cards']:
-            return await ctx.reply(f'**{header}**\nNo more pages.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.a0_more_pages', a0=header), ephemeral=True)
         lines = []
         for c in data['cards']:
             owned = data['owned'].get(c['id'], 0)
@@ -155,11 +155,11 @@ class Cards(commands.Cog):
         await ctx.defer()
         gid = ctx.guild.id
         if not code:
-            return await ctx.reply('Use: `.cardinfo NARUTO-5556`', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.cardinfo_naruto'), ephemeral=True)
         with db.conn_ctx() as conn:
             row = conn.execute('SELECT * FROM anime_cards WHERE code=? OR id=?', (code, code)).fetchone()
             if not row:
-                return await ctx.reply('No such card.', ephemeral=True)
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.such_card'), ephemeral=True)
             c = dict(row)
             owned = conn.execute('SELECT SUM(qty) c FROM anime_collection WHERE guild_id=? AND card_id=?', (str(gid), c['id'])).fetchone()['c'] or 0
         buddy = (card_perks(gid, ctx.author.id)['buddy'] or {}).get('id') == c['id']
@@ -191,7 +191,7 @@ class Cards(commands.Cog):
     async def guide(self, ctx, topic: str = ''):
         """`.guide` — topics. `.guide cards` — the card game intro."""
         if (topic or '').lower() not in ('cards', 'card', 'gacha'):
-            return await ctx.reply('Guides: `.guide cards` — everything to begin pulling.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.guides_guide_cards'), ephemeral=True)
         from services.card_service import rar_em, tix_em, ssr_em, WISH_ODDS, SSR_ODDS
         from lang import cur_lang
         gid = ctx.guild.id
@@ -261,8 +261,8 @@ class Cards(commands.Cog):
         from services.card_service import convert_duplicates
         res = convert_duplicates(ctx.guild.id, ctx.author.id)
         if res['dust_earned'] == 0:
-            return await ctx.reply("No duplicates to convert.", ephemeral=True)
-        await ctx.reply(f"Converted duplicates → **+{res['dust_earned']} dust**.", ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.duplicates_convert'), ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.converted_duplicates_a0', a0=res['dust_earned']), ephemeral=True)
 
     @cards.command(name='buddy', description='Equip an owned card for buffs')
     async def cards_buddy(self, ctx, code: str = ''):
@@ -273,24 +273,24 @@ class Cards(commands.Cog):
         if not code or code.lower() == 'clear':
             if code.lower() == 'clear':
                 clear_buddy(gid, ctx.author.id)
-                return await ctx.reply('Buddy unequipped.', ephemeral=True)
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.buddy_unequipped'), ephemeral=True)
             p = card_perks(gid, ctx.author.id)
             b = p['buddy']
             if not b:
-                return await ctx.reply('No buddy equipped. `.cards buddy <code>` — buffs: '
-                                       'C +1% XP, R +2%, SR +3%, LR +5%, UR +8% (+daily too).',
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.buddy_equipped_cards'),
+
                                        ephemeral=True)
-            return await ctx.reply(f"Buddy: **{b['code']}** [{b['rarity']}] — "
-                                   f"+{p['xp_pct']}% XP, +{p['daily']} daily "
-                                   f"({len(p['sets_done'])} sets complete).", ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.buddy_a0_a1', a0=b['code'], a1=b['rarity'], a2=p['xp_pct'], a3=p['daily'], a4=len(p['sets_done'])), ephemeral=True)
+
+
         res = set_buddy(gid, ctx.author.id, code)
         if not res['ok']:
             if res['code'] == 'no_card':
-                return await ctx.reply('No such card.', ephemeral=True)
-            return await ctx.reply('You don\'t own that card yet — pull it from a pack first.',
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.such_card'), ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.don_own_card'),
                                    ephemeral=True)
         c = res['card']
-        await ctx.reply(f"Buddy equipped: **{c['code']}** [{c['rarity']}] {c['name']}.", ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.buddy_equipped_a0', a0=c['code'], a1=c['rarity'], a2=c['name']), ephemeral=True)
 
     @cards.command(name='sync', description='Import R2 card manifest (house)')
     async def cards_sync(self, ctx):
@@ -301,14 +301,14 @@ class Cards(commands.Cog):
         import database as db
         from pathlib import Path
         if not db.is_house(ctx.author.id):
-            return await ctx.reply('House only.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.house_only'), ephemeral=True)
         path = Path(__file__).parent.parent / 'data' / 'anime_cards_r2.json'
         if not path.exists():
-            return await ctx.reply('No manifest (data/anime_cards_r2.json).', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.manifest_data_anime_cards_r2'), ephemeral=True)
         try:
             data = json.loads(path.read_text(encoding='utf-8'))
         except Exception as e:
-            return await ctx.reply(f'Manifest unreadable: {e}', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.manifest_unreadable_a0', a0=e), ephemeral=True)
         ins = upd = 0
         with db.conn_ctx() as conn:
             sets = {}
@@ -331,7 +331,7 @@ class Cards(commands.Cog):
                                   int(c.get('print_total', 0)), c.get('image_url', ''),
                                   int(bool(c.get('is_animated', 0))), c.get('name', '')))
                     ins += 1
-        await ctx.reply(f'Cards synced: **{ins}** new, **{upd}** image URLs refreshed.', ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.cards_synced_a0', a0=ins, a1=upd), ephemeral=True)
 
     @commands.command(name='reroll', description='Reroll missing card with dust')
     async def reroll(self, ctx):
@@ -339,12 +339,12 @@ class Cards(commands.Cog):
         res = reroll_with_dust(ctx.guild.id, ctx.author.id)
         if not res['ok']:
             if res['code'] == 'no_dust':
-                return await ctx.reply(f"Need {res['need']} dust, you have {res['have']}.", ephemeral=True)
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.need_a0_dust', a0=res['need'], a1=res['have']), ephemeral=True)
             if res['code'] == 'complete':
-                return await ctx.reply("Collection complete!", ephemeral=True)
-            return await ctx.reply(f"Reroll failed: {res['code']}", ephemeral=True)
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.collection_complete'), ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.reroll_failed_a0', a0=res['code']), ephemeral=True)
         c = res['card']
-        await ctx.reply(f"Rerolled → **{c['code']}** [{c['rarity']}]!", ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.rerolled_a0_a1', a0=c['code'], a1=c['rarity']), ephemeral=True)
 
     @commands.command(name='compl', aliases=['lcompl'], description='Collection completion')
     async def compl(self, ctx):
@@ -354,12 +354,13 @@ class Cards(commands.Cog):
         gid = ctx.guild.id
         prog = set_progress(gid, ctx.author.id)
         if not prog:
-            return await ctx.reply('No card sets yet.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.card_sets_yet'), ephemeral=True)
         own = sum(o for _, o, _ in prog)
         tot = sum(t for _, _, t in prog)
         pct = (own / tot * 100) if tot else 0
         lines = [f"• **{s}** — {o}/{t}" + (' ✅' if o >= t and t else '') for s, o, t in prog]
-        await ctx.reply(f"🃏 **Completion — {own}/{tot} ({pct:.1f}%)**\n" + '\n'.join(lines),
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.completion_head',
+                            own=own, tot=tot, pct=f'{pct:.1f}') + '\n'.join(lines),
                         ephemeral=True)
 
     @commands.command(name='lock', aliases=['llock'], description='Lock a card from burning')
@@ -368,18 +369,18 @@ class Cards(commands.Cog):
         from services.card_service import set_locked
         gid = ctx.guild.id
         if not code:
-            return await ctx.reply('Use: `.lock NARUTO-5556`.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.lock_naruto'), ephemeral=True)
         with db.conn_ctx() as conn:
             row = conn.execute('SELECT id, code FROM anime_cards WHERE code=? OR id=?',
                                (code, code)).fetchone()
             if not row:
-                return await ctx.reply('No such card.', ephemeral=True)
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.such_card'), ephemeral=True)
             own = conn.execute('SELECT SUM(qty) q FROM anime_collection WHERE guild_id=? AND user_id=? AND card_id=?',
                                (str(gid), str(ctx.author.id), row['id'])).fetchone()['q'] or 0
             if not own:
-                return await ctx.reply('You don\'t own that card.', ephemeral=True)
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.don_own_card2'), ephemeral=True)
             set_locked(gid, ctx.author.id, row['id'], True)
-        await ctx.reply(f'🔒 **{row["code"]}** locked — safe from `.burn`.', ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.a0_locked_safe', a0=row['code']), ephemeral=True)
 
     @commands.command(name='unlock', aliases=['lunlock'], description='Unlock a card')
     async def unlock(self, ctx, code: str = ''):
@@ -387,14 +388,14 @@ class Cards(commands.Cog):
         from services.card_service import set_locked
         gid = ctx.guild.id
         if not code:
-            return await ctx.reply('Use: `.unlock NARUTO-5556`.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.unlock_naruto'), ephemeral=True)
         with db.conn_ctx() as conn:
             row = conn.execute('SELECT id, code FROM anime_cards WHERE code=? OR id=?',
                                (code, code)).fetchone()
             if not row:
-                return await ctx.reply('No such card.', ephemeral=True)
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.such_card'), ephemeral=True)
             set_locked(gid, ctx.author.id, row['id'], False)
-        await ctx.reply(f'🔓 **{row["code"]}** unlocked.', ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.a0_unlocked', a0=row['code']), ephemeral=True)
 
 
     @cards.group(name='trade', description='Live card trade', invoke_without_command=True)
@@ -406,16 +407,16 @@ class Cards(commands.Cog):
         if member is None:
             ses = _tr._my_session(gid, ctx.author.id)
             if not ses:
-                return await ctx.reply('Use: `.cards trade @user` to challenge someone.',
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.cards_trade_user'),
                                        ephemeral=True)
             return await ctx.reply(embed=_tr.trade_embed(ses), ephemeral=True)
         if member.id == ctx.author.id:
-            return await ctx.reply('You can\'t trade with yourself.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.can_trade_yourself'), ephemeral=True)
         if member.bot:
-            return await ctx.reply('Bots don\'t trade.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.bots_don_trade'), ephemeral=True)
         res = _tr.start_challenge(gid, ctx.author.id, member.id)
         if not res['ok']:
-            return await ctx.reply('One of you is already in a trade — cancel it first.',
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.one_already_trade'),
                                    ephemeral=True)
         ses = res['session']
         view = _tr.ChallengeView(ses['id'])
@@ -434,21 +435,21 @@ class Cards(commands.Cog):
         from services.card_service import _check_tradable
         ses = _tr._my_session(ctx.guild.id, ctx.author.id)
         if not ses or ses['state'] != 'live':
-            return await ctx.reply('No live trade — accept a challenge first.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.live_trade_accept'), ephemeral=True)
         if not codes:
-            return await ctx.reply('Use: `.cards trade add CODE [CODE...]`.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.cards_trade_add'), ephemeral=True)
         with db.conn_ctx() as conn:
             ids = []
             for code in codes:
                 row = conn.execute('SELECT id FROM anime_cards WHERE code=? OR id=?',
                                    (code, code)).fetchone()
                 if not row:
-                    return await ctx.reply(f'No such card: `{code}`.', ephemeral=True)
+                    return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.such_card_a0', a0=code), ephemeral=True)
                 ids.append(row['id'])
             ok, err, _ = _check_tradable(conn, ses['gid'], ctx.author.id,
                                          ses['give'][ctx.author.id] + ids)
             if not ok:
-                return await ctx.reply(_tr._trade_err(err), ephemeral=True)
+                return await ctx.reply(_tr._trade_err(ctx.guild.id if ctx.guild else 0, err), ephemeral=True)
             ses['give'][ctx.author.id].extend(ids)
         ses['ok'][ses['a']] = ses['ok'][ses['b']] = False
         await ctx.reply(embed=_tr.trade_embed(ses),
@@ -460,7 +461,7 @@ class Cards(commands.Cog):
         import database as db
         ses = _tr._my_session(ctx.guild.id, ctx.author.id)
         if not ses or ses['state'] != 'live':
-            return await ctx.reply('No live trade.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.live_trade'), ephemeral=True)
         with db.conn_ctx() as conn:
             for code in codes:
                 row = conn.execute('SELECT id FROM anime_cards WHERE code=? OR id=?',
@@ -476,7 +477,7 @@ class Cards(commands.Cog):
         import cogs.trade as _tr
         ses = _tr._my_session(ctx.guild.id, ctx.author.id)
         if not ses or ses['state'] != 'live':
-            return await ctx.reply('No live trade.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.live_trade'), ephemeral=True)
         ses['note'] = (text or '')[:_tr.NOTE_MAX]
         ses['ok'][ses['a']] = ses['ok'][ses['b']] = False
         await ctx.reply(embed=_tr.trade_embed(ses),
@@ -488,7 +489,7 @@ class Cards(commands.Cog):
         from services.card_service import swap_cards
         ses = _tr._my_session(ctx.guild.id, ctx.author.id)
         if not ses or ses['state'] != 'live':
-            return await ctx.reply('No live trade.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.live_trade'), ephemeral=True)
         ses['ok'][ctx.author.id] = True
         if ses['ok'][ses['a']] and ses['ok'][ses['b']]:
             res = swap_cards(ses['gid'], ses['a'], ses['give'][ses['a']],
@@ -505,16 +506,18 @@ class Cards(commands.Cog):
                     pass
                 return await ctx.reply(embed=emb, ephemeral=True)
             ses['ok'][ses['a']] = ses['ok'][ses['b']] = False
-            return await ctx.reply('⚠️ Swap failed: ' + _tr._trade_err(res.get('code', '')),
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.swap_failed',
+                                         a0=_tr._trade_err(ctx.guild.id if ctx.guild else 0,
+                                                         res.get('code', ''))),
                                    ephemeral=True)
-        await ctx.reply('Accepted — waiting on the other side.', ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.accepted_waiting_other'), ephemeral=True)
 
     @cards_trade.command(name='cancel', description='Cancel the trade')
     async def trade_cancel(self, ctx):
         import cogs.trade as _tr
         ses = _tr._my_session(ctx.guild.id, ctx.author.id)
         if not ses:
-            return await ctx.reply('No active trade.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.active_trade'), ephemeral=True)
         _tr._drop_session(ses)
         try:
             if ses.get('message') is not None:
@@ -523,7 +526,7 @@ class Cards(commands.Cog):
                     view=None)
         except Exception:
             pass
-        await ctx.reply('Trade cancelled.', ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.trade_cancelled'), ephemeral=True)
 
 
     @commands.group(name='wl', description='Card wishlist', invoke_without_command=True)
@@ -532,7 +535,7 @@ class Cards(commands.Cog):
         from services.card_service import wl_list, wl_matches
         terms = wl_list(ctx.guild.id, ctx.author.id)
         if not terms:
-            return await ctx.reply('Wishlist empty — `.wl add <character or series>`.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.wishlist_empty_wl'), ephemeral=True)
         lines = ['**⭐ Wishlist**'] + [f'• {t}' for t in terms[:20]]
         hits = wl_matches(ctx.guild.id, ctx.author.id)
         if hits:
@@ -544,15 +547,15 @@ class Cards(commands.Cog):
     async def wl_add(self, ctx, *, term: str = ''):
         from services.card_service import wl_set
         if not (term or '').strip():
-            return await ctx.reply('Use: `.wl add <character or series>`.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.wl_add_character'), ephemeral=True)
         wl_set(ctx.guild.id, ctx.author.id, term, True)
-        await ctx.reply(f'⭐ Watching **{(term or "").strip()[:60]}**.', ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.watching_a0', a0=(term or '').strip()[:60]), ephemeral=True)
 
     @wl.command(name='remove', description='Remove wishlist term')
     async def wl_remove(self, ctx, *, term: str = ''):
         from services.card_service import wl_set
         wl_set(ctx.guild.id, ctx.author.id, term or '', False)
-        await ctx.reply('Removed.', ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.removed'), ephemeral=True)
 
     @commands.command(name='cinv', description='Card inventory')
     async def inv(self, ctx):
@@ -567,17 +570,17 @@ class Cards(commands.Cog):
                                  (str(gid), str(ctx.author.id))).fetchone()['c']
             alb = conn.execute('SELECT COUNT(*) c FROM card_album WHERE guild_id=? AND user_id=?',
                                (str(gid), str(ctx.author.id))).fetchone()['c']
-        await ctx.reply(f"🎒 **{ctx.author.display_name}'s inventory**\n"
-                        f"🎟 Tickets x{st['tickets'] or 0} · ✨ SSR tickets x{st['ssr_tickets'] or 0}\n"
-                        f"💨 Dust x{dust['dust'] if dust else 0} · 🎖 Milestone {st['milestone'] or 0}/200\n"
-                        f"🔒 Locked cards x{locks or 0} · 🖼 Album {alb or 0}/9", ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.a0_inventory_tickets', a0=ctx.author.display_name, a1=st['tickets'] or 0, a2=st['ssr_tickets'] or 0, a3=dust['dust'] if dust else 0, a4=st['milestone'] or 0, a5=locks or 0, a6=alb or 0), ephemeral=True)
+
+
+
 
     @commands.command(name='cinfo', description='Character / series lookup')
     async def info(self, ctx, *, query: str = ''):
         import database as db
         from services.card_service import set_name
         if not (query or '').strip():
-            return await ctx.reply('Use: `.info <character, series or code>`.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.cinfo_character_series'), ephemeral=True)
         q = f"%{(query or '').strip().lower()}%"
         with db.conn_ctx() as conn:
             rows = conn.execute(
@@ -590,11 +593,11 @@ class Cards(commands.Cog):
                 'SELECT COUNT(*) c FROM anime_cards WHERE LOWER(name) LIKE ? OR LOWER(set_id) LIKE ?',
                 (q, q)).fetchone()['c']
         if not rows:
-            return await ctx.reply('No matches.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.no_matches'), ephemeral=True)
         lines = [f"• **{r['name']}** [{r['rarity']}] `{r['code']}` · {set_name(r['set_id'])}" for r in rows]
         if total > 8:
             lines.append(f'… +{total - 8} more')
-        await ctx.reply('**🔍 Matches**\n' + '\n'.join(lines), ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.matches_head') + '\n'.join(lines), ephemeral=True)
 
     @commands.command(name='gallery', description='Set art showcase')
     async def gallery(self, ctx, set_name: str = ''):
@@ -606,7 +609,7 @@ class Cards(commands.Cog):
                 'ORDER BY CASE rarity WHEN \'UR\' THEN 0 ELSE 1 END, code LIMIT 10',
                 ((set_name or '').lower(), (set_name or '').lower())).fetchall()
         if not rows:
-            return await ctx.reply('Use: `.gallery <set>` (naruto, onepiece, …).', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.gallery_set_naruto'), ephemeral=True)
         embeds = []
         for r in rows:
             e = __import__('discord').Embed(title=f"{r['name']} [{r['rarity']}]")
@@ -626,20 +629,20 @@ class Cards(commands.Cog):
                 album_clear(gid, ctx.author.id, int(slot or 0))
             except Exception:
                 pass
-            return await ctx.reply('Album cleared.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.album_cleared'), ephemeral=True)
         if code and slot:
             try:
                 res = album_set(gid, ctx.author.id, code, int(slot))
             except Exception:
-                return await ctx.reply(f'Use: `.album CODE 1-{ALBUM_SLOTS}`.', ephemeral=True)
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.album_code_a0', a0=ALBUM_SLOTS), ephemeral=True)
             if not res['ok']:
-                return await ctx.reply('No such card, or you don\'t own it.', ephemeral=True)
-            return await ctx.reply(f"🖼 Slot {res['slot']}: **{res['card']['name']}**.", ephemeral=True)
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.such_card_don'), ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.slot_a0_a1', a0=res['slot'], a1=res['card']['name']), ephemeral=True)
         if code and not slot:
-            return await ctx.reply(f'Use: `.album {code} 1-{ALBUM_SLOTS}`.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.album_a0_a1', a0=code, a1=ALBUM_SLOTS), ephemeral=True)
         alb = album_get(gid, ctx.author.id)
         if not alb:
-            return await ctx.reply(f'Album empty — `.album set CODE 1-{ALBUM_SLOTS}` with an owned card.',
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.album_empty_album', a0=ALBUM_SLOTS),
                                    ephemeral=True)
         lines = [f"**{s}.** {alb[s]['name']} [{alb[s]['rarity']}]" for s in sorted(alb)]
         first = alb[sorted(alb)[0]]

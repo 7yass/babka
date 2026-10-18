@@ -2361,6 +2361,92 @@
       "",
       "Everyone",
       false
+    ],
+    "dust": [
+      "cards",
+      "Burn every duplicate you own into dust at once: `.dust`.",
+      [],
+      "",
+      "Everyone",
+      false
+    ],
+    "v": [
+      "voice",
+      "Voice vault: `.v` seals your room and mints a guest key. Guests join with the key.",
+      [
+        "vault"
+      ],
+      "",
+      "Everyone",
+      false
+    ],
+    "uv": [
+      "voice",
+      "Close your voice vault and kick everyone left inside.",
+      [
+        "unvault"
+      ],
+      "",
+      "Everyone",
+      false
+    ],
+    "logs": [
+      "moderation",
+      "Purge-log rules: channels spared from bulk deletes. `.logs set #ch`, `.logs list`, `.logs remove #ch`, `.logs ignore #ch`.",
+      [],
+      "",
+      "Everyone",
+      false
+    ],
+    "backup": [
+      "setup",
+      "HOUSE ONLY. Dump the database as a downloadable snapshot: `.backup`.",
+      [],
+      "",
+      "Everyone",
+      false
+    ],
+    "casino": [
+      "economy",
+      "Casino hub: `.casino` lists every game with your balance, table limits and plays left this hour.",
+      [
+        "kasyno"
+      ],
+      "",
+      "Everyone",
+      false
+    ],
+    "craft": [
+      "economy",
+      "Boss crafting: `;craft` lists recipes, `;craft info <key>` shows one, `;craft <key> [n]` asks for confirmation and revalidates on click.",
+      [],
+      "",
+      "Everyone",
+      false
+    ],
+    "fav": [
+      "economy",
+      "Mark or unmark a favourite species: `;fav <species>`. Favourites lead your dex and box pages.",
+      [],
+      "[species]",
+      "Everyone",
+      false
+    ],
+    "travel": [
+      "economy",
+      "Travel between exploration locations: `;travel <location>`.",
+      [],
+      "[location]",
+      "Everyone",
+      false
+    ],
+    "emojistop": [
+      "setup",
+      "Abort an emoji deploy that is still running: `.emojistop`.",
+      [],
+      "",
+      "Everyone",
+      false
     ]
   },
   "cats": {

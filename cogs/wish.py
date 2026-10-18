@@ -65,7 +65,7 @@ class WishRecapView(discord.ui.View):
         from utils.interactions import ack, finish
         set_ctx_lang(interaction.user)
         if interaction.user.id != self.author_id:
-            return await interaction.response.send_message('Not your pulls.', ephemeral=True)
+            return await interaction.response.send_message(t(interaction.guild.id if interaction.guild else 0, 'wi.pulls'), ephemeral=True)
         async with self._lock:
             mode = await ack(interaction)
             self.page += step
@@ -113,7 +113,7 @@ class Wish(commands.Cog):
         for gid, uid in due[:20]:
             try:
                 u = self.bot.get_user(int(uid)) or await self.bot.fetch_user(int(uid))
-                await u.send(f'🎟 Your card drops are FULL (3/3) — `.drop` to claim!')
+                await u.send(t(gid, 'wi.drops_full'))
             except Exception:
                 continue
 
@@ -124,8 +124,8 @@ class Wish(commands.Cog):
         res = claim_drop(gid, ctx.author.id)
         if not res['ok']:
             m = max(1, int(res['wait'] // 60))
-            return await ctx.reply(f'📭 Drop not ready — back in ~{m} min. '
-                                   f'Stacked {res["stack"]}/{DROP_STACK_MAX}.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'wi.drop_ready_back', a0=m, a1=res['stack'], a2=DROP_STACK_MAX), ephemeral=True)
+
         emb = discord.Embed(title=f'{ctx.author.display_name} · Drop',
                             description='**Drop Claimed**\nYou claimed a regular drop!',
                             color=0x2ECC71)
@@ -176,17 +176,17 @@ class Wish(commands.Cog):
         try:
             n = 1 if use_ssr else max(1, min(WISH_MULTI_MAX, int((amount or '1').replace(',', ''))))
         except Exception:
-            return await ctx.reply('Use: `.w` / `.w 10` / `.w ssr`.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'wi.ssr'), ephemeral=True)
         res = _wish(gid, ctx.author.id, n, use_ssr=use_ssr)
         if not res['ok']:
             if res['code'] == 'no_ssr':
-                return await ctx.reply(f'No guaranteed tickets — spend 200 {tix_em(gid)} to earn one (see `.cd`).',
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'wi.guaranteed_tickets_spend', a0=tix_em(gid)),
                                        ephemeral=True)
-            return await ctx.reply(f"Need {res['need']} {tix_em(gid)}, you have {res['have']}. "
-                                   f'`.drop` every 5 min, `.daily` for +3.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'wi.need_a0_a1', a0=res['need'], a1=tix_em(gid), a2=res['have']), ephemeral=True)
+
         st, pulls = res['state'], res['pulls']
         if not pulls:
-            return await ctx.reply('The well is dry — no cards to pull yet.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'wi.well_dry_cards'), ephemeral=True)
         if res.get('ssr_earned'):
             note = f'\n🎖 Milestone! +{res["ssr_earned"]} guaranteed LR+ ticket(s).'
         else:
@@ -221,7 +221,7 @@ class Wish(commands.Cog):
         view = WishRecapView(ctx.author.id, pulls, st, gid)
         view.message = await ctx.reply(embed=view._embed(), view=view, mention_author=False)
         if note:
-            await ctx.send(f'🎖 {ctx.author.mention} Milestone! +{res["ssr_earned"]} guaranteed LR+ ticket(s).')
+            await ctx.send(t(ctx.guild.id if ctx.guild else 0, 'wi.a0_milestone_a1', a0=ctx.author.mention, a1=res['ssr_earned']))
 
     @commands.command(name='quest', aliases=['lquest'], description='Daily quests')
     async def quest(self, ctx):
@@ -266,7 +266,7 @@ class Wish(commands.Cog):
                 row = conn.execute('SELECT * FROM anime_cards WHERE code=? OR id=?',
                                    (code, code)).fetchone()
             if not row:
-                return await ctx.reply('No such card.', ephemeral=True)
+                return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.such_card'), ephemeral=True)
             c = dict(row)
             base = WISH_ODDS.get(c['rarity'], 0)
             n = pools.get(c['rarity'], 0)
@@ -281,8 +281,8 @@ class Wish(commands.Cog):
         import datetime as _dt
         sid, ends = banner_set()
         dt = _dt.datetime.fromtimestamp(ends, tz=_dt.timezone.utc).strftime('%a %H:%M UTC')
-        await ctx.reply(f'✨ **Featured banner: {set_name(sid)}** (until {dt})\n'
-                        f'15% of wishes redirect into this set. `.w` while it\'s hot.',
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'wi.featured_banner_a0', a0=set_name(sid), a1=dt),
+
                         ephemeral=True)
 
     @commands.command(name='wheel', description='12h fortune spin')
@@ -292,37 +292,37 @@ class Wish(commands.Cog):
         if not st['ready']:
             h, rem = divmod(st['wait'], 3600)
             m, _ = divmod(rem, 60)
-            return await ctx.reply(f'🎡 Wheel back in {h}h {m}m.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'wi.wheel_back_a0', a0=h, a1=m), ephemeral=True)
         res = wheel_spin(ctx.guild.id, ctx.author.id)
         if not res['ok']:
-            return await ctx.reply('Wheel jammed — try again.', ephemeral=True)
-        await ctx.reply(f"🎡 {ctx.author.display_name} spun **{res['detail']}**!",
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'wi.wheel_jammed_try'), ephemeral=True)
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'wi.a0_spun_a1', a0=ctx.author.display_name, a1=res['detail']),
                         mention_author=False)
 
     @commands.command(name='rm', description='Remind me when drops are full')
     async def rm(self, ctx):
         from services.card_service import rm_arm
         if rm_arm(ctx.guild.id, ctx.author.id):
-            await ctx.reply('🔔 Armed — I\'ll DM you next time your drops hit 3/3.', ephemeral=True)
+            await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'wi.armed_ll_dm'), ephemeral=True)
         else:
-            await ctx.reply('Already armed.', ephemeral=True)
+            await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'wi.already_armed'), ephemeral=True)
 
     @commands.command(name='burn', aliases=['lburn'], description='Burn cards for dust + tickets')
     async def burn(self, ctx, code: str = '', count: str = '1'):
         from services.card_service import burn_cards, tix_em
         gid = ctx.guild.id
         if not code:
-            return await ctx.reply(f'Use: `.burn NARUTO-5556 [count]`. Every 10 burns = 1 {tix_em(gid)}.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'wi.burn_naruto_count', a0=tix_em(gid)), ephemeral=True)
         try:
             n = max(1, int((count or '1').replace(',', '')))
         except Exception:
-            return await ctx.reply('Use: `.burn NARUTO-5556 [count]`.', ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'wi.burn_naruto_count2'), ephemeral=True)
         res = burn_cards(ctx.guild.id, ctx.author.id, code, n)
         if not res['ok']:
-            msgs = {'no_card': 'No such card.', 'not_owned': 'You don\'t own that card.',
-                    'is_buddy': 'Unequip your buddy first (`.cards buddy clear`).',
-                    'locked': 'That card is 🔒 locked — `.unlock` it first.'}
-            return await ctx.reply(msgs.get(res['code'], 'Burn failed.'), ephemeral=True)
+            keys = {'no_card': 'wi.such_card', 'not_owned': 'wi.err.not_owned',
+                    'is_buddy': 'wi.err.is_buddy', 'locked': 'wi.err.locked'}
+            return await ctx.reply(t(ctx.guild.id if ctx.guild else 0,
+                                     keys.get(res['code'], 'wi.err.burn_failed')), ephemeral=True)
         c = res['card']
         msg = (f"🔥 Burned **{c['code']}** x{res['burned']} → **+{res['dust']} dust**."
                + (f" +{res['tickets_earned']} {tix_em(gid)}!" if res['tickets_earned'] else ''))
