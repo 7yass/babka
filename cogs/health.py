@@ -145,14 +145,11 @@ REVIEWED_LOCAL = {
 
 def _price_literal_hits():
     """`'price': <digits>` literals in loaded cogs — every one is a shop
-    price that must come from utils.economy instead. poke_extras.py is
-    skipped (not loaded; manual review)."""
+    price that must come from utils.economy instead."""
     import re
     hits = []
     cogdir = Path(__file__).parent
     for f in sorted(cogdir.glob('*.py')):
-        if f.name == 'poke_extras.py':
-            continue
         try:
             text = f.read_text(encoding='utf-8')
         except Exception:
@@ -536,7 +533,6 @@ def _report_lines(summary, details, filt_cat=None, filt_issue=None):
     lines.append(f"Economy config: {summary['config_using']} using shared config · "
                  f"{summary['config_pending']} not yet migrated")
     lines.append(f"Hardcoded shop prices: {summary['price_literals']}")
-    lines.append('-# poke_extras.py excluded (unloaded cog): manual review required')
     lines.append(f"Crime Configuration{chr(10)}--------------------")
     lines.append(f"Crime monetary values: {summary['crime_values']}")
     lines.append(f"Using shared config: {summary['crime_using']}/{summary['crime_handlers']}")
