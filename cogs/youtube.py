@@ -103,7 +103,7 @@ class YouTube(commands.Cog):
                     emb.set_image(url=latest['thumb'])
                 emb.set_footer(text='babka :3')
                 ping = f"<@&{w['ping_role']}> " if w.get('ping_role') else ''
-                await ch.send(f"{ping}**{latest['author']}** just uploaded\n{latest['url']}",
+                await ch.send(ping + t(gid, 'yt.uploaded', a0=f"**{latest['author']}**").replace('{url}', latest['url']),
                               embed=emb, allowed_mentions=discord.AllowedMentions(roles=True))
             except Exception as e:
                 print(f'[youtube send] {e}')
@@ -116,7 +116,7 @@ class YouTube(commands.Cog):
 
     @commands.group(name='youtube', description='Powiadomienia YouTube')
     async def youtube(self, ctx):
-        await ctx.reply('.youtube watch / unwatch / list / test', ephemeral=True)
+        await ctx.reply(t(gid, 'yt.usage'), ephemeral=True)
 
     @youtube.command(name='watch', description='Śledź kanał')
     @staff_or('manage_guild')

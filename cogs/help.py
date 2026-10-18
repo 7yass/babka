@@ -321,7 +321,7 @@ class HelpSelect(discord.ui.Select):
             import traceback
             traceback.print_exc()
             try:
-                await interaction.response.send_message('help broke — admins check console.',
+                await interaction.response.send_message(t(interaction.guild.id if interaction.guild else 0, 'he.help_broke'),
                                                         ephemeral=True)
             except Exception:
                 pass

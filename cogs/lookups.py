@@ -124,7 +124,7 @@ class Lookups(commands.Cog):
         gid = ctx.guild.id if ctx.guild else None
         username = (username or '').strip()
         if not username:
-            return await ctx.reply('Usage: `.rbx <nick>` (np. `.rbx Builderman`).', ephemeral=True)
+            return await ctx.reply(t(gid, 'lk.rbx_usage'), ephemeral=True)
         info = await self._resolve(username)
         if not info:
             return await ctx.reply(t(gid, 'lk.rbx_none', user=username), ephemeral=True)

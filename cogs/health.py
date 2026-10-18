@@ -661,7 +661,7 @@ class Health(commands.Cog):
         try:
             emb = _status_embed(self.bot)
         except Exception as e:
-            return await ctx.reply(f'health broke: {type(e).__name__}: {e}', ephemeral=True)
+            return await ctx.reply(t(gid, 'he.broke', a0=type(e).__name__, a1=e), ephemeral=True)
         await ctx.reply(embed=emb, ephemeral=True)
 
     @health.command(name='commands', description='Command registry audit')
@@ -675,13 +675,13 @@ class Health(commands.Cog):
             elif tok.startswith('issue:'):
                 filt_issue = tok.split(':', 1)[1].lower()
         if filt_cat and filt_cat not in CATEGORIES:
-            return await ctx.reply(f'Unknown category. Try: {", ".join(sorted(CATEGORIES))}',
+            return await ctx.reply(t(gid, 'he.unknown_cat', a0=', '.join(sorted(CATEGORIES))),
                                    ephemeral=True)
         try:
             summary, details = audit(self.bot)
             text = _report_lines(summary, details, filt_cat, filt_issue)
         except Exception as e:
-            return await ctx.reply(f'health broke: {type(e).__name__}: {e}', ephemeral=True)
+            return await ctx.reply(t(gid, 'he.broke', a0=type(e).__name__, a1=e), ephemeral=True)
         if len(text) > 3900:
             text = text[:3900] + '\n… truncated'
         await ctx.reply(f'```{text}```', ephemeral=True)

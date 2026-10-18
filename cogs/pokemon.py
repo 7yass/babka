@@ -3384,7 +3384,7 @@ class Pokemon(commands.Cog):
         # parse: ;sell <name|slot> <price>  — price is last token
         parts = (args or '').strip().split()
         if not parts:
-            return await ctx.reply("Use: `;sell <name|slot> <price>`", ephemeral=True)
+            return await ctx.reply(t(gid, 'pk.sell_usage'), ephemeral=True)
         # last token is price if numeric
         price = 0
         ident = ''
@@ -3395,7 +3395,7 @@ class Pokemon(commands.Cog):
             # no price? treat whole as ident and expect price missing
             ident = ' '.join(parts).strip()
         if not ident:
-            return await ctx.reply("Use: `;sell <name|slot> <price>`", ephemeral=True)
+            return await ctx.reply(t(gid, 'pk.sell_usage'), ephemeral=True)
         # resolve mon by slot or name
         m = None
         if ident.isdigit():
@@ -4394,13 +4394,13 @@ class Pokemon(commands.Cog):
         if low_raw.startswith('set '):
             pref = low_raw.split(' ',1)[1].strip().upper()[:1]
             if pref not in ('X','Y','Z'):
-                return await ctx.reply("Use: `;evolve set {X/Y/Z}`", ephemeral=True)
+                return await ctx.reply(t(gid, 'pk.evolve_usage'), ephemeral=True)
             # store preference per user (simple db)
             with db.conn_ctx() as conn:
                 conn.execute('INSERT OR REPLACE INTO pk_buddy (guild_id, user_id, mid, hearts) VALUES (?,?,COALESCE((SELECT mid FROM pk_buddy WHERE guild_id=? AND user_id=?),0), COALESCE((SELECT hearts FROM pk_buddy WHERE guild_id=? AND user_id=?),0))',
                              (str(gid), str(ctx.author.id), str(gid), str(ctx.author.id), str(gid), str(ctx.author.id)))
                 # piggyback on hearts? store pref in separate table or ignore - just acknowledge
-            return await ctx.reply(f"{em(gid,'mega_bracelet') or ''} Preferred Mega set to **{pref}**.", ephemeral=True)
+            return await ctx.reply(em(gid, 'mega_bracelet') + t(gid, 'pk.pref_mega', a0=pref), ephemeral=True)
         if low_raw in ('buddy', 'buddy info'):
             return await ctx.reply(view=self._layout(gid, "Mega Evolutions", "Mega evolutions use your buddy. `;buddy set <name>` then `;evolve buddy` (stub)."), ephemeral=True)
         if not slot_n and not s_arg:

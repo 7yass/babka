@@ -110,12 +110,12 @@ BUY_MAP = {
 # stashable item -> how to actually use it ({p} = server prefix).
 # Shown in buy receipts, .inv rows and .shop info. Passive buffs say so.
 USE_HINT = {
-    'nick': '{p}nick <new name>',
-    'force': '{p}nickbomb @user <name>',
-    'shield': 'passive armor vs .rob (see {p}shield)',
-    'xpboost': 'passive double XP while active',
-    'curse': '{p}curse @user',
-    'highroller': 'passive no-bet-cap for 10 min',
+    'nick': '{p}nick <nowy nick>',
+    'force': '{p}nickbomb @user <nick>',
+    'shield': 'pasywna tarcza przeciw .rob (patrz {p}shield)',
+    'xpboost': 'pasywnie podwójne XP na czas aktywacji',
+    'curse': '{p}curse @uzytkownik',
+    'highroller': 'pasywnie bez limitu zakładów na 10 min',
 }
 # Rob-shield stacking cap: protection time banks up to 7 days total, then
 # further purchases are refused (instead of silently stacking forever).

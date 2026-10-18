@@ -142,7 +142,7 @@ class FitCheck(commands.Cog):
         await ctx.defer()
         ch = ctx.guild.get_channel(int(FIT_CHANNEL))
         if not ch:
-            return await ctx.reply('No fit channel.', ephemeral=True)
+            return await ctx.reply(t(gid, 'fc.no_channel'), ephemeral=True)
         totals: dict = {}
         try:
             async for m in ch.history(limit=300):
@@ -175,7 +175,7 @@ class FitCheck(commands.Cog):
                 pass  # keep first-seen member for name/avatar
         ranked = sorted(merged.values(), key=lambda t: (-t['pos'], t['neg']))[:10]
         if not ranked or ranked[0]['pos'] == 0:
-            return await ctx.reply('No voted fits yet — post pics and vote.', ephemeral=True)
+            return await ctx.reply(t(gid, 'fc.no_votes'), ephemeral=True)
         top = max(t['pos'] for t in ranked)
         rows = []
         for i, t in enumerate(ranked, start=1):

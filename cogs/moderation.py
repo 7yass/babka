@@ -114,7 +114,7 @@ class Moderation(commands.Cog):
     # ---------- mod group ----------
     @commands.group(name='mod', description='NarzÄ™dzia modów')
     async def mod(self, ctx):
-        await ctx.reply('mod warn / warnings / timeout / kick / ban / unban / softban / tempban / nick / clear / slowmode / lock / unlock / set-log',
+        await ctx.reply(t(gid, 'md.mod_usage'),
                         ephemeral=True)
 
     @mod.command(name='warn', description='Warn dla typa')

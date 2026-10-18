@@ -46,7 +46,7 @@ class GameTracker(commands.Cog):
         gid = ctx.guild.id
         riot_id = (riot_id or '').strip()
         if '#' not in riot_id:
-            return await ctx.reply('Usage: `.lol Name#Tag [region]` (np. `.lol Faker#KR1 euw`).', ephemeral=True)
+            return await ctx.reply(t(gid, 'gt.lol_usage_ex'), ephemeral=True)
         parts = riot_id.rsplit(' ', 1)
         region_arg = ''
         if len(parts) == 2 and '#' in parts[0]:
@@ -54,9 +54,9 @@ class GameTracker(commands.Cog):
         name, _, tag = riot_id.partition('#')
         name, tag = name.strip(), tag.strip()
         if not name or not tag:
-            return await ctx.reply('Usage: `.lol Name#Tag [region]`.', ephemeral=True)
+            return await ctx.reply(t(gid, 'gt.lol_usage'), ephemeral=True)
         if not os.getenv('RIOT_API_KEY'):
-            return await ctx.reply('LoL tracker needs a free Riot key: developer.riotgames.com → `RIOT_API_KEY` w .env.', ephemeral=True)
+            return await ctx.reply(t(gid, 'gt.lol_nokey'), ephemeral=True)
         plat, _route = REGION_MAP.get((region_arg or 'euw').lower().replace(' ', ''), ('euw1', 'europe'))
         # riot id contains spaces — find route from region arg only; account api is regional routing value
         route = {'euw1': 'europe', 'eun1': 'europe', 'na1': 'americas', 'br1': 'americas',
@@ -101,10 +101,10 @@ class GameTracker(commands.Cog):
         gid = ctx.guild.id
         who = (who or '').strip()
         if not who:
-            return await ctx.reply('Usage: `.cs <steam nick / id / link>` (np. `.cs s1mple`).', ephemeral=True)
+            return await ctx.reply(t(gid, 'gt.cs_usage_ex'), ephemeral=True)
         key = os.getenv('STEAM_API_KEY', '')
         if not key:
-            return await ctx.reply('CS tracker needs a free Steam key: steamcommunity.com/dev/apikey → `STEAM_API_KEY` w .env.', ephemeral=True)
+            return await ctx.reply(t(gid, 'gt.cs_nokey'), ephemeral=True)
         await ctx.typing()
         steamid = ''.join(c for c in who if c.isdigit())
         async with aiohttp.ClientSession() as s:

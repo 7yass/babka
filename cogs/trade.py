@@ -61,12 +61,12 @@ def trade_embed(ses) -> discord.Embed:
 
 
 class _CodeModal(discord.ui.Modal):
-    def __init__(self, sid: int, kind: str, uid: int):
-        super().__init__(title={'add': 'Add cards', 'remove': 'Remove cards',
-                                'note': 'Trade note'}[kind], timeout=120)
+    def __init__(self, sid: int, kind: str, uid: int, gid=0):
+        super().__init__(title=t(gid, {'add': 'mo.modal_add', 'remove': 'mo.modal_remove',
+                                       'note': 'mo.modal_note'}[kind]), timeout=120)
         self.sid, self.kind, self.uid = sid, kind, uid
         self.box = discord.ui.TextInput(
-            label='Card codes (comma separated)' if kind != 'note' else 'Note (max 200)',
+            label=t(gid, 'mo.codes' if kind != 'note' else 'mo.note_label'),
             style=discord.TextStyle.paragraph if kind == 'note' else discord.TextStyle.short,
             max_length=300 if kind != 'note' else NOTE_MAX)
         self.add_item(self.box)
@@ -153,17 +153,17 @@ class TradeView(discord.ui.View):
     async def _cb_add(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
-        await interaction.response.send_modal(_CodeModal(self.sid, 'add', interaction.user.id))
+        await interaction.response.send_modal(_CodeModal(self.sid, 'add', interaction.user.id, interaction.guild.id if interaction.guild else 0))
 
     async def _cb_del(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
-        await interaction.response.send_modal(_CodeModal(self.sid, 'remove', interaction.user.id))
+        await interaction.response.send_modal(_CodeModal(self.sid, 'remove', interaction.user.id, interaction.guild.id if interaction.guild else 0))
 
     async def _cb_note(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
-        await interaction.response.send_modal(_CodeModal(self.sid, 'note', interaction.user.id))
+        await interaction.response.send_modal(_CodeModal(self.sid, 'note', interaction.user.id, interaction.guild.id if interaction.guild else 0))
 
     async def _cb_accept(self, interaction: discord.Interaction):
         from utils.interactions import ack, finish

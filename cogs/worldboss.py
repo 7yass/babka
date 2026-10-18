@@ -503,7 +503,7 @@ class WorldBoss(commands.Cog):
         from services import boss_simulator as _sim
         key = (boss or '').strip().lower()
         if not key:
-            return await ctx.reply('Usage: `;worldboss sim <boss> [fighters] [level] [raids]` '
+            return await ctx.reply(t(gid, 'wb.sim_usage') + ' '
                                    '(e.g. `;worldboss sim tidecaller 5 100 200`).',
                                    ephemeral=True)
 
@@ -519,7 +519,7 @@ class WorldBoss(commands.Cog):
                 None, _sim.simulate_raids, key, 133, lv, n, 6, r, 7, 'none',
                 str(ctx.guild.id))
         except Exception as e:
-            return await ctx.reply(f'Sim failed: {type(e).__name__}.', ephemeral=True)
+            return await ctx.reply(t(gid, 'wb.sim_failed', a0=type(e).__name__), ephemeral=True)
         await ctx.reply(build_sim_text(rep), mention_author=False)
 
     @worldboss.command(name='preview', description='Podgląd configu bossa (staff)')
@@ -528,7 +528,7 @@ class WorldBoss(commands.Cog):
         from services import boss_simulator as _sim
         key = (boss or '').strip().lower()
         if not key:
-            return await ctx.reply('Usage: `;worldboss preview <boss>`.', ephemeral=True)
+            return await ctx.reply(t(gid, 'wb.preview_usage'), ephemeral=True)
         await ctx.reply(build_preview_text(_sim.preview_boss(key)), mention_author=False)
 
     @worldboss.command(name='forceexpire', description='Zakończ event (staff)')

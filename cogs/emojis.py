@@ -231,7 +231,7 @@ class Emojis(commands.Cog):
         if not db.is_house(ctx.author.id):
             return await ctx.reply(t(ctx.guild.id, 'eco.no_owner'), ephemeral=True)
         self._stop = True
-        return await ctx.reply('Stopping emoji deploy after current emoji…', ephemeral=True)
+        return await ctx.reply(t(ctx.guild.id, 'em.stopping'), ephemeral=True)
 
     @commands.command(name='emojisetup', description='Emoji Babki na serwerach')
     async def emojisetup(self, ctx, action: str = ''):
