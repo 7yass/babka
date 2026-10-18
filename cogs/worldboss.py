@@ -503,9 +503,7 @@ class WorldBoss(commands.Cog):
         from services import boss_simulator as _sim
         key = (boss or '').strip().lower()
         if not key:
-            return await ctx.reply(t(gid, 'wb.sim_usage') + ' '
-                                   '(e.g. `;worldboss sim tidecaller 5 100 200`).',
-                                   ephemeral=True)
+            return await ctx.reply(t(gid, 'wb.sim_usage'), ephemeral=True)
 
         def _num(raw, default, lo, hi):
             try:
