@@ -342,14 +342,24 @@ class NativeAutoMod(commands.Cog):
 
     async def _startup(self):
         """Attach the group, then run one sync pass over the known guilds."""
-        await self.bot.wait_until_ready()
+        try:
+            await self.bot.wait_until_ready()
+        except Exception as e:
+            # The cog can be loaded before the client is logged in (and in
+            # offline harnesses). That is not worth a traceback: the sync
+            # loop retries on its own schedule anyway.
+            print(f'[!] native automod startup deferred: {type(e).__name__}', flush=True)
+            return
         _attach_native(self.bot)
         await self._sync_all()
 
     # ---------- background sync ----------
     @tasks.loop(minutes=10)
     async def sync_loop(self):
-        await self.bot.wait_until_ready()
+        try:
+            await self.bot.wait_until_ready()
+        except Exception:
+            return
         await self._sync_all()
 
     async def _sync_all(self):

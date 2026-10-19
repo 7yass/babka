@@ -108,6 +108,7 @@ COGS = [
     'cogs.moderation',
     'cogs.antiraid',
     'cogs.automod',
+    'cogs.nativeautomod',
     'cogs.voice',
     'cogs.tiktok',
     'cogs.info',
