@@ -3,7 +3,10 @@
     "rank": [
       "levels",
       "HOW TO: `.rank [@user]` renders your Direction A player card — avatar, tier pill (ROOKIE→LEGEND with stars), LEVEL/RANK/PROGRESS, XP bar with exact numbers, on your nitro banner if you have one. No argument = your card.",
-      [],
+      [
+        "level",
+        "xp"
+      ],
       "[member]",
       "Everyone"
     ],
@@ -95,7 +98,9 @@
     "warnings": [
       "moderation",
       "View every warning a user holds: `.warnings @user`.",
-      [],
+      [
+        "warns"
+      ],
       "@user",
       "Manage Messages"
     ],
@@ -111,7 +116,9 @@
     "slowmode": [
       "moderation",
       "Set slowmode delay in the current channel: `.slowmode <seconds>` (0 = off).",
-      [],
+      [
+        "slow"
+      ],
       "10",
       "Manage Channels"
     ],
@@ -171,7 +178,9 @@
     "lockdown": [
       "protection",
       "Raid emergency: lock/unlock ALL channels at once: `.lockdown`. Use when the raid is live.",
-      [],
+      [
+        "ld"
+      ],
       "",
       "Administrator"
     ],
@@ -560,7 +569,9 @@
     "bal": [
       "info",
       "Your wallet card: cash, bank and daily streak — with your nitro banner as background if you have one. `.bal [@user]` inspects anyone.",
-      [],
+      [
+        "balance"
+      ],
       "[@user]",
       "Everyone",
       false
@@ -1017,11 +1028,120 @@
       "Name#Tag",
       "Everyone"
     ],
+    "starter": [
+      "economy",
+      "Pick your starter + 10 balls. One per trainer.",
+      [],
+      "<bulbasaur|charmander|squirtle|pikachu|eevee|turtwig>",
+      "Everyone"
+    ],
+    "hunt": [
+      "economy",
+      "Spawn a wild encounter (60s cooldown). FIGHT it or THROW BALL.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "catch": [
+      "economy",
+      "Throw a ball at your encounter. Weaker foes catch easier.",
+      [],
+      "[poke|great|ultra|master]",
+      "Everyone"
+    ],
+    "guess": [
+      "economy",
+      "Name a ??? silhouette to catch it FREE.",
+      [],
+      "<name>",
+      "Everyone"
+    ],
+    "hint": [
+      "economy",
+      "Reveal half the letters of a mystery silhouette.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "box": [
+      "economy",
+      "Your collection: species stacks, 10 per page.",
+      [],
+      "[filter/@user] [page]",
+      "Everyone"
+    ],
+    "mon": [
+      "economy",
+      "Full stats card of one pokemon: level, types, moves, XP.",
+      [],
+      "<slot|name>",
+      "Everyone"
+    ],
+    "active": [
+      "economy",
+      "Set your lead battler.",
+      [],
+      "<slot>",
+      "Everyone"
+    ],
+    "name": [
+      "economy",
+      "Rename one of your pokemon.",
+      [],
+      "<slot> <name>",
+      "Everyone"
+    ],
+    "release": [
+      "economy",
+      "Release for coins (rarity x level, shiny x5). Locked are safe.",
+      [],
+      "<slot>",
+      "Everyone"
+    ],
+    "releaseall": [
+      "economy",
+      "Release every matching species for coins. Skips locked.",
+      [],
+      "<species>",
+      "Everyone"
+    ],
+    "dex": [
+      "economy",
+      "Your pokedex completion.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "p": [
+      "economy",
+      "Catch-only wild encounter (no FIGHT row). One throw: `;catch <ball>` or tap a ball.",
+      [],
+      "",
+      "Everyone"
+    ],
     "balls": [
       "economy",
       "Pokemon item shop: balls, potions, candy, eggs, lures. Numbered rows — buy by name or ID via `;shop buy`. Also `;pokeshop` / `;shop pokemon`.",
-      [],
+      [
+        "pokeshop",
+        "pshop",
+        "pkshop"
+      ],
       "buy",
+      "Everyone"
+    ],
+    "battle": [
+      "economy",
+      "Turn-based wild battle: 4 moves, potions, ball, run.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "duel": [
+      "economy",
+      "Interactive team duel (up to 3v3) with wager. Accept to play.",
+      [],
+      "@user [wager]",
       "Everyone"
     ],
     "trade": [
@@ -1029,6 +1149,13 @@
       "Swap pokemon 1:1 with accept/decline buttons.",
       [],
       "@user <yours> <theirs>",
+      "Everyone"
+    ],
+    "market": [
+      "economy",
+      "Player market: browse listings.",
+      [],
+      "[page]",
       "Everyone"
     ],
     "sell": [
@@ -1045,11 +1172,123 @@
       "<id>",
       "Everyone"
     ],
+    "unlist": [
+      "economy",
+      "Take your listing back to the box.",
+      [],
+      "<id>",
+      "Everyone"
+    ],
     "buddy": [
       "economy",
       "Companion: bonus XP + hearts. Slot sets, text renames.",
       [],
       "[slot] [name]",
+      "Everyone"
+    ],
+    "team": [
+      "economy",
+      "Your duel squad. Bare shows, slots set it.",
+      [],
+      "[a] [b] [c]",
+      "Everyone"
+    ],
+    "candy": [
+      "economy",
+      "Feed a rare candy: instant +1 level.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "eggs": [
+      "economy",
+      "Your eggs + hatch cycles.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "hatch": [
+      "economy",
+      "Hatch a ready egg (warmed by catches).",
+      [],
+      "",
+      "Everyone"
+    ],
+    "keep": [
+      "economy",
+      "Lock/unlock a pokemon from release/market/trade.",
+      [],
+      "<slot>",
+      "Everyone"
+    ],
+    "swap": [
+      "economy",
+      "Wonder swap: lose yours, random new (1% shiny).",
+      [],
+      "<slot>",
+      "Everyone"
+    ],
+    "target": [
+      "economy",
+      "Daily catch target: +7.5k on catch.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "checklist": [
+      "economy",
+      "Daily trio: 5 catches / 3 battles / 1 duel. Claim the prize.",
+      [],
+      "[claim]",
+      "Everyone"
+    ],
+    "shinyhunt": [
+      "economy",
+      "Chain a species: odds 1/256 down to 1/32.",
+      [],
+      "[name]",
+      "Everyone"
+    ],
+    "quests": [
+      "economy",
+      "Region catch tracks with cash tiers + Master badges.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "move": [
+      "economy",
+      "Move lookup: power, type, accuracy.",
+      [],
+      "<name>",
+      "Everyone"
+    ],
+    "moves": [
+      "economy",
+      "Your pokemon's 4-move kit in detail.",
+      [],
+      "<slot>",
+      "Everyone"
+    ],
+    "npc": [
+      "economy",
+      "NPC ladder: joey/finn/cyntia, once a day each, cash + badge.",
+      [],
+      "[joey|finn|cyntia]",
+      "Everyone"
+    ],
+    "trainer": [
+      "economy",
+      "Your trainer card: box, levels, dex, duels.",
+      [],
+      "[@user]",
+      "Everyone"
+    ],
+    "trainers": [
+      "economy",
+      "Strongest trainers by total levels.",
+      [],
+      "",
       "Everyone"
     ],
     "emojisetup": [
@@ -1066,6 +1305,27 @@
       "starter / hunt / guess / box / battle / duel / npc / market / quests / move / stats",
       "Everyone"
     ],
+    "items": [
+      "economy",
+      "Your pokemon bag: balls, potions, candy, incense, eggs.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "evs": [
+      "economy",
+      "EV panel: what battles trained, caps and Power items.",
+      [],
+      "<slot|name>",
+      "Everyone"
+    ],
+    "held": [
+      "economy",
+      "Held items: equip, swap or drop one.",
+      [],
+      "<slot> <item|none>",
+      "Everyone"
+    ],
     "list": [
       "economy",
       "Server shiny + legendary boards.",
@@ -1073,11 +1333,46 @@
       "[shinies|legends]",
       "Everyone"
     ],
+    "grazz": [
+      "economy",
+      "Feed a golden razz (4k in ball shop): way better catch odds.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "repel": [
+      "economy",
+      "Repel 5k/30min: wild encounters hit +50% level.",
+      [],
+      "",
+      "Everyone"
+    ],
+    "evolve": [
+      "economy",
+      "Manually evolve an eligible pokemon.",
+      [],
+      "<slot>",
+      "Everyone"
+    ],
     "streaks": [
       "economy",
       "Catch streaks + shiny chain status.",
       [],
       "[@user]",
+      "Everyone"
+    ],
+    "code": [
+      "economy",
+      "Event codes: redeem cash/balls. House mints with create.",
+      [],
+      "<code>",
+      "Everyone"
+    ],
+    "phelp": [
+      "economy",
+      "Full pokemon command guide, grouped.",
+      [],
+      "",
       "Everyone"
     ],
     "ping": [
@@ -1111,6 +1406,15 @@
     "collection": [
       "economy",
       "Collection (alias box).",
+      [
+        "box"
+      ],
+      "",
+      "Everyone"
+    ],
+    "events": [
+      "economy",
+      "Events.",
       [],
       "",
       "Everyone"
@@ -1419,6 +1723,14 @@
       "Boss crafting: `;craft` lists recipes, `;craft info <key>` shows one, `;craft <key> [n]` asks for confirmation and revalidates on click.",
       [],
       "",
+      "Everyone",
+      false
+    ],
+    "fav": [
+      "economy",
+      "Mark or unmark a favourite species: `;fav <species>`. Favourites lead your dex and box pages.",
+      [],
+      "[species]",
       "Everyone",
       false
     ],

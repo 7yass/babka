@@ -1005,7 +1005,11 @@ def test_master_never_fails() -> None:
     cc = _catch_fn()
     check(cc('master', 'legendary', 100, 1.0, 0, False) == 1.0,
           'master ball returns 1.0 in any scenario')
-    seg = src[src.find('async def _do_catch'):src.find('async def _do_catch') + 1200]
+    # The catch math moved into services/catch_service.py when the
+    # catch flow was extracted; _do_catch is a thin wrapper now.
+    csrc = (ROOT / 'services' / 'catch_service.py').read_text(encoding='utf-8')
+    seg = csrc[csrc.find('async def attempt_catch'):
+               csrc.find('async def attempt_catch') + 1600]
     check('base is None' in seg and 'p = 1.0' in seg,
           'master bypasses the 0.98 cap')
     check('CATCH_MAX' in seg or 'min(0.98' in seg, 'other balls still capped')
@@ -1169,7 +1173,28 @@ def test_movesets_ivs() -> None:
     check(lo['maxhp'] < hi['maxhp'] and lo['atk'] < hi['atk'], 'IVs scale stats')
     check("ADD COLUMN ivs" in (ROOT / 'database.py').read_text(encoding='utf-8'),
           'ivs migrations present')
-    check(src.count('nick, active, ivs, evs)') >= 7, 'all mon inserts carry ivs+evs')
+    # Every mon insert must carry the ivs+evs columns.
+    # This used to count one literal string in cogs/pokemon.py. Then the
+    # catches moved into services/catch_service.py and the market into
+    # services/market_service.py, and two of the column lists were
+    # wrapped across a line - so the count dropped from 7 to 4 while the
+    # code stayed correct. Count the real column lists instead.
+    _ins_files = [ROOT / 'cogs' / 'pokemon.py',
+                  ROOT / 'services' / 'catch_service.py',
+                  ROOT / 'services' / 'market_service.py']
+    _ins_total = 0
+    _ins_bad = []
+    for _f in _ins_files:
+        _s = _f.read_text(encoding='utf-8')
+        for _m in re.finditer(
+                r'INSERT (?:OR IGNORE |OR REPLACE )?INTO pk_mons\s*\((.*?)\)',
+                _s, re.S):
+            _ins_total += 1
+            _cols = ' '.join(_m.group(1).split())
+            if 'ivs' not in _cols or 'evs' not in _cols:
+                _ins_bad.append(f'{_f.name}: {_cols}')
+    check(_ins_total >= 7, f'all mon inserts found ({_ins_total})')
+    check(not _ins_bad, 'all mon inserts carry ivs+evs' + (' - ' + '; '.join(_ins_bad) if _ins_bad else ''))
 
 
 def test_evs_and_held() -> None:
@@ -1235,7 +1260,9 @@ def test_evs_and_held() -> None:
     check(p.HELD_ITEMS['pow_atk'].get('stat') == 'atk' and p.POWER_EV == 4,
           'power items award +4 EVs into their own stat')
     # wiring: 4 strike sites + the helper, both win paths, both loops
-    check(src.count('held_strike(') >= 5, 'every strike site applies held items')
+    # One strike site lives in the shared battle engine now.
+    _hsrc = src + (ROOT / 'services' / 'battle_service.py').read_text(encoding='utf-8')
+    check(_hsrc.count('held_strike(') >= 5, 'every strike site applies held items')
     check("evs_win(gid, st['mid']" in src and 'evs_win(gid, fin_mid' in src,
           'EVs awarded on wild and duel wins')
     check(src.count('_held_heal(') >= 3, 'Leftovers ticks in both battle loops')
@@ -1286,10 +1313,12 @@ def test_hunt_modes() -> None:
         r, g, b = im.getpixel((450, 40))
         check((r + g + b < 350) == dark, f'{arena} sky reads right')
     src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
-    check("'mode': mode, 'arena': arena" in src, 'encounters store mode + arena')
+    esrc = (ROOT / 'services' / 'encounter_service.py').read_text(encoding='utf-8')
+    both = src + esrc
+    check("'mode': mode, 'arena': arena" in both, 'encounters store mode + arena')
     check('def _attach_enc_buttons(self, view, gid, uid, mode' in src,
           'encounter buttons take the mode')
-    check("if mode == 'fight':" in src, 'fight row only in fight mode')
+    check("if mode == 'fight':" in both, 'fight row only in fight mode')
     check("@commands.command(name='p'" in src, 'catch-only ;p command exists')
 
 
@@ -1318,9 +1347,11 @@ def test_phelp_hub() -> None:
 def test_catch_mode_text() -> None:
     """;p cards must never mention FIGHT or weakening (no FIGHT row)."""
     import json as _j
-    src = (ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+    # The mode branches moved into services/encounter_service.py.
+    src = ((ROOT / 'cogs' / 'pokemon.py').read_text(encoding='utf-8')
+           + (ROOT / 'services' / 'encounter_service.py').read_text(encoding='utf-8'))
     start = src.find("if mode == 'catch':")
-    branch = src[start:src.find('\n            else:', start)]
+    branch = src[start:start + 700] if start != -1 else ''
     check('pk_wild_catch' in branch and 'pk_odds' not in branch,
           'catch mode uses its own line, no weaken odds')
     lang = _j.loads((ROOT / 'lang.json').read_text(encoding='utf-8'))
