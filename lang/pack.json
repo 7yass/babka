@@ -1,0 +1,20 @@
+{
+  "en": {
+    "shop.u_card_pack": "opens immediately - the cards go to your collection",
+    "shop.pack_title": "Card pack - {name}",
+    "shop.pack_pulls": "pulls",
+    "shop.pack_ssr": "guaranteed LR+ tickets",
+    "shop.pack_haul": "haul",
+    "shop.pack_empty": "nothing came out",
+    "shop.pack_unknown": "That pack does not exist."
+  },
+  "pl": {
+    "shop.u_card_pack": "otwiera sie od razu - karty ida do twojej kolekcji",
+    "shop.pack_title": "Paczka kart - {name}",
+    "shop.pack_pulls": "losowan",
+    "shop.pack_ssr": "gwarantowane bilety LR+",
+    "shop.pack_haul": "zdobycz",
+    "shop.pack_empty": "nic nie wypadlo",
+    "shop.pack_unknown": "Taka paczka nie istnieje."
+  }
+}

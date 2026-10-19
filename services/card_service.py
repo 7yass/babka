@@ -141,6 +141,62 @@ def ticket_state(gid, uid) -> dict:
         return dict(row)
 
 
+# ---- card packs ----------------------------------------------------
+# The shop could not sell cards at all: coins had no path into the card
+# game, and the card game had no path to spend coins. A pack is the
+# bridge. It grants pulls (and, for the larger ones, guaranteed LR+
+# tickets) and then opens them, so the pity counter and the rotating
+# banner still apply exactly as they do for `.wish`.
+#
+# Prices live in utils/economy.py (SHOP_PRICES) - the shop catalog
+# consumes them, it does not restate them.
+PACKS = {
+    'card_pack_std': {'pulls': 10, 'ssr': 0},
+    'card_pack_mono': {'pulls': 30, 'ssr': 1},
+    'card_pack_animated': {'pulls': 50, 'ssr': 2},
+}
+
+
+def add_ssr_tickets(gid, uid, n: int) -> dict:
+    """Grant guaranteed LR+ tickets."""
+    ticket_state(gid, uid)
+    with db.conn_ctx() as conn:
+        conn.execute('UPDATE card_tickets SET ssr_tickets=ssr_tickets+? '
+                     'WHERE guild_id=? AND user_id=?', (int(n), str(gid), str(uid)))
+    return ticket_state(gid, uid)
+
+
+def open_pack(gid, uid, key: str) -> dict:
+    """Buy a card pack with coins and open it.
+
+    Returns {'ok', 'price', 'pulls', 'state', 'granted', 'ssr'} on success,
+    or {'ok': False, 'code': 'broke'|'no_pack'}.
+    """
+    spec = PACKS.get(key)
+    if spec is None:
+        return {'ok': False, 'code': 'no_pack'}
+    from utils.economy import SHOP_PRICES
+    from services import wallet
+    price = SHOP_PRICES[key].amount
+    try:
+        with db.conn_ctx() as conn:
+            wallet.take(conn, gid, uid, price, reason='card_pack', ref=key)
+    except wallet.InsufficientFunds:
+        return {'ok': False, 'code': 'broke', 'price': price}
+    except Exception:
+        return {'ok': False, 'code': 'no_pack', 'price': price}
+    pulls = int(spec['pulls'])
+    ssr = int(spec['ssr'])
+    if pulls:
+        add_tickets(gid, uid, pulls)
+    if ssr:
+        add_ssr_tickets(gid, uid, ssr)
+    res = wish(gid, uid, pulls) if pulls else {}
+    return {'ok': True, 'price': price, 'pulls': res.get('pulls') or [],
+            'state': res.get('state') or ticket_state(gid, uid),
+            'granted': pulls, 'ssr': ssr}
+
+
 def add_tickets(gid, uid, n: int) -> dict:
     ticket_state(gid, uid)
     with db.conn_ctx() as conn:

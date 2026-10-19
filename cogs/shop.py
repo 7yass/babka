@@ -29,6 +29,11 @@ ITEMS = {
     'highroller': {'price': SHOP_PRICES['highroller'].amount, 'use': 'shop.u_highroller'},
     'bail': {'price': SHOP_PRICES['bail'].amount, 'use': 'shop.u_bail'},
     'vip': {'price': SHOP_PRICES['vip'].amount, 'use': 'shop.u_vip'},
+    # Card packs: bought with coins, opened immediately. They are the
+    # bridge from the coin economy into the card game.
+    'card_pack_std': {'price': SHOP_PRICES['card_pack_std'].amount, 'use': 'shop.u_card_pack'},
+    'card_pack_mono': {'price': SHOP_PRICES['card_pack_mono'].amount, 'use': 'shop.u_card_pack'},
+    'card_pack_animated': {'price': SHOP_PRICES['card_pack_animated'].amount, 'use': 'shop.u_card_pack'},
 }
 # common misspellings / shortcuts -> canonical economy key
 ALIASES = {
@@ -198,6 +203,8 @@ DISPLAY = {
     'pardon': 'Pardon', 'curse': 'Curse Scroll', 'megabox': 'Megabox',
     'force': 'Force Scroll', 'highroller': 'High Roller', 'bail': 'Bail',
     'vip': 'VIP',
+    'card_pack_std': 'Standard Pack', 'card_pack_mono': 'Mono Pack',
+    'card_pack_animated': 'Animated Pack',
 }
 ITEM_EMOJI = {
     'cookie': 'candy', 'scratch': 'price_tag', 'lootbox': 'box_box',
@@ -205,6 +212,8 @@ ITEM_EMOJI = {
     'pardon': 'check', 'curse': 'check_cross', 'megabox': 'box_done',
     'force': 'quest_scroll', 'highroller': 'medal_gold', 'bail': 'lock_open',
     'vip': 'trophy',
+    'card_pack_std': 'package_2', 'card_pack_mono': 'package_2',
+    'card_pack_animated': 'package_2',
 }
 SECTION_EMOJI = {
     'Cheap thrills': 'candy', 'Identity': 'lock', 'Protection': 'shield',
@@ -381,15 +390,94 @@ class Shop(commands.Cog):
                                + '\n' + t(gid, 'shop.pk_bag_line'),
                                ephemeral=True)
 
+    @staticmethod
+    def _gamble_gate(gid, uid):
+        """Cooldown for the shop's coin boxes. None means "you may play".
+
+        The old `_gamble_gate` in cogs/gamble.py counted the hourly casino
+        plays. The casino rework replaced that with the ticket system and
+        DELETED the function - but cogs/shop.py kept importing it at the
+        top of `buy`, so every `.shop buy` raised ImportError. The boxes
+        are bought with coins, so the ticket gate never covered them
+        anyway; they get their own cooldown.
+        """
+        import time as _t
+        from utils.economy import SHOP_GAMBLE_CD
+        now = int(_t.time())
+        with db.conn_ctx() as conn:
+            conn.execute('INSERT OR IGNORE INTO eco (guild_id, user_id, cash) '
+                         'VALUES (?,?,1000)', (str(gid), str(uid)))
+            row = conn.execute('SELECT shop_cd FROM eco WHERE guild_id=? AND user_id=?',
+                               (str(gid), str(uid))).fetchone()
+            last = int(row['shop_cd'] or 0) if row and 'shop_cd' in row.keys() else 0
+            if last and now - last < SHOP_GAMBLE_CD:
+                return max(1, (SHOP_GAMBLE_CD - (now - last)) // 60)
+            conn.execute('UPDATE eco SET shop_cd=? WHERE guild_id=? AND user_id=?',
+                         (now, str(gid), str(uid)))
+        return None
+
+    async def _open_card_pack(self, ctx, key: str):
+        """Buy a card pack with coins and open it in one go.
+
+        Coins in, cards out. The pulls go through the same machinery as
+        `.wish`, so the pity counter and the banner behave identically.
+        """
+        from services.card_service import open_pack
+        from utils.cards import short as cshort
+        from utils.ui import panel, stat, rail, divider, ACCENT
+        from discord.ui.media_gallery import MediaGalleryItem
+        gid = ctx.guild.id
+        res = open_pack(gid, ctx.author.id, key)
+        if not res.get('ok'):
+            if res.get('code') == 'broke':
+                b = bal(gid, ctx.author.id)
+                return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])),
+                                       ephemeral=True)
+            return await ctx.reply(t(gid, 'shop.pack_unknown'), ephemeral=True)
+        pulls = res.get('pulls') or []
+        counts = {}
+        for p in pulls:
+            r = (p.get('rarity') or 'R').upper()
+            counts[r] = counts.get(r, 0) + 1
+        body = stat(t(gid, 'shop.pack_pulls'), res.get('granted', 0))
+        if res.get('ssr'):
+            body += '\n' + stat(t(gid, 'shop.pack_ssr'), res['ssr'])
+        body += '\n' + divider(t(gid, 'shop.pack_haul'))
+        body += ('\n' + rail(counts)) if counts else ('\n' + t(gid, 'shop.pack_empty'))
+        # the best card of the haul gets the frame
+        order = {'UR': 5, 'LR': 4, 'SR': 3, 'R': 2, 'C': 1}
+        best = None
+        for p in pulls:
+            if best is None or order.get((p.get('rarity') or 'R').upper(), 0) > \
+                    order.get((best.get('rarity') or 'R').upper(), 0):
+                best = p
+        items = None
+        file = None
+        if best:
+            try:
+                from services.cardframe import get_framed_card
+                framed = await self.bot.loop.run_in_executor(None, get_framed_card, best)
+            except Exception:
+                framed = None
+            if framed:
+                items = [MediaGalleryItem(media='attachment://card.png')]
+                file = discord.File(io.BytesIO(framed), 'card.png')
+            else:
+                body += (f"\n\n**{best.get('name') or best.get('code')}**  "
+                         f"`{best.get('code')}`")
+        view = panel(t(gid, 'shop.pack_title', name=DISPLAY.get(key, key)), body,
+                     accent=ACCENT['gold'], media_items=items)
+        return await ctx.reply(view=view, file=file, ephemeral=True)
+
     async def _buy_economy(self, ctx, key: str, n: int):
         """Economy-catalog purchase (`.shop` board's own numbers/names)."""
-        from cogs.gamble import bal, set_cash, _gamble_gate, add_cash
+        from cogs.gamble import bal, set_cash, add_cash
         from utils.cards import short as cshort
         gid = ctx.guild.id
         n = max(1, min(99, n or 1))
         price = ITEMS[key]['price']
         if key in self.GAMBLE_ITEMS:
-            wait = _gamble_gate(gid, ctx.author.id)
+            wait = self._gamble_gate(gid, ctx.author.id)
             if wait is not None:
                 return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
         if key in ('lootbox', 'megabox'):
@@ -406,6 +494,8 @@ class Shop(commands.Cog):
             return await self._buy_bail(ctx, price)
         if key == 'shield':
             return await self._buy_shield(ctx, n, price)
+        if key.startswith('card_pack'):
+            return await self._open_card_pack(ctx, key)
         b = bal(gid, ctx.author.id)
         total = price * n
         if b['cash'] < total:
@@ -430,7 +520,7 @@ class Shop(commands.Cog):
     @shop.command(name='buy', description='Kup przedmiot')
     async def buy(self, ctx, item: str = '', n: str = '1'):
         import random as _rnd
-        from cogs.gamble import bal, set_cash, _gamble_gate, add_cash
+        from cogs.gamble import bal, set_cash, add_cash
         from utils.cards import short as cshort
         gid = ctx.guild.id
         key = (item or '').lower().strip()

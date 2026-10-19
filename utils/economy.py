@@ -246,6 +246,16 @@ SSR_TICKET_VALUE = 20000   # one guaranteed LR+ ticket
 CARD_VALUE = {'C': 100, 'R': 400, 'SR': 1500, 'LR': 5000, 'UR': 10000}
 DUST_RATE = 0.1            # dust is grind currency: 10 000 dust ~= one card
 
+# ---- shop gamble cooldown -------------------------------------------
+# The shop's lootboxes are bought with coins, so the casino ticket gate
+# does not cover them. They still need a rate limit: without one, coins
+# can be cycled through a box over and over, and the box's own expected
+# value decides whether that is a money printer.
+# The old `gamble_n` counter was supposed to do this and never worked;
+# when the casino rework deleted it, the shop kept importing it and every
+# `.shop buy` raised ImportError.
+SHOP_GAMBLE_CD = 3600
+
 # ---- flow balance band ----------------------------------------------
 # The modelled player-day (tools/economy_balance.py) must not drift far
 # from neutral. A strongly positive net means the economy inflates - money
