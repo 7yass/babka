@@ -34,9 +34,21 @@ def ensure(conn, gid) -> None:
 
 def balance(gid) -> int:
     with db.conn_ctx() as conn:
-        ensure(conn, gid)
-        row = conn.execute('SELECT balance FROM guild_treasury WHERE guild_id=?',
-                           (str(gid),)).fetchone()
+        return _balance(conn, gid)
+
+
+def _balance(conn, gid) -> int:
+    """The pool's balance, read on the CALLER's connection.
+
+    The public `balance(gid)` opens its own connection, which is fine when
+    nothing else is holding a write lock. Inside a transaction it is NOT:
+    SQLite allows one writer, so a second connection blocks for 30 seconds
+    and then fails with 'database is locked'. Every helper that already
+    has a connection must use this one.
+    """
+    ensure(conn, gid)
+    row = conn.execute('SELECT balance FROM guild_treasury WHERE guild_id=?',
+                       (str(gid),)).fetchone()
     return int(row['balance'] or 0) if row else 0
 
 
@@ -50,10 +62,16 @@ def _ledger(conn, gid, delta: int, bal: int, reason: str, ref: str = '') -> None
 
 def deposit(conn, gid, amount: int, reason: str = 'treasury_in', ref: str = '') -> int:
     """Add to the pool. The caller owns the transaction."""
+    from utils.economy import COIN_CAP
     amount = int(amount)
     if amount <= 0:
-        return balance(gid)
+        return _balance(conn, gid)
     ensure(conn, gid)
+    # The pool obeys the same ceiling as a wallet: the guild's money is
+    # coins, and no holding in this economy may print a six-digit number.
+    room = max(0, COIN_CAP - _balance(conn, gid))
+    if amount > room:
+        amount = room
     conn.execute('UPDATE guild_treasury SET balance=balance+? WHERE guild_id=?',
                  (amount, str(gid)))
     bal = int(conn.execute('SELECT balance FROM guild_treasury WHERE guild_id=?',
@@ -66,7 +84,7 @@ def spend(conn, gid, amount: int, reason: str = 'treasury_out', ref: str = '') -
     """Take out of the pool. The caller owns the transaction."""
     amount = int(amount)
     if amount <= 0:
-        return balance(gid)
+        return _balance(conn, gid)
     ensure(conn, gid)
     cur = conn.execute('UPDATE guild_treasury SET balance=balance-? '
                        'WHERE guild_id=? AND balance>=?', (amount, str(gid), amount))

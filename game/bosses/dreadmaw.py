@@ -28,8 +28,8 @@ DREADMAW = BossDefinition(
     duration_seconds=3600,
     attack_cooldown_seconds=60,
     participation_damage=50,
-    participation_coins=1000,
-    top_bonus_coins=5000,
+    participation_coins=60,
+    top_bonus_coins=300,
     phases=(
         BossPhase(key='normal', min_hp_ratio=0.50,
                   moves=({'name': 'Tackle', 'power': 40, 'acc': 100,

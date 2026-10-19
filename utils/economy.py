@@ -14,8 +14,27 @@ Never generic PRICE_1 / VALUE_A — those rot invisibly.
 Catalogs (SHOP_PRICES, POKE_SHOP_PRICES) are the canonical monetary
 representation: command catalogs (ITEMS, BALLS, HELD_ITEMS, ...) consume
 `.amount` and keep only names/icons/effects. Keys are each catalog's own
-item keys — the economy 'lootbox' (75k gamble box) and the pokemon
-'lootbox' (15k item) are different things that happen to share a word.
+item keys — the economy 'lootbox' and the pokemon 'lootbox' are different
+things that happen to share a word.
+
+THE SCALE (reborn)
+------------------
+The old economy was denominated in "money" and ran to nine digits. A
+rich player held 50,000,000 and the number meant nothing — it was a
+measure of how long the server had been running, not of anything the
+player did. Money has to have WEIGHT behind it.
+
+The unit is now the COIN. One coin is worth several old money, the whole
+economy lives in five digits, and COIN_CAP is the ceiling on any coin
+holding. Nothing in this economy can print a number above 99,999: not
+the casino, not a windfall, not a hundred days of grinding.
+
+That ceiling is the point. It means a wallet's number is always a
+fraction of what you could possibly hold, so every coin still has a
+visible value. It also means that wealth beyond the cap cannot be
+carried as loose coins — it has to live in cards, stock portfolios and
+the guild treasury. Cards stop being currency and become what they
+should have been all along: prestige you cannot cash in.
 """
 from dataclasses import dataclass
 
@@ -29,71 +48,85 @@ class ShopPrice:
     currency: str = "coins"
 
 
+# ---- the ceiling -----------------------------------------------------
+# The hard cap on any coin-denominated holding: a wallet, a bank, a stock
+# portfolio, a guild treasury. Every number the economy can show a player
+# stays inside five digits.
+COIN_CAP = 99_999
+
+# ---- wallet seed & daily --------------------------------------------
+# What a fresh wallet holds, and what the daily hands out. These used to
+# live in cogs/gamble.py as literals; they are money, so they live HERE.
+START_CASH = 250
+DAILY_CASH = 40
+DAILY_CD = 86400
+
 # ---- economy board (`.shop`): keys are ITEMS keys ----
 SHOP_PRICES: dict[str, ShopPrice] = {
-    'cookie': ShopPrice('cookie', 7500),
-    'scratch': ShopPrice('scratch', 10000),
-    'lootbox': ShopPrice('lootbox', 75000),
-    'nick': ShopPrice('nick', 125000),
-    'shield': ShopPrice('shield', 175000),
-    'xpboost': ShopPrice('xpboost', 200000),
-    'pardon': ShopPrice('pardon', 300000),
-    'curse': ShopPrice('curse', 400000),
-    'megabox': ShopPrice('megabox', 400000),
-    'force': ShopPrice('force', 500000),
-    'highroller': ShopPrice('highroller', 2000000),
-    'bail': ShopPrice('bail', 40000),
-    'vip': ShopPrice('vip', 5000000),
-    'card_pack_std': ShopPrice('card_pack_std', 25000),
-    'card_pack_mono': ShopPrice('card_pack_mono', 75000),
-    'card_pack_animated': ShopPrice('card_pack_animated', 150000),
+    'cookie': ShopPrice('cookie', 20),
+    'scratch': ShopPrice('scratch', 40),
+    'bail': ShopPrice('bail', 150),
+    # card packs: the bridge from coins into the card game
+    'card_pack_std': ShopPrice('card_pack_std', 200),
+    'card_pack_mono': ShopPrice('card_pack_mono', 600),
+    'card_pack_animated': ShopPrice('card_pack_animated', 1000),
+    'lootbox': ShopPrice('lootbox', 250),
+    'nick': ShopPrice('nick', 500),
+    'shield': ShopPrice('shield', 700),
+    'xpboost': ShopPrice('xpboost', 900),
+    'pardon': ShopPrice('pardon', 1200),
+    'curse': ShopPrice('curse', 1500),
+    'megabox': ShopPrice('megabox', 2000),
+    'force': ShopPrice('force', 2500),
+    'highroller': ShopPrice('highroller', 6000),
+    'vip': ShopPrice('vip', 12000),
 }
 
 # ---- pokemon adventure shop (`;shop`, `;balls`): keys are the pokemon
 # catalog keys (BALLS / POTIONS / HELD_ITEMS / EVO_STONES / SHOP_EXTRAS
 # plus scalar items). ----
 POKE_SHOP_PRICES: dict[str, ShopPrice] = {
-    'poke': ShopPrice('poke', 500),
-    'great': ShopPrice('great', 1500),
-    'ultra': ShopPrice('ultra', 4000),
-    'master': ShopPrice('master', 50000),
-    'potion': ShopPrice('potion', 1000),
-    'superpotion': ShopPrice('superpotion', 3000),
-    'candy': ShopPrice('candy', 10000),
-    'grazz': ShopPrice('grazz', 4000),
-    'egg': ShopPrice('egg', 12000),
-    'incense': ShopPrice('incense', 25000),
-    'repel': ShopPrice('repel', 5000),
-    'leftovers': ShopPrice('leftovers', 15000),
-    'lifeorb': ShopPrice('lifeorb', 20000),
-    'focusband': ShopPrice('focusband', 18000),
-    'luckyegg': ShopPrice('luckyegg', 22000),
-    'pow_hp': ShopPrice('pow_hp', 12000),
-    'pow_atk': ShopPrice('pow_atk', 12000),
-    'pow_dfn': ShopPrice('pow_dfn', 12000),
-    'pow_spa': ShopPrice('pow_spa', 12000),
-    'pow_spd': ShopPrice('pow_spd', 12000),
-    'pow_spe': ShopPrice('pow_spe', 12000),
-    'water_stone': ShopPrice('water_stone', 15000),
-    'thunder_stone': ShopPrice('thunder_stone', 15000),
-    'fire_stone': ShopPrice('fire_stone', 15000),
-    'sun_stone': ShopPrice('sun_stone', 15000),
-    'moon_stone': ShopPrice('moon_stone', 15000),
-    'leaf_stone': ShopPrice('leaf_stone', 15000),
-    'ice_stone': ShopPrice('ice_stone', 15000),
-    'shiny_stone': ShopPrice('shiny_stone', 15000),
-    'amuletcoin': ShopPrice('amuletcoin', 200000),
-    'questscroll': ShopPrice('questscroll', 15000),
-    'shinycharm': ShopPrice('shinycharm', 75000),
-    'lootbox': ShopPrice('lootbox', 15000),
-    'wailmer_pail': ShopPrice('wailmer_pail', 1000000),
-    'expshare': ShopPrice('expshare', 2500000),
-    'evolutionstone': ShopPrice('evolutionstone', 30000),
-    'mega_bracelet': ShopPrice('mega_bracelet', 150000),
+    'poke': ShopPrice('poke', 5),
+    'great': ShopPrice('great', 15),
+    'ultra': ShopPrice('ultra', 40),
+    'master': ShopPrice('master', 500),
+    'potion': ShopPrice('potion', 10),
+    'superpotion': ShopPrice('superpotion', 30),
+    'candy': ShopPrice('candy', 100),
+    'grazz': ShopPrice('grazz', 40),
+    'egg': ShopPrice('egg', 120),
+    'incense': ShopPrice('incense', 250),
+    'repel': ShopPrice('repel', 50),
+    'leftovers': ShopPrice('leftovers', 150),
+    'lifeorb': ShopPrice('lifeorb', 200),
+    'focusband': ShopPrice('focusband', 180),
+    'luckyegg': ShopPrice('luckyegg', 220),
+    'pow_hp': ShopPrice('pow_hp', 120),
+    'pow_atk': ShopPrice('pow_atk', 120),
+    'pow_dfn': ShopPrice('pow_dfn', 120),
+    'pow_spa': ShopPrice('pow_spa', 120),
+    'pow_spd': ShopPrice('pow_spd', 120),
+    'pow_spe': ShopPrice('pow_spe', 120),
+    'water_stone': ShopPrice('water_stone', 150),
+    'thunder_stone': ShopPrice('thunder_stone', 150),
+    'fire_stone': ShopPrice('fire_stone', 150),
+    'sun_stone': ShopPrice('sun_stone', 150),
+    'moon_stone': ShopPrice('moon_stone', 150),
+    'shiny_stone': ShopPrice('shiny_stone', 150),
+    'leaf_stone': ShopPrice('leaf_stone', 150),
+    'ice_stone': ShopPrice('ice_stone', 150),
+    'amuletcoin': ShopPrice('amuletcoin', 2000),
+    'questscroll': ShopPrice('questscroll', 150),
+    'shinycharm': ShopPrice('shinycharm', 750),
+    'lootbox': ShopPrice('lootbox', 150),
+    'wailmer_pail': ShopPrice('wailmer_pail', 10000),
+    'expshare': ShopPrice('expshare', 25000),
+    'evolutionstone': ShopPrice('evolutionstone', 300),
+    'mega_bracelet': ShopPrice('mega_bracelet', 250),
 }
 
 # ---- casino ----------------------------------------------------------
-# Gambling is GATED BY TICKETS, not an hourly counter. One ticket buys one
+# Gambling is GATED BY TICKETS, not by an hourly counter. One ticket buys one
 # play on any game. Tickets arrive from `.drop` (CASINO_TIX_DROP_CHANCE per
 # claim) and `.daily` (CASINO_TIX_DAILY guaranteed). CASINO_TIX_MAX is the
 # hoard ceiling so the stack can't be banked indefinitely.
@@ -106,9 +139,12 @@ CASINO_TIX_DROP_CHANCE = 0.25   # per .drop claim
 CASINO_TIX_DAILY = 2           # per .daily
 CASINO_TIX_MAX = 50            # hoard ceiling
 
-CASINO_BASE_MAX_BET = 12000
-CASINO_MAX_BET_PER_LEVEL = 1500
-CASINO_MAX_BET_CAP = 60000
+# Bets are small on purpose. A player who can only risk a few hundred coins
+# per hand has to think about the number, and the ceiling stays five digits.
+CASINO_BASE_MAX_BET = 200
+CASINO_MAX_BET_PER_LEVEL = 25
+CASINO_MAX_BET_CAP = 1000
+CASINO_MIN_BET = 5
 
 # Per-game profit scales (1.0 = paytable as written).
 CASINO_ROU_SCALE = 0.90        # even 92.4% / dozen 90.8% / straight 87.8%
@@ -171,9 +207,9 @@ class HeistTarget:
 
 
 CRIME_HEIST_TARGETS: dict[str, HeistTarget] = {
-    'bank': HeistTarget('bank', stake=300, payout_mult=2.0),
-    'kasyno': HeistTarget('kasyno', stake=600, payout_mult=2.4),
-    'muzeum': HeistTarget('muzeum', stake=1000, payout_mult=2.8),
+    'bank': HeistTarget('bank', stake=30, payout_mult=2.0),
+    'kasyno': HeistTarget('kasyno', stake=60, payout_mult=2.4),
+    'muzeum': HeistTarget('muzeum', stake=100, payout_mult=2.8),
 }
 
 
@@ -191,18 +227,11 @@ class RobTuning:
     fine_cap: int
 
 
-CRIME_ROB = RobTuning(loot_min_pct=0.08, loot_max_pct=0.20, loot_min=10,
-                      loot_cap=25000, fine_min=100, fine_pct=0.20, fine_cap=15000)
+CRIME_ROB = RobTuning(loot_min_pct=0.08, loot_max_pct=0.20, loot_min=1,
+                      loot_cap=2500, fine_min=5, fine_pct=0.20, fine_cap=1500)
 
-CRIME_BOUNTY_MIN = 100
+CRIME_BOUNTY_MIN = 25
 
-
-# ---- wallet seed & daily --------------------------------------------
-# What a fresh wallet holds, and what the daily hands out. These lived in
-# cogs/gamble.py as literals; they are money, so they live HERE.
-START_CASH = 1000
-DAILY_CASH = 1500
-DAILY_CD = 86400
 
 # ---- streaks ---------------------------------------------------------
 # The cheapest legible progression there is: it costs a player nothing but
@@ -218,41 +247,62 @@ STREAK_GRACE = 172800        # 48h: one missed day does NOT kill the streak
 # ---- bank interest ---------------------------------------------------
 # Interest on the banked balance. The flat cap is gone: the cap and the
 # rate both scale with the player's level, so a level-1 account and a
-# level-80 account do not earn the same 500 forever. The bank is a real
+# level-80 account do not earn the same forever. The bank is a real
 # money sink for players who do not want to gamble it.
 BANK_INTEREST_RATE = 0.02          # per day, on the banked balance
 BANK_INTEREST_LEVEL_BONUS = 0.002  # +0.2% of the rate per level above 1
 BANK_INTEREST_MIN = 1
-BANK_INTEREST_CAP_BASE = 500       # cap at level 1
-BANK_INTEREST_CAP_PER_LEVEL = 60   # +60 cap per level
-BANK_INTEREST_MAX_CAP = 5000
+BANK_INTEREST_CAP_BASE = 25        # cap at level 1
+BANK_INTEREST_CAP_PER_LEVEL = 5    # +5 cap per level
+BANK_INTEREST_MAX_CAP = 500
 
 # ---- tax -------------------------------------------------------------
 # An economy needs sinks as well as faucets. Windfalls above the threshold
 # pay a small tax into the guild treasury, which buys upgrades that benefit
 # every member. Capped so a big win is never punished into nothing.
-# The threshold sits below a normal tribute so the fee actually bites
-# instead of only ever catching whale-sized transfers.
-TAX_THRESHOLD = 10000
+# The threshold sits low enough that the fee actually bites instead of
+# only ever catching whale-sized transfers.
+TAX_THRESHOLD = 1000
 TAX_RATE = 0.03
-TAX_CAP = 5000
+TAX_CAP = 500
 
 # ---- valuation (net worth only — NOT tradable) -----------------------
-# Shadow prices used to turn non-coin holdings into a single number. They
-# are deliberately conservative and never leave the net-worth screen.
-TICKET_VALUE = 2500        # one casino ticket
-CARD_TICKET_VALUE = 1500   # one card-pull ticket
-SSR_TICKET_VALUE = 20000   # one guaranteed LR+ ticket
-CARD_VALUE = {'C': 100, 'R': 400, 'SR': 1500, 'LR': 5000, 'UR': 10000}
-DUST_RATE = 0.1            # dust is grind currency: 10 000 dust ~= one card
+# Shadow prices for non-coin holdings, used only to summarise a wallet.
+# Cards are deliberately NOT valued here: a card is prestige, not money,
+# and pricing it would put a nine-digit number back on the screen.
+TICKET_VALUE = 100        # one casino ticket
+CARD_TICKET_VALUE = 60    # one card-pull ticket
+SSR_TICKET_VALUE = 800    # one guaranteed LR+ ticket
 
-# ---- world boss phase barrier ----------------------------------------
-# A phase barrier is an absolute number in the boss definition, but a
-# boss's max HP is not fixed - a small boss scaled down for a short
-# fight would get a barrier bigger than its entire health pool, and
-# become literally unkillable while the barrier soaked up every strike.
-# The barrier is therefore capped at this fraction of the boss's max HP.
-BOSS_BARRIER_MAX_FRACTION = 0.10
+# ---- guild upgrades --------------------------------------------------
+# The server-wide progression track. Members pay into the guild treasury,
+# the guild buys upgrades, and every member gets the buff. Costs are
+# per-level and the effect is per-member, so a single whale cannot make
+# the upgrade worthless for everyone else.
+GUILD_UPGRADES = {
+    'luck': {
+        'name': 'luck', 'max': 3,
+        'costs': (3000, 9000, 22500),
+        'effect': 'chance', 'per_level': 0.01,
+    },
+    'vault': {
+        'name': 'vault', 'max': 3,
+        'costs': (2500, 7500, 20000),
+        'effect': 'interest', 'per_level': 0.01,
+    },
+    'hearth': {
+        'name': 'hearth', 'max': 3,
+        'costs': (2000, 6000, 15000),
+        'effect': 'daily_mult', 'per_level': 0.1,
+    },
+}
+GUILD_UPGRADE_TAX_SHARE = 1.0   # fraction of a tax that funds upgrades
+
+# ---- world boss ------------------------------------------------------
+# Raid payouts are coins, so they live on the same scale as everything
+# else. The heal is a real sink: it is the one way to buy back a fainted
+# snapshot mid-raid.
+WORLDBOSS_HEAL_COST = 100
 
 # ---- shop gamble cooldown -------------------------------------------
 # The shop's lootboxes are bought with coins, so the casino ticket gate
@@ -278,26 +328,10 @@ SHOP_GAMBLE_CD = 3600
 BALANCE_NET_MIN = -0.40     # net as a fraction of gross flow
 BALANCE_NET_MAX = 0.15
 
-# ---- guild upgrades --------------------------------------------------
-# The server-wide progression track. Members pay into the guild treasury,
-# the guild buys upgrades, and every member gets the buff. Costs are
-# per-level and the effect is per-member, so a single whale cannot make
-# the upgrade worthless for everyone else.
-GUILD_UPGRADES = {
-    'luck': {
-        'name': 'luck', 'max': 3,
-        'costs': (60000, 180000, 450000),
-        'effect': 'chance', 'per_level': 0.01,
-    },
-    'vault': {
-        'name': 'vault', 'max': 3,
-        'costs': (50000, 150000, 400000),
-        'effect': 'interest', 'per_level': 0.01,
-    },
-    'hearth': {
-        'name': 'hearth', 'max': 3,
-        'costs': (40000, 120000, 320000),
-        'effect': 'daily_mult', 'per_level': 0.1,
-    },
-}
-GUILD_UPGRADE_TAX_SHARE = 1.0   # fraction of a tax that funds upgrades
+# ---- world boss phase barrier ----------------------------------------
+# A phase barrier is an absolute number in the boss definition, but a
+# boss's max HP is not fixed - a small boss scaled down for a short
+# fight would get a barrier bigger than its entire health pool, and
+# become literally unkillable while the barrier soaked up every strike.
+# The barrier is therefore capped at this fraction of the boss's max HP.
+BOSS_BARRIER_MAX_FRACTION = 0.10

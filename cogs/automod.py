@@ -4,15 +4,40 @@ import re
 import time
 import unicodedata
 from collections import defaultdict, deque
+from pathlib import Path
 
 import discord
 from discord.ext import commands
 
 import database as db
+import lang
 from lang import t
 from utils.embeds import build, err, ok, say, WHITE, DARK_RED
 from utils.checks import staff_or
 from utils.common import log_to_mod
+
+# The automod family (hand-rolled + native AutoMod) keeps its own strings in
+# lang/automod.json, next to lang.json but separate from it. Merging keeps
+# t(guild_id, key) working for every key without touching lang.json.
+_EXTRA_LANG = Path(__file__).resolve().parent.parent / 'lang' / 'automod.json'
+
+
+def _merge_extra_lang() -> None:
+    """Fold lang/automod.json into the shared string table."""
+    try:
+        with open(_EXTRA_LANG, encoding='utf-8') as f:
+            extra = json.load(f)
+    except Exception:
+        return
+    for code, table in (extra or {}).items():
+        if not isinstance(table, dict):
+            continue
+        target = lang.STR.setdefault(code, {})
+        for key, value in table.items():
+            target.setdefault(key, value)
+
+
+_merge_extra_lang()
 
 INVITE_RE = re.compile(r'discord(?:\.gg|app\.com/invite)/[\w-]+', re.I)
 LINK_RE = re.compile(r'https?://\S+', re.I)
@@ -406,8 +431,8 @@ class AutoMod(commands.Cog):
     # ---------- commands ----------
     @commands.group(name='automod', description='Auto-moderacja')
     async def automod(self, ctx):
-        await ctx.reply('.automod status / toggle / badword-add / badword-remove / anti-invite / anti-link',
-                        ephemeral=True)
+        await ctx.reply('.automod status / toggle / badword-add / badword-remove / anti-invite / anti-link\n'
+                        + t(ctx.guild.id, 'am.native_hint'), ephemeral=True)
 
     @automod.command(name='status', description='Pokaż ustawienia')
     async def status(self, ctx):

@@ -129,13 +129,17 @@ def net_worth(gid, uid) -> dict:
 
     Cash alone was never the truth: a player sitting on 300 000 in bank and
     a UR card was richer than one with 300 000 in cash and nothing else.
-    Every holding now has a conservative shadow price so `.bal` and the
-    leaderboard can compare people who play differently.
+
+    CARDS ARE NOT MONEY. A card is prestige, and pricing it in coins
+    would put a nine-digit number straight back on the screen. The
+    collection is reported as a COUNT and a rarity rail instead, and the
+    money total covers only what can actually be spent.
     """
-    from utils.economy import (CARD_VALUE, TICKET_VALUE, CARD_TICKET_VALUE,
-                               SSR_TICKET_VALUE, DUST_RATE)
+    from utils.economy import (TICKET_VALUE, CARD_TICKET_VALUE,
+                               SSR_TICKET_VALUE)
     g, u = str(gid), str(uid)
-    out = {'cash': 0, 'bank': 0, 'stocks': 0, 'cards': 0, 'tickets': 0, 'dust': 0}
+    out = {'cash': 0, 'bank': 0, 'stocks': 0, 'tickets': 0,
+           'cards': 0, 'card_rarity': {}}
     with db.conn_ctx() as conn:
         row = conn.execute('SELECT cash, bank FROM eco WHERE guild_id=? AND user_id=?',
                            (g, u)).fetchone()
@@ -154,11 +158,14 @@ def net_worth(gid, uid) -> dict:
             pass
         try:
             rows = conn.execute(
-                'SELECT a.rarity AS rar, SUM(c.qty) AS n '
-                'FROM anime_collection c JOIN anime_cards a ON a.id=c.card_id '
-                'WHERE c.guild_id=? AND c.user_id=? GROUP BY a.rarity', (g, u)).fetchall()
+                'SELECT a.rarity AS rar, COUNT(DISTINCT o.card_id) AS n '
+                'FROM anime_collection o JOIN anime_cards a ON a.id=o.card_id '
+                'WHERE o.guild_id=? AND o.user_id=? GROUP BY a.rarity', (g, u)).fetchall()
             for r in rows:
-                out['cards'] += CARD_VALUE.get((r['rar'] or 'R').upper(), 0) * int(r['n'] or 0)
+                rar = (r['rar'] or 'R').upper()
+                n = int(r['n'] or 0)
+                out['cards'] += n
+                out['card_rarity'][rar] = n
         except Exception:
             pass
         try:
@@ -176,15 +183,7 @@ def net_worth(gid, uid) -> dict:
                                    + int(row['ssr_tickets'] or 0) * SSR_TICKET_VALUE)
         except Exception:
             pass
-        try:
-            row = conn.execute('SELECT dust FROM anime_dust WHERE guild_id=? AND user_id=?',
-                               (g, u)).fetchone()
-            if row:
-                out['dust'] = int(int(row['dust'] or 0) * DUST_RATE)
-        except Exception:
-            pass
-    out['total'] = (out['cash'] + out['bank'] + out['stocks']
-                    + out['cards'] + out['tickets'] + out['dust'])
+    out['total'] = out['cash'] + out['bank'] + out['stocks'] + out['tickets']
     return out
 
 
@@ -208,15 +207,15 @@ def top_net_worth(gid, limit: int = 25) -> list:
     Returns [{'user_id', 'cash', 'bank', 'stocks', 'cards', 'tickets',
     'dust', 'total'}] sorted by total descending.
     """
-    from utils.economy import (CARD_VALUE, TICKET_VALUE, CARD_TICKET_VALUE,
-                               SSR_TICKET_VALUE, DUST_RATE)
+    from utils.economy import (TICKET_VALUE, CARD_TICKET_VALUE,
+                               SSR_TICKET_VALUE)
     g = str(gid)
     acc = {}
 
     def slot(uid):
         return acc.setdefault(str(uid), {'user_id': str(uid), 'cash': 0, 'bank': 0,
                                          'stocks': 0, 'cards': 0, 'tickets': 0,
-                                         'dust': 0, 'total': 0})
+                                         'total': 0})
 
     with db.conn_ctx() as conn:
         for r in conn.execute('SELECT user_id, cash, bank FROM eco WHERE guild_id=?', (g,)):
@@ -234,10 +233,10 @@ def top_net_worth(gid, limit: int = 25) -> list:
             pass
         try:
             for r in conn.execute(
-                    'SELECT c.user_id AS u, a.rarity AS rar, SUM(c.qty) AS n '
+                    'SELECT c.user_id AS u, a.rarity AS rar, COUNT(DISTINCT c.card_id) AS n '
                     'FROM anime_collection c JOIN anime_cards a ON a.id=c.card_id '
                     'WHERE c.guild_id=? GROUP BY c.user_id, a.rarity', (g,)):
-                slot(r['u'])['cards'] += CARD_VALUE.get((r['rar'] or 'R').upper(), 0) * int(r['n'] or 0)
+                slot(r['u'])['cards'] += int(r['n'] or 0)
         except Exception:
             pass
         try:
@@ -255,12 +254,11 @@ def top_net_worth(gid, limit: int = 25) -> list:
             pass
         try:
             for r in conn.execute('SELECT user_id, dust FROM anime_dust WHERE guild_id=?', (g,)):
-                slot(r['user_id'])['dust'] = int(int(r['dust'] or 0) * DUST_RATE)
+                pass        # dust is card progression, not money
         except Exception:
             pass
     for s in acc.values():
-        s['total'] = (s['cash'] + s['bank'] + s['stocks'] + s['cards']
-                      + s['tickets'] + s['dust'])
+        s['total'] = (s['cash'] + s['bank'] + s['stocks'] + s['tickets'])
     return sorted(acc.values(), key=lambda s: -s['total'])[:int(limit)]
 
 

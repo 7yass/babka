@@ -687,11 +687,11 @@ class Shop(commands.Cog):
     # (cash_lo, cash_hi, weight) normal prizes per box; then item/jackpot rolls.
     # Tuned so expected value stays well under the price (house edge).
     BOX_TABLES = {
-        'lootbox': {'cash': (10000, 40000, 0.60), 'big': (80000, 150000, 0.08),
-                    'jackpot': 400000, 'jackpot_w': 0.02,
+        'lootbox': {'cash': (120, 300, 0.60), 'big': (600, 1000, 0.08),
+                    'jackpot': 1750, 'jackpot_w': 0.02,
                     'items': [('xpboost', 24 * 3600, 0.10), ('shield', 24 * 3600, 0.07)]},
-        'megabox': {'cash': (100000, 300000, 0.45), 'big': (400000, 800000, 0.13),
-                    'jackpot': 2000000, 'jackpot_w': 0.02,
+        'megabox': {'cash': (600, 1500, 0.45), 'big': (2500, 5000, 0.13),
+                    'jackpot': 17700, 'jackpot_w': 0.02,
                     'items': [('xpboost', 7 * 24 * 3600, 0.15), ('shield', 7 * 24 * 3600, 0.12)]},
     }
     # instant shop gambles share the hourly play limit with casino games

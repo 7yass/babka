@@ -15,7 +15,7 @@ from discord.ext import commands
 import database as db
 from lang import t
 from services import ledger, streaks, treasury
-from utils.ui import ACCENT, divider, meter, panel, stat
+from utils.ui import ACCENT, divider, meter, panel, rail, stat
 from utils.ui import uname
 
 
@@ -55,14 +55,19 @@ class Economy(commands.Cog):
         gid = ctx.guild.id
         member = member or ctx.author
         w = ledger.net_worth(gid, member.id)
+        # Money is coins and it is capped. Cards are NOT money: a card is
+        # prestige, and pricing it in coins would put a six-figure number
+        # straight back on the screen. The collection is a COUNT.
         body = (stat(t(gid, 'eco.worth_cash'), f'{w["cash"]:,}'.replace(',', ' '))
                 + '\n' + stat(t(gid, 'eco.worth_bank'), f'{w["bank"]:,}'.replace(',', ' '))
                 + '\n' + stat(t(gid, 'eco.worth_stocks'), f'{w["stocks"]:,}'.replace(',', ' '))
-                + '\n' + stat(t(gid, 'eco.worth_cards'), f'{w["cards"]:,}'.replace(',', ' '))
                 + '\n' + stat(t(gid, 'eco.worth_tickets'), f'{w["tickets"]:,}'.replace(',', ' '))
-                + '\n' + stat(t(gid, 'eco.worth_dust'), f'{w["dust"]:,}'.replace(',', ' '))
                 + '\n' + divider()
                 + '\n' + stat(t(gid, 'eco.worth_total'), f'**{w["total"]:,}**'.replace(',', ' ')))
+        if w.get('cards'):
+            body += ('\n' + divider(t(gid, 'eco.worth_collection'))
+                     + '\n' + stat(t(gid, 'eco.worth_cards'), w['cards'])
+                     + '\n' + rail(w.get('card_rarity') or {}))
         await ctx.reply(view=panel(t(gid, 'eco.worth_title', user=uname(member)),
                                    body, accent=ACCENT['default']),
                         ephemeral=True)
@@ -162,7 +167,7 @@ class Economy(commands.Cog):
         """Put your own coins into the guild pool."""
         gid = ctx.guild.id
         amount = int(amount)
-        if amount < 100:
+        if amount < 25:
             return await ctx.reply(t(gid, 'eco.treasury_min'), ephemeral=True)
         from services.wallet import InsufficientFunds
         from services import wallet

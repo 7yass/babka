@@ -219,7 +219,9 @@ def main() -> None:
     check(res['code'] == 'DEFEATED', 'tidecaller falls')
     add_cash(GID, 'diver', 0)
     r = wb.claim_rewards(GID, 'diver', now + 62, rng=FakeRng(rolls=[0.0] * 4))
-    check(r['ok'] and r['amount'] == 6000, 'tidecaller pays configured rewards')
+    from game.bosses.tidecaller import TIDECALLER as _TC
+    check(r['ok'] and r['amount'] == _TC.participation_coins + _TC.top_bonus_coins,
+          'tidecaller pays configured rewards')
     check(r['loot'] == [('poke', 2), ('poke', 2)], 'tidecaller loot table used')
 
     # --- two guilds, two definitions, independent ---

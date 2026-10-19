@@ -17,7 +17,7 @@ from game.bosses.models import (BossDefinition, definition_from_snapshot,
 from game.bosses.registry import registry
 from lang import t
 
-HEAL_COST = 1000       # coin cost, once per raid per user (format-wide)
+HEAL_COST = 100        # coin cost, once per raid per user (format-wide)
 
 
 def resolve_boss_phase(phases, hp: int, max_hp: int):

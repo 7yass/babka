@@ -21,7 +21,7 @@ from lang import t
 from services._common import (cash_of, credit_cash, debit_cash, ensure_eco,
                               get_owned_pokemon, reassign_active, upsert_item)
 
-MIN_PRICE = 100
+MIN_PRICE = 10
 MAX_LISTINGS = 3
 SALE_TAX_PCT = 5
 BROWSE_LIMIT = 40

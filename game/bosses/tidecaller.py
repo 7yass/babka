@@ -28,8 +28,8 @@ TIDECALLER = BossDefinition(
     duration_seconds=3600,
     attack_cooldown_seconds=60,
     participation_damage=75,
-    participation_coins=1000,
-    top_bonus_coins=5000,
+    participation_coins=60,
+    top_bonus_coins=300,
     phases=(
         BossPhase(key='normal', min_hp_ratio=0.60,
                   moves=({'name': 'Water Gun', 'power': 40, 'acc': 100,

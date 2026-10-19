@@ -38,6 +38,7 @@ def main() -> None:
     db.init_db()
 
     from services import _common as c
+    from utils.economy import START_CASH
 
     src = (ROOT / 'services' / '_common.py').read_text(encoding='utf-8')
     for bad in ('import discord', 'from discord', 'Interaction', 'Context'):
@@ -48,15 +49,19 @@ def main() -> None:
     # --- wallet ---
     with db.conn_ctx() as conn:
         c.ensure_eco(conn, GID, 'u1')
-        check(c.cash_of(conn, GID, 'u1') == 1000, 'ensure seeds START_CASH')
-        check(c.credit_cash(conn, GID, 'u1', 500) == 1500, 'credit returns balance')
-        check(c.debit_cash(conn, GID, 'u1', 200) == 1300, 'debit returns balance')
+        check(c.cash_of(conn, GID, 'u1') == START_CASH, 'ensure seeds START_CASH')
+        check(c.credit_cash(conn, GID, 'u1', 500) == START_CASH + 500,
+              'credit returns balance')
+        check(c.debit_cash(conn, GID, 'u1', 200) == START_CASH + 300,
+              'debit returns balance')
         try:
             c.debit_cash(conn, GID, 'u1', 99999)
             check(False, 'debit rejects insufficient')
         except c.InsufficientCashError as e:
-            check(e.balance == 1300 and e.amount == 99999, 'insufficient carries figures')
-        check(c.cash_of(conn, GID, 'u1') == 1300, 'failed debit changes nothing')
+            check(e.balance == START_CASH + 300 and e.amount == 99999,
+                  'insufficient carries figures')
+        check(c.cash_of(conn, GID, 'u1') == START_CASH + 300,
+              'failed debit changes nothing')
 
     # --- inventory ---
     with db.conn_ctx() as conn:

@@ -63,6 +63,7 @@ def main() -> None:
     db.init_db()
 
     from cogs.gamble import add_cash
+    from utils.economy import START_CASH
     from services import market_service as mk
 
     src = (ROOT / 'services' / 'market_service.py').read_text(encoding='utf-8')
@@ -73,26 +74,26 @@ def main() -> None:
     with db.conn_ctx() as conn:
         m1 = mkmon(conn, 'seller', dex=25, level=12, active=1)
         m2 = mkmon(conn, 'seller', dex=133, level=5)
-    r = mk.create_listing(GID, 'seller', 'SellerName', m1, 1000)
+    r = mk.create_listing(GID, 'seller', 'SellerName', m1, 100)
     check(r.ok and r.code == 'LISTING_CREATED' and r.listing_id, 'valid listing succeeds')
-    check(r.price == 1000 and r.dex == 25, 'result carries price/dex')
+    check(r.price == 100 and r.dex == 25, 'result carries price/dex')
     check(len(market_rows()) == 1 and not any(m['id'] == m1 for m in mons_of('seller')),
           'listing owns the mon (moved out of pk_mons)')
     with db.conn_ctx() as conn:
         nxt = conn.execute('SELECT active FROM pk_mons WHERE id=?', (m2,)).fetchone()
     check(nxt['active'] == 1, 'active reassigned to first remaining mon')
 
-    r = mk.create_listing(GID, 'seller', 'S', 999999, 1000)
+    r = mk.create_listing(GID, 'seller', 'S', 999999, 100)
     check(not r.ok and r.code == 'NOT_FOUND', 'nonexistent mon fails')
-    r = mk.create_listing(GID, 'intruder', 'I', m2, 1000)
+    r = mk.create_listing(GID, 'intruder', 'I', m2, 100)
     check(not r.ok and r.code == 'NOT_FOUND', 'wrong owner fails')
-    r = mk.create_listing(GID, 'seller', 'S', m2, 50)
+    r = mk.create_listing(GID, 'seller', 'S', m2, 5)
     check(not r.ok and r.code == 'PRICE_TOO_LOW' and len(market_rows()) == 1,
           'price below minimum fails, nothing listed')
 
     with db.conn_ctx() as conn:
         ml = mkmon(conn, 'seller', locked=1)
-    r = mk.create_listing(GID, 'seller', 'S', ml, 500)
+    r = mk.create_listing(GID, 'seller', 'S', ml, 50)
     check(not r.ok and r.code == 'LOCKED' and len(market_rows()) == 1,
           'locked mon fails, mon untouched')
     check(any(m['id'] == ml for m in mons_of('seller')), 'locked mon stays in box')
@@ -120,18 +121,18 @@ def main() -> None:
 
     # --- buy ---
     lid = [x for x in market_rows() if x['seller_id'] == 'seller'][0]['id']
-    add_cash(GID, 'buyer', 5000)
+    add_cash(GID, 'buyer', 500)
     add_cash(GID, 'seller', 0)
     b0, s0 = cash_of('buyer'), cash_of('seller')  # includes START_CASH padding
     r = mk.buy_listing(GID, 'buyer', lid)
     check(r.ok and r.code == 'BUY_SUCCESS', 'valid purchase succeeds')
-    check(cash_of('buyer') == b0 - 1000, 'buyer charged full price')
-    check(cash_of('seller') == s0 + 950, 'seller receives 95%')
-    check(r.tax == 50 and r.fee == 0, 'fee math recorded')
+    check(cash_of('buyer') == b0 - 100, 'buyer charged full price')
+    check(cash_of('seller') == s0 + 95, 'seller receives 95%')
+    check(r.tax == 5 and r.fee == 0, 'fee math recorded')
     owned = [m for m in mons_of('buyer') if m['dex'] == 25 and m['level'] == 12]
     check(len(owned) == 1, 'purchased mon belongs to buyer')
     check(not any(x['id'] == lid for x in market_rows()), 'listing gone after buy')
-    check('1000' in r.message or '1 000' in r.message, 'message quotes price')
+    check('100' in r.message, 'message quotes price')
 
     r = mk.buy_listing(GID, 'buyer', 999999)
     check(not r.ok and r.code == 'NOT_FOUND', 'missing listing fails')
@@ -143,13 +144,13 @@ def main() -> None:
     check(not r.ok and r.code == 'SELF_BUY', 'self-buy fails')
     check(any(x['id'] == rs.listing_id for x in market_rows()), 'self-buy leaves listing')
 
-    add_cash(GID, 'poor', 100)  # 1100 with START_CASH: still short of 2000
+    add_cash(GID, 'poor', 10)  # 260 with START_CASH: still short of 200
     with db.conn_ctx() as conn:
         mp = mkmon(conn, 'seller2')
-    rp = mk.create_listing(GID, 'seller2', 'S2', mp, 2000)
+    rp = mk.create_listing(GID, 'seller2', 'S2', mp, 400)
     r = mk.buy_listing(GID, 'poor', rp.listing_id)
     check(not r.ok and r.code == 'INSUFFICIENT_FUNDS', 'poor buyer fails')
-    check(cash_of('poor') == 1100 and cash_of('seller2') == 0
+    check(cash_of('poor') == START_CASH + 10 and cash_of('seller2') == 0
           and any(x['id'] == rp.listing_id for x in market_rows()),
           'failed buy changes nothing')
 
@@ -162,9 +163,9 @@ def main() -> None:
     for rnd in range(30):
         with db.conn_ctx() as conn:
             md = mkmon(conn, f's3_{rnd}', dex=7, level=9)
-        rd = mk.create_listing(GID, f's3_{rnd}', 'S3', md, 1000)
-        add_cash(GID, f'w1_{rnd}', 5000)
-        add_cash(GID, f'w2_{rnd}', 5000)
+        rd = mk.create_listing(GID, f's3_{rnd}', 'S3', md, 100)
+        add_cash(GID, f'w1_{rnd}', 500)
+        add_cash(GID, f'w2_{rnd}', 500)
         bar = threading.Barrier(2)
         out = {}
 
@@ -193,8 +194,8 @@ def main() -> None:
         got = [m for m in mons_of(w) if m['dex'] == 7 and m['level'] == 9]
         # START_CASH pads: winner 6000-1000, loser untouched, seller 1000+950
         if not (len(got) == 1 and not [m for m in mons_of(l) if m['dex'] == 7]
-                and cash_of(w) == 5000 and cash_of(l) == 6000
-                and cash_of(f's3_{rnd}') == 1950
+                and cash_of(w) == START_CASH + 400 and cash_of(l) == START_CASH + 500
+                and cash_of(f's3_{rnd}') == START_CASH + 95
                 and not any(x['id'] == rd.listing_id for x in market_rows())):
             check(False, f'round {rnd}: exact-once settlement')
             break

@@ -66,7 +66,7 @@ class Counting(commands.Cog):
                 from cogs.gamble import bal, set_cash, add_cash
                 add_xp(gid, message.author.id, 250)
                 b = bal(gid, message.author.id)
-                add_cash(gid, message.author.id, 500)
+                add_cash(gid, message.author.id, 25)
                 try:
                     await message.channel.send(
                         embed=ok(t(gid, 'ct.milestone', n=num, user=message.author.mention)))

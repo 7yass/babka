@@ -56,7 +56,8 @@ async def main() -> None:
     # 1. help output quotes config
     check(short(SHOP_PRICES['nick'].amount).lower() in text('hc_d_nick').lower(),
           'help nick quotes config')
-    check('125' in text('hc_d_nick'), 'help nick shows 125k')
+    check(str(SHOP_PRICES['nick'].amount) in text('hc_d_nick'),
+          'help nick quotes the token price')
     from cogs.gamble import max_bet_for, CASINO_BASE_MAX_BET
     check(short(CASINO_BASE_MAX_BET).lower() in text('hc_d_blackjack').lower(),
           'help blackjack quotes config')
@@ -89,7 +90,7 @@ async def main() -> None:
         ctx.reply = AsyncMock()
         return ctx
 
-    async def buy(item, n, prefix, cash=10_000_000):
+    async def buy(item, n, prefix, cash=50_000):
         set_cash(99, 7, cash)
         ctx = mkctx(item, n, prefix)
         await Shop.buy.callback(shop, ctx, item, n)
@@ -98,10 +99,10 @@ async def main() -> None:
         return (args[0] if args else ''), bal(99, 7)['cash']
 
     msg, cash = await buy('nick', '1', '.')
-    check('Nick Token' in msg and cash == 10_000_000 - SHOP_PRICES['nick'].amount,
+    check('Nick Token' in msg and cash == 50_000 - SHOP_PRICES['nick'].amount,
           'normal purchase charges catalog price')
     msg, cash = await buy('shield', '3', '.')
-    check(cash == 10_000_000 - 3 * SHOP_PRICES['shield'].amount,
+    check(cash == 50_000 - 3 * SHOP_PRICES['shield'].amount,
           'charged == price x quantity')
     msg, cash = await buy('vip', '1', '.', cash=1000)
     check('Not enough cash' in msg or 'biedny' in msg,
@@ -109,21 +110,21 @@ async def main() -> None:
     check(cash == 1000, 'insufficient balance charges nothing')
     msg, cash = await buy('nope_item', '1', '.')
     check('don' in msg.lower() or 'nie mamy' in msg.lower(), 'unknown item refused')
-    check(cash == 10_000_000, 'unknown item charges nothing')
+    check(cash == 50_000, 'unknown item charges nothing')
 
     # 4. alias/group path: balls_buy handler + pokemon prefix routing
     pcog = Pokemon.__new__(Pokemon)
     pcog.bot = MagicMock()
     shop.bot.get_cog = MagicMock(return_value=pcog)
-    set_cash(99, 7, 10_000_000)
+    set_cash(99, 7, 50_000)
     bctx = mkctx('ultra', '2', ';')
     await Pokemon.balls_buy.callback(pcog, bctx, 'ultra', 2)
-    spent = 10_000_000 - bal(99, 7)['cash']
+    spent = 50_000 - bal(99, 7)['cash']
     check(spent == 2 * POKE_SHOP_PRICES['ultra'].amount,
           'balls_buy charges catalog price x qty')
-    set_cash(99, 7, 10_000_000)
+    set_cash(99, 7, 50_000)
     msg, cash = await buy('8', '1', ';')
-    check(cash == 10_000_000 - POKE_SHOP_PRICES['candy'].amount,
+    check(cash == 50_000 - POKE_SHOP_PRICES['candy'].amount,
           'pokemon id routing charges catalog price')
 
     # 5. pokemon shop output shows catalog prices (filtered section view;
@@ -131,7 +132,9 @@ async def main() -> None:
     view = pcog._balls_layout(99, 7, 100, filt='Balls', owner_name='t')
     blob = ' '.join(c.content for c in view.walk_children()
                     if type(c).__name__ == 'TextDisplay')
-    check('1,500' in blob and '50,000' in blob, 'pokemon shop renders catalog prices')
+    check(f"{POKE_SHOP_PRICES['great'].amount:,}" in blob
+          and f"{POKE_SHOP_PRICES['master'].amount:,}" in blob,
+          'pokemon shop renders catalog prices')
     view0 = pcog._balls_layout(99, 7, 100, owner_name='t')
     blob0 = ' '.join(c.content for c in view0.walk_children()
                      if type(c).__name__ == 'TextDisplay')

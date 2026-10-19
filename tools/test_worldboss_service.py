@@ -11,6 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
+from game.bosses.dreadmaw import DREADMAW
 
 FAILS: list = []
 
@@ -186,11 +187,13 @@ def main() -> None:
         base = conn.execute('SELECT cash FROM eco WHERE guild_id=? AND user_id=?',
                             (str(GID), 'ash100')).fetchone()['cash']
     r = wb.claim_rewards(GID, 'ash100', now + 62)
-    check(r['ok'] and r['amount'] == 1000 + 5000, 'solo attacker gets base+top')
+    check(r['ok'] and r['amount'] == DREADMAW.participation_coins
+              + DREADMAW.top_bonus_coins, 'solo attacker gets base+top')
     with db.conn_ctx() as conn:
         after = conn.execute('SELECT cash FROM eco WHERE guild_id=? AND user_id=?',
                              (str(GID), 'ash100')).fetchone()['cash']
-    check(after == base + 6000, 'payout credited exactly once')
+    check(after == base + DREADMAW.participation_coins + DREADMAW.top_bonus_coins,
+          'payout credited exactly once')
     r = wb.claim_rewards(GID, 'ash100', now + 63)
     check(not r['ok'] and r['code'] == 'ALREADY_CLAIMED', 'double claim pays nothing')
     with db.conn_ctx() as conn:
@@ -360,7 +363,7 @@ def main() -> None:
     with db.conn_ctx() as conn:
         cash1 = conn.execute('SELECT cash FROM eco WHERE guild_id=? AND user_id=?',
                              (str(GID), 'tank')).fetchone()['cash']
-    check(r['ok'] and snap['hp'] == snap['max_hp'] and cash0 - cash1 == 1000,
+    check(r['ok'] and snap['hp'] == snap['max_hp'] and cash0 - cash1 == wb.HEAL_COST,
           'heal tops up for 1000 coins')
     r = wb.heal_fighter(GID, 'tank', now + 902)
     check(not r['ok'] and r['code'] in ('FULL_HP', 'HEAL_USED'), 'heal not repeatable')
@@ -384,7 +387,6 @@ def main() -> None:
     check(not r['ok'] and r['code'] == 'INSUFFICIENT_FUNDS', 'broke healer rejected')
 
     # --- phases: derived, deterministic, retaliation-only ---
-    from game.bosses.dreadmaw import DREADMAW
     from services.worldboss_service import resolve_boss_phase
     _ph = DREADMAW.phases
     check(resolve_boss_phase(_ph, 3000, 5000).key == 'normal', 'above threshold: phase 1')
@@ -727,7 +729,8 @@ def main() -> None:
                              (bid_loot, 'looter')).fetchall()
     check(len(saved) == 1, 'one persisted outcome row')
     check(_json.loads(saved[0]['reward_json']) ==
-          {'coins': 6000, 'items': [['poke', 2], ['great', 1]], 'phase': 'enraged'},
+          {'coins': DREADMAW.participation_coins + DREADMAW.top_bonus_coins,
+           'items': [['poke', 2], ['great', 1]], 'phase': 'enraged'},
           'persisted outcome matches payout')
     r = wb.claim_rewards(GID, 'looter', LT + 123)
     check(not r['ok'] and r['code'] == 'ALREADY_CLAIMED', 'duplicate claim denied')

@@ -27,12 +27,12 @@ HIDDEN_LB = {'1270782781605154922', '558332192531546114', '908532356397285460'}
 ROB_CD = 3600
 # NOTE: betting limits live in utils.economy (CASINO_BASE_MAX_BET and
 # max_bet_for) — do not reintroduce local literals here.
-BJ_MAX_WIN = 15000  # max profit per hand for mortals
+BJ_MAX_WIN = 250  # max profit per hand for mortals
 # (betting limit lives in utils.economy: CASINO_BASE_MAX_BET)
-SLOTS_MAX_WIN = 25000    # max slots payout for mortals
-ROU_MAX_WIN = 25000      # max roulette profit for mortals
-POKER_MAX_WIN = 50000    # max poker profit for mortals
-COIN_MAX_WIN = 15000     # max coinflip profit for mortals (was uncapped)
+SLOTS_MAX_WIN = 400    # max slots payout for mortals
+ROU_MAX_WIN = 400      # max roulette profit for mortals
+POKER_MAX_WIN = 700    # max poker profit for mortals
+COIN_MAX_WIN = 250     # max coinflip profit for mortals (was uncapped)
 # Gambling is limited by CASINO TICKETS, not an hourly counter: one ticket
 # buys one play on any game. See services/casino.py.
 SUITS = ['♠', '♥', '♦', '♣']
@@ -1218,7 +1218,6 @@ class Gamble(commands.Cog):
             conn.execute('UPDATE eco SET last_daily=?, daily_streak=? WHERE guild_id=? AND user_id=?',
                          (now, streak, str(gid), str(ctx.author.id)))
         bar = '🔥' * min(streak, 7) + ('+' if streak > 7 else '')
-        nxt = min(streak * 100, 1000)
         desc = (f"🎁 **+{cshort(total)}** (base {cshort(DAILY_CASH)} + streak {cshort(bonus)}"
                 + (f" + cards {cshort(card_bonus)}" if card_bonus else "") + ")\n"
                 f"{bar} **{streak}-day streak** — x{smult:.2f}{tick_line}"
@@ -1901,7 +1900,7 @@ class Gamble(commands.Cog):
                 m = (ROB_CD - (now - last)) // 60
                 return await ctx.reply(t(gid, 'eco.rob_wait', m=m), ephemeral=True)
         vb = bal(gid, member.id)
-        if vb['cash'] < 100:
+        if vb['cash'] < 10:
             return await ctx.reply(t(gid, 'eco.rob_poor', user=member.display_name), ephemeral=True)
         if db.has_shield(gid, member.id):
             return await ctx.reply(t(gid, 'eco.rob_shield', user=member.display_name), ephemeral=True)

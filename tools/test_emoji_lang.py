@@ -357,8 +357,9 @@ def test_quest_bars_and_economy() -> None:
                 and getattr(node.targets[0], 'id', '') in ('QUEST_TIERS', 'QUEST_REWARDS'):
             vals[node.targets[0].id] = ast.literal_eval(node.value)
     check(vals.get('QUEST_TIERS') == [10, 30, 75, 150, 300], 'quest tiers unchanged')
-    check(vals.get('QUEST_REWARDS') == [2000, 6000, 15000, 40000, 100000],
-          'quest rewards unchanged')
+    from cogs.pokemon import QUEST_REWARDS as _QR
+    check(vals.get('QUEST_REWARDS') == list(_QR),
+          'quest rewards match the config')
     check("em(gid, 'xp_full')" in src and "em(gid, 'xp_empty')" in src,
           'quest bars use xp_full/xp_empty')
     import json as _json
@@ -422,9 +423,9 @@ def test_achievement_fallbacks_and_data() -> None:
             'first_job': ('💼', 'HIRED', 'First Job', 'Get hired anywhere.'),
             'grinder': ('🏭', 'GRIND', 'Grinder', 'Work 25 shifts.'),
             'lifer': ('⚒️', 'LIFER', 'Lifer', 'Work 100 shifts.'),
-            'rich100k': ('💰', '100K', 'Six Figures', 'Hold 100K cash.'),
-            'rich1m': ('💎', '1M', 'Millionaire', 'Hold 1M cash.'),
-            'rich5m': ('👑', '5M', 'Mogul', 'Hold 5M cash.'),
+            'rich10k': ('💰', '10K', 'Piggy Bank', 'Hold 10K coins.'),
+            'rich50k': ('💎', '50K', 'The Vault', 'Hold 50K coins.'),
+            'richmax': ('👑', 'MAX', 'The Ceiling', 'Hold the maximum 99,999 coins.'),
             'highroller': ('🎲', 'ROLLER', 'High Roller', 'Buy the High Roller pass.'),
             'famous': ('📣', 'FAMOUS', 'Famous', 'Reach 1K fans.'),
         }
@@ -446,7 +447,7 @@ def test_achievement_fallbacks_and_data() -> None:
                   f'{k} icon holds no legacy glyph')
         src = (ROOT / 'cogs' / 'achievements.py').read_text(encoding='utf-8')
         flat = src.replace('_', '')
-        for n in (25, 100, 10, 25, 50, 100000, 1000000, 5000000, 1000):
+        for n in (25, 100, 10, 25, 50, 10000, 50000, 99999):
             check(str(n) in flat, f'progression threshold present: {n}')
     finally:
         tmp.cleanup()

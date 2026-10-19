@@ -44,9 +44,9 @@ POTIONS = {
 }
 EGG_CYCLES = 20  # hatch cycles: quantity, not money — stays local
 CHECKLIST_NEED = {'catches': 5, 'battles': 3, 'duels': 1}
-CHECKLIST_REWARD = 15000
-DAILY_TARGET_REWARD = 7500
-HUNT_DAILY_REWARD = 5000  # casual daily hunt quest completion (once per day)
+CHECKLIST_REWARD = 150
+DAILY_TARGET_REWARD = 75
+HUNT_DAILY_REWARD = 50  # casual daily hunt quest completion (once per day)
 
 # NPC ladder: (key, display name, level, team size, prize)
 NPCS = [
@@ -182,11 +182,11 @@ def form_sprite(mon: dict, shiny: bool = False):
 REGIONS = {'kanto': (1, 151), 'johto': (152, 251),
            'hoenn': (252, 386), 'sinnoh': (387, 493)}
 QUEST_TIERS = [10, 30, 75, 150, 300]
-QUEST_REWARDS = [2000, 6000, 15000, 40000, 100000]
+QUEST_REWARDS = [50, 150, 400, 1000, 2500]
 REGION_BADGE = {'kanto': 'region_kanto', 'johto': 'region_johto',
                 'hoenn': 'region_hoenn', 'sinnoh': 'region_sinnoh'}
 # dex milestones: count -> cash
-DEX_MILESTONES = {1: 500, 10: 2000, 50: 10000, 100: 50000}
+DEX_MILESTONES = {1: 25, 10: 100, 50: 500, 100: 2500}
 
 INCENSE_SECONDS = 1800
 # NOTE: candy/egg/incense/repel pricing lives in utils.economy

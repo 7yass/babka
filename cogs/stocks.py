@@ -26,17 +26,17 @@ from utils import cardstyle as cs
 # float = shares outstanding (for mcap AND market impact).
 STOCKS = {
     # --- stocks ---
-    'NVDA': {'name': 'NVIDIA Corp', 'start': 190, 'vol': 0.030, 'float': 5_000_000, 'kind': 'stock'},
-    'AAPL': {'name': 'Apple Inc', 'start': 230, 'vol': 0.022, 'float': 6_000_000, 'kind': 'stock'},
-    'TSLA': {'name': 'Tesla Inc', 'start': 250, 'vol': 0.040, 'float': 4_000_000, 'kind': 'stock'},
-    'AMD': {'name': 'AMD Inc', 'start': 120, 'vol': 0.035, 'float': 7_000_000, 'kind': 'stock'},
-    'GME': {'name': 'GameStop (meme)', 'start': 25, 'vol': 0.050, 'float': 8_000_000, 'kind': 'stock'},
-    'PLTR': {'name': 'Palantir', 'start': 150, 'vol': 0.038, 'float': 9_000_000, 'kind': 'stock'},
+    'NVDA': {'name': 'NVIDIA Corp', 'start': 3, 'vol': 0.030, 'float': 5_000_000, 'kind': 'stock'},
+    'AAPL': {'name': 'Apple Inc', 'start': 4, 'vol': 0.022, 'float': 6_000_000, 'kind': 'stock'},
+    'TSLA': {'name': 'Tesla Inc', 'start': 4, 'vol': 0.040, 'float': 4_000_000, 'kind': 'stock'},
+    'AMD': {'name': 'AMD Inc', 'start': 2, 'vol': 0.035, 'float': 7_000_000, 'kind': 'stock'},
+    'GME': {'name': 'GameStop (meme)', 'start': 1, 'vol': 0.050, 'float': 8_000_000, 'kind': 'stock'},
+    'PLTR': {'name': 'Palantir', 'start': 3, 'vol': 0.038, 'float': 9_000_000, 'kind': 'stock'},
     # --- crypto (24/7, no chill) ---
-    'BTC': {'name': 'Bitcoin', 'start': 97000, 'vol': 0.020, 'float': 1_000_000, 'kind': 'crypto'},
-    'ETH': {'name': 'Ethereum', 'start': 3400, 'vol': 0.028, 'float': 3_000_000, 'kind': 'crypto'},
-    'SOL': {'name': 'Solana', 'start': 190, 'vol': 0.038, 'float': 6_000_000, 'kind': 'crypto'},
-    'BNB': {'name': 'BNB', 'start': 640, 'vol': 0.032, 'float': 2_000_000, 'kind': 'crypto'},
+    'BTC': {'name': 'Bitcoin', 'start': 400, 'vol': 0.020, 'float': 1_000_000, 'kind': 'crypto'},
+    'ETH': {'name': 'Ethereum', 'start': 20, 'vol': 0.028, 'float': 3_000_000, 'kind': 'crypto'},
+    'SOL': {'name': 'Solana', 'start': 3, 'vol': 0.038, 'float': 6_000_000, 'kind': 'crypto'},
+    'BNB': {'name': 'BNB', 'start': 12, 'vol': 0.032, 'float': 2_000_000, 'kind': 'crypto'},
 }
 # one-time rename of the old joke tickers -> real ones (holdings carry over)
 MIGRATE = {'BABKA': 'NVDA', 'PIEROG': 'AAPL', 'ROSOL': 'TSLA',

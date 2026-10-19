@@ -201,7 +201,7 @@ class Wordle(commands.Cog):
         if flat(message.content) == flat(info['word']):
             info['winner'] = message.author.id
             xp = random.randint(100, 300)
-            cash = random.randint(100, 400)
+            cash = random.randint(10, 40)
             from cogs.levels import add_xp
             from cogs.gamble import bal, set_cash, add_cash
             try:

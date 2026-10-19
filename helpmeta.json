@@ -83,7 +83,7 @@
     ],
     "nick": [
       "economy",
-      "Spend a 125k nick token to change your own nickname: `.nick <name>`. No token = no change.",
+      "Spend a 500-coin nick token to change your own nickname: `.nick <name>`. No token = no change.",
       [],
       "NowyNick",
       "Everyone"
@@ -470,7 +470,7 @@
     ],
     "jail": [
       "moderation",
-      "Jail a user (they lose chat + economy access): `.jail @user [reason]`. `.unjail` frees, `.bail` is their 500-coin escape.",
+      "Jail a user (they lose chat + economy access): `.jail @user [reason]`. `.unjail` frees, `.bail` is their 150-coin escape.",
       [],
       "@user [reason]",
       "Moderate Members",
@@ -578,7 +578,7 @@
     ],
     "daily": [
       "info",
-      "Daily coins every 24h: `.daily`. Base 500 plus streak bonus (+50/day up to +500). Missing a day resets the streak — don't.",
+      "Daily coins every 24h: `.daily`. Base 40 coins, multiplied by your streak (up to 2x). Missing a day resets the streak — don't.",
       [],
       "",
       "Everyone",
@@ -586,7 +586,7 @@
     ],
     "blackjack": [
       "economy",
-      "HOW TO PLAY: `.blackjack <bet>` (limit grows with level from 12k, High Roller lifts it). You vs dealer, closest to 21 wins. HIT takes a card, STAND holds, DOUBLE doubles the stake for one card. Dealer draws to 17, ties push. Blackjack pays ~0.92:1 after the house cut, bust = bet lost, max profit scales with stake (15k base, 2x stake). One 🎰 casino ticket per play (replaces the old hourly cap). Tickets drop from `.drop` (25% chance) and `.daily` (+2); you can bank 50. Bets accept 1k / 2.5k / 1m / all. House edge ~11%.",
+      "HOW TO PLAY: `.blackjack <bet>` (limit grows with level from 200, High Roller lifts it). You vs dealer, closest to 21 wins. HIT takes a card, STAND holds, DOUBLE doubles the stake for one card. Dealer draws to 17, ties push. Blackjack pays ~0.92:1 after the house cut, bust = bet lost, max profit scales with stake (250 base, 2x stake). One 🎰 casino ticket per play (replaces the old hourly cap). Tickets drop from `.drop` (25% chance) and `.daily` (+2); you can bank 50. Bets accept any amount up to your level cap. House edge ~11%.",
       [
         "bj"
       ],
@@ -1456,7 +1456,7 @@
     ],
     "stock": [
       "economy",
-      "HOW TO: .stock buy BABKA <10|50%|all|10k> market-buys shares (10 = ten shares, 50% = half your cash, 10k = cash worth). .stock sell BABKA <10|50%|all>. .stock view BABKA [1D|1W|1M|1Y|ALL] draws the chart. .stock limit <buy|sell> SYM qty px parks a GTC order (max 5, fills itself). .stock orders / cancel manages them.",
+      "HOW TO: .stock buy BABKA <10|50%|all|100> market-buys shares (10 = ten shares, 50% = half your cash, 100 = cash worth). .stock sell BABKA <10|50%|all>. .stock view BABKA [1D|1W|1M|1Y|ALL] draws the chart. .stock limit <buy|sell> SYM qty px parks a GTC order (max 5, fills itself). .stock orders / cancel manages them.",
       [],
       "buy BABKA 10",
       "Everyone"

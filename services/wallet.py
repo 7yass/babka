@@ -155,18 +155,48 @@ def record(conn, gid, uid, currency: str, delta: int, bal: int,
          reason or 'misc', str(ref or '')[:120], int(time.time())))
 
 
+def _cap_headroom(conn, gid, uid, currency: str) -> int:
+    """How much more this player can hold in `currency` without breaking
+    the coin ceiling.
+
+    Cash and the bank share ONE ceiling. The number a player can hold is
+    the number they can spend, so splitting the cap across two columns
+    would let a player hold twice the ceiling without either column
+    looking wrong.
+    """
+    from utils.economy import COIN_CAP
+    if currency not in ('coins', 'bank'):
+        return COIN_CAP
+    row = conn.execute('SELECT cash, bank FROM eco WHERE guild_id=? AND user_id=?',
+                       (str(gid), str(uid))).fetchone()
+    if not row:
+        return COIN_CAP
+    held = int(row['cash'] or 0) + int(row['bank'] or 0)
+    return max(0, COIN_CAP - held)
+
+
 def adjust(conn, gid, uid, delta: int, reason: str = None, ref: str = '',
            currency: str = 'coins', floor: int = None) -> int:
     """Signed change. Returns the new balance.
 
     floor=None lets the balance go negative (the legacy `add_cash` shape,
     which several call sites rely on). floor=0 clamps at zero.
+
+    A CREDIT is clamped to the coin ceiling. The overflow is not lost
+    silently: it is written to the ledger as a 'coin_cap' row, so the
+    flow analytics can see the ceiling doing its job.
     """
     delta = int(delta)
     s = _spec(currency)
     ensure_row(conn, gid, uid, currency)
     if delta == 0:
         return balance(conn, gid, uid, currency)
+    if delta > 0:
+        room = _cap_headroom(conn, gid, uid, currency)
+        if delta > room:
+            lost = delta - room
+            delta = room
+            record(conn, gid, uid, currency, -lost, 0, 'coin_cap', ref)
     if floor is not None and delta < 0:
         cur_bal = balance(conn, gid, uid, currency)
         if cur_bal + delta < floor:
@@ -206,6 +236,10 @@ def set_balance(conn, gid, uid, new_value: int, reason: str = 'set',
     ensure_row(conn, gid, uid, currency)
     old = balance(conn, gid, uid, currency)
     new_value = int(new_value)
+    if currency in ('coins', 'bank'):
+        room = _cap_headroom(conn, gid, uid, currency)
+        if new_value - old > room:
+            new_value = old + room
     conn.execute(
         f'UPDATE {s.table} SET {s.column}=? WHERE guild_id=? AND user_id=?',
         (new_value, str(gid), str(uid)))

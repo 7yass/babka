@@ -32,15 +32,15 @@ from utils.economy import (BALANCE_NET_MAX, BALANCE_NET_MIN, CASINO_RTP_MAX,
 # not money, so they live here and not in utils/economy.py.
 DAILY_CLAIMS = 1          # one daily per day
 WORK_SHIFTS = 6           # shifts a reasonably active player works
-CASINO_PLAYS = 4          # plays a player gets through on tickets
-CASINO_STAKE = 3000       # a typical stake
-SHOP_SPEND_PROB = 0.5     # days on which a player buys something
-SHOP_SPEND_AVG = 30000    # average basket when they do
-CARD_PACKS_PER_DAY = 0.4  # card pulls are the economy's main sink
-CARD_PACK_AVG = 50000
-TRIBUTE_AVG = 1500        # tips given per day
-ROB_EXPECT = 900          # expected robbery loot per day
-TRANSFER_AVG = 20000      # player-to-player transfers per day
+CASINO_PLAYS = 3          # plays a player gets through on tickets
+CASINO_STAKE = 50         # a typical stake (bets cap at 1,000)
+SHOP_SPEND_PROB = 0.1     # days on which a player buys something
+SHOP_SPEND_AVG = 800      # average basket when they do
+CARD_PACKS_PER_DAY = 0.25 # card pulls are the economy's main sink
+CARD_PACK_AVG = 500
+TRIBUTE_AVG = 40          # tips given per day
+ROB_EXPECT = 30           # expected robbery loot per day
+TRANSFER_AVG = 2000       # player-to-player transfers per day
 
 # The average daily multiplier a player sits at: most people keep a chain
 # of a few days, some keep it forever. Weighted toward the low end.
@@ -53,7 +53,14 @@ def avg_streak_mult() -> float:
 
 
 def avg_job_pay() -> float:
-    """Average pay per shift, from the real job table when available."""
+    """Typical pay per shift, from the real job table when available.
+
+    This is the MEDIAN job at the MEDIAN career tier, not the fleet
+    average. The average is dominated by the whale jobs (the president
+    earns forty times the janitor), and a balance model built on
+    whales describes a server that is almost entirely whales. The median
+    is the player the economy is actually priced against.
+    """
     try:
         from cogs.jobs import JOBS, LADDER
         pays = []
@@ -62,9 +69,11 @@ def avg_job_pay() -> float:
             pays.append((int(lo) + int(hi)) / 2)
         if not pays:
             return 0
-        avg_base = sum(pays) / len(pays)
-        mults = [m for _, _, m in LADDER]
-        return avg_base * (sum(mults) / len(mults))
+        pays.sort()
+        median_base = pays[len(pays) // 2]
+        mults = sorted(m for _, _, m in LADDER)
+        median_mult = mults[len(mults) // 2]
+        return median_base * median_mult
     except Exception as e:
         print(f'  (job table unavailable: {e}) - using the fallback')
         return 0
