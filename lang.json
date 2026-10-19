@@ -1582,7 +1582,8 @@
     "cd.inv_collection": "collection",
     "cd.inv_depth": "rarity depth",
     "eco.worth_collection": "collection",
-    "eco.worth_cards": "cards owned"
+    "eco.worth_cards": "cards owned",
+    "eco.pay_full": "{user} is carrying the maximum amount of coins - a wallet at the ceiling cannot take more."
   },
   "pl": {
     "staff.only": "Tylko dla ekipy.",
@@ -3401,6 +3402,7 @@
     "cd.inv_collection": "kolekcja",
     "cd.inv_depth": "głębokość rzadkości",
     "eco.worth_collection": "kolekcja",
-    "eco.worth_cards": "kart w kolekcji"
+    "eco.worth_cards": "kart w kolekcji",
+    "eco.pay_full": "{user} nosi juz maksimum monet - portfel na limicie nie przyjmie wiecej."
   }
 }

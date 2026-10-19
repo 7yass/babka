@@ -1235,13 +1235,27 @@ class Gamble(commands.Cog):
         b = bal(gid, ctx.author.id)
         if amount > b['cash']:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
+        # The coin ceiling means a full wallet cannot take a payment. If
+        # the sender were still charged the full amount, the coins would
+        # be eaten - so the transfer is reduced to what the receiver can
+        # actually hold, and the sender only pays that.
+        try:
+            from services.wallet import headroom
+            room = headroom(gid, member.id)
+        except Exception:
+            room = amount
+        if room <= 0:
+            return await ctx.reply(t(gid, 'eco.pay_full', user=member.display_name),
+                                   ephemeral=True)
+        if room < amount:
+            amount = room
         # A small fee on player-to-player transfers is the economy's main
         # sink. The payer pays exactly `amount`; the fee comes out of the
         # recipient's share and lands in the guild pool, so nobody is
         # surprised by a hidden extra charge.
         try:
             from services import treasury
-            tax = treasury.tax_on(amount)
+            tax = min(treasury.tax_on(amount), max(0, amount - 1))
         except Exception:
             tax = 0
         add_cash(gid, ctx.author.id, -amount, reason='pay_out')
@@ -1917,9 +1931,20 @@ class Gamble(commands.Cog):
                            int(vb['cash'] * random.uniform(CRIME_ROB.loot_min_pct,
                                                            CRIME_ROB.loot_max_pct))),
                        CRIME_ROB.loot_cap)
+            # The coin ceiling: a robber whose wallet is full cannot carry
+            # the loot, and taking it from the victim anyway would make the
+            # coins vanish. Take only what can be carried.
+            try:
+                from services.wallet import headroom
+                room = headroom(gid, ctx.author.id)
+                if room < loot:
+                    loot = max(0, room)
+            except Exception:
+                pass
             ab = bal(gid, ctx.author.id)
-            add_cash(gid, member.id, -loot)
-            add_cash(gid, ctx.author.id, loot)
+            if loot > 0:
+                add_cash(gid, member.id, -loot)
+                add_cash(gid, ctx.author.id, loot)
             msg = t(gid, 'eco.rob_win', user=member.display_name, loot=cshort(loot))
         else:
             fine = min(bal(gid, ctx.author.id)['cash'], CRIME_ROB.fine_cap,

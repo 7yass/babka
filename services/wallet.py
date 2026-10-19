@@ -175,6 +175,18 @@ def _cap_headroom(conn, gid, uid, currency: str) -> int:
     return max(0, COIN_CAP - held)
 
 
+def headroom(gid, uid, currency: str = 'coins') -> int:
+    """How much more this player can hold before they hit the ceiling.
+
+    Callers that move money BETWEEN players must use this: a hard ceiling
+    means a full wallet cannot take a payment, and if the sender is still
+    charged the full amount the coins are simply eaten. Reduce the
+    transfer to the headroom instead.
+    """
+    with db.conn_ctx() as conn:
+        return _cap_headroom(conn, gid, uid, currency)
+
+
 def adjust(conn, gid, uid, delta: int, reason: str = None, ref: str = '',
            currency: str = 'coins', floor: int = None) -> int:
     """Signed change. Returns the new balance.
