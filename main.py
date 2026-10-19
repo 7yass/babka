@@ -53,6 +53,7 @@ COGS = [
     'cogs.afk',
     'cogs.lookups',
     'cogs.gamble',
+    'cogs.economy',
     'cogs.embed',
     'cogs.giveaway',
     'cogs.polls',

@@ -231,7 +231,9 @@ BANK_INTEREST_MAX_CAP = 5000
 # An economy needs sinks as well as faucets. Windfalls above the threshold
 # pay a small tax into the guild treasury, which buys upgrades that benefit
 # every member. Capped so a big win is never punished into nothing.
-TAX_THRESHOLD = 25000
+# The threshold sits below a normal tribute so the fee actually bites
+# instead of only ever catching whale-sized transfers.
+TAX_THRESHOLD = 10000
 TAX_RATE = 0.03
 TAX_CAP = 5000
 
@@ -243,6 +245,20 @@ CARD_TICKET_VALUE = 1500   # one card-pull ticket
 SSR_TICKET_VALUE = 20000   # one guaranteed LR+ ticket
 CARD_VALUE = {'C': 100, 'R': 400, 'SR': 1500, 'LR': 5000, 'UR': 10000}
 DUST_RATE = 0.1            # dust is grind currency: 10 000 dust ~= one card
+
+# ---- flow balance band ----------------------------------------------
+# The modelled player-day (tools/economy_balance.py) must not drift far
+# from neutral. A strongly positive net means the economy inflates - money
+# piles up and every price drifts with it. A strongly negative net means it
+# deflates - players hoard, and a new player hits a wall they cannot
+# afford to climb.
+#
+# The band is deliberately asymmetric. Mild deflation is the healthier
+# failure: prices drift down, new players catch up, and a rich player
+# always has somewhere to spend. Inflation is the one that quietly ruins
+# an economy, so it gets the tighter bound.
+BALANCE_NET_MIN = -0.40     # net as a fraction of gross flow
+BALANCE_NET_MAX = 0.15
 
 # ---- guild upgrades --------------------------------------------------
 # The server-wide progression track. Members pay into the guild treasury,

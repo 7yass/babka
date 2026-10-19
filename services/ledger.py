@@ -8,6 +8,11 @@ a guess about what the economy "should" look like.
 actually has to answer — is money being created or destroyed? — and
 tools/economy_balance.py turns that answer into a build-time guard rail the
 same way tools/economy_rtp.py guards the casino.
+
+Internal transfers (cash to bank and back) carry a reason starting with
+'xfer_' and are excluded from every inflow/outflow figure. Counting them
+would make a player who banks their money look like they are burning it,
+and would make the guild economy look like it is collapsing.
 """
 import time
 
@@ -42,6 +47,7 @@ def reasons(gid, uid, days: int = 30, limit: int = 12) -> list:
             'SUM(CASE WHEN delta<0 THEN -delta ELSE 0 END) AS outflow, '
             'COUNT(*) AS n '
             'FROM eco_ledger WHERE guild_id=? AND user_id=? AND at>=? '
+            "AND reason NOT LIKE 'xfer_%' "
             'GROUP BY reason ORDER BY (inflow+outflow) DESC LIMIT ?',
             (str(gid), str(uid), _since(days), int(limit))).fetchall()
     out = []
@@ -60,7 +66,12 @@ def statement(gid, uid, days: int = 30) -> dict:
             'SUM(CASE WHEN delta>0 THEN delta ELSE 0 END) AS inflow, '
             'SUM(CASE WHEN delta<0 THEN -delta ELSE 0 END) AS outflow, '
             'COUNT(*) AS moves '
-            'FROM eco_ledger WHERE guild_id=? AND user_id=? AND at>=?',
+            'FROM eco_ledger WHERE guild_id=? AND user_id=? AND at>=? '
+            "AND reason NOT LIKE 'xfer_%'",
+            (str(gid), str(uid), _since(days))).fetchone()
+        xfer = conn.execute(
+            'SELECT SUM(delta) AS d FROM eco_ledger '
+            "WHERE guild_id=? AND user_id=? AND at>=? AND reason LIKE 'xfer_%'",
             (str(gid), str(uid), _since(days))).fetchone()
     inflow = int(row['inflow'] or 0) if row else 0
     outflow = int(row['outflow'] or 0) if row else 0
@@ -70,6 +81,7 @@ def statement(gid, uid, days: int = 30) -> dict:
         'outflow': outflow,
         'net': inflow - outflow,
         'moves': int(row['moves'] or 0) if row else 0,
+        'transfers': int(xfer['d'] or 0) if xfer else 0,
         'reasons': reasons(gid, uid, days),
     }
 
@@ -87,13 +99,15 @@ def flow(gid, days: int = 30) -> dict:
             'SUM(CASE WHEN delta>0 THEN delta ELSE 0 END) AS inflow, '
             'SUM(CASE WHEN delta<0 THEN -delta ELSE 0 END) AS outflow, '
             'COUNT(*) AS moves, COUNT(DISTINCT user_id) AS users '
-            'FROM eco_ledger WHERE guild_id=? AND at>=?',
+            'FROM eco_ledger WHERE guild_id=? AND at>=? '
+            "AND reason NOT LIKE 'xfer_%'",
             (str(gid), _since(days))).fetchone()
         top = conn.execute(
             'SELECT reason, '
             'SUM(CASE WHEN delta>0 THEN delta ELSE 0 END) AS inflow, '
             'SUM(CASE WHEN delta<0 THEN -delta ELSE 0 END) AS outflow '
-            'FROM eco_ledger WHERE guild_id=? AND at>=? GROUP BY reason '
+            'FROM eco_ledger WHERE guild_id=? AND at>=? '
+            "AND reason NOT LIKE 'xfer_%' GROUP BY reason "
             'ORDER BY (inflow+outflow) DESC LIMIT 10',
             (str(gid), _since(days))).fetchall()
     inflow = int(row['inflow'] or 0) if row else 0
@@ -181,6 +195,73 @@ def top_holders(gid, limit: int = 10) -> list:
             'SELECT user_id, cash FROM eco WHERE guild_id=? ORDER BY cash DESC LIMIT ?',
             (str(gid), int(limit))).fetchall()
     return [dict(r) for r in rows]
+
+
+def top_net_worth(gid, limit: int = 25) -> list:
+    """Net worth for many users, computed with a handful of queries.
+
+    net_worth() per user would be 5 queries each; on a leaderboard that is
+    125 queries on the event loop, which is exactly the kind of thing that
+    makes a shared host freeze. This does one query per component and
+    stitches the results in Python.
+
+    Returns [{'user_id', 'cash', 'bank', 'stocks', 'cards', 'tickets',
+    'dust', 'total'}] sorted by total descending.
+    """
+    from utils.economy import (CARD_VALUE, TICKET_VALUE, CARD_TICKET_VALUE,
+                               SSR_TICKET_VALUE, DUST_RATE)
+    g = str(gid)
+    acc = {}
+
+    def slot(uid):
+        return acc.setdefault(str(uid), {'user_id': str(uid), 'cash': 0, 'bank': 0,
+                                         'stocks': 0, 'cards': 0, 'tickets': 0,
+                                         'dust': 0, 'total': 0})
+
+    with db.conn_ctx() as conn:
+        for r in conn.execute('SELECT user_id, cash, bank FROM eco WHERE guild_id=?', (g,)):
+            s = slot(r['user_id'])
+            s['cash'] = int(r['cash'] or 0)
+            s['bank'] = int(r['bank'] or 0)
+        try:
+            for r in conn.execute(
+                    'SELECT p.user_id AS u, SUM(p.qty * COALESCE(st.price,0)) AS v '
+                    'FROM portfolio p LEFT JOIN stocks st '
+                    'ON st.guild_id=p.guild_id AND st.symbol=p.symbol '
+                    'WHERE p.guild_id=? GROUP BY p.user_id', (g,)):
+                slot(r['u'])['stocks'] = int(r['v'] or 0)
+        except Exception:
+            pass
+        try:
+            for r in conn.execute(
+                    'SELECT c.user_id AS u, a.rarity AS rar, SUM(c.qty) AS n '
+                    'FROM anime_collection c JOIN anime_cards a ON a.id=c.card_id '
+                    'WHERE c.guild_id=? GROUP BY c.user_id, a.rarity', (g,)):
+                slot(r['u'])['cards'] += CARD_VALUE.get((r['rar'] or 'R').upper(), 0) * int(r['n'] or 0)
+        except Exception:
+            pass
+        try:
+            for r in conn.execute('SELECT user_id, tickets FROM casino_tix WHERE guild_id=?', (g,)):
+                slot(r['user_id'])['tickets'] += int(r['tickets'] or 0) * TICKET_VALUE
+        except Exception:
+            pass
+        try:
+            for r in conn.execute('SELECT user_id, tickets, ssr_tickets FROM card_tickets '
+                                  'WHERE guild_id=?', (g,)):
+                s = slot(r['user_id'])
+                s['tickets'] += (int(r['tickets'] or 0) * CARD_TICKET_VALUE
+                                 + int(r['ssr_tickets'] or 0) * SSR_TICKET_VALUE)
+        except Exception:
+            pass
+        try:
+            for r in conn.execute('SELECT user_id, dust FROM anime_dust WHERE guild_id=?', (g,)):
+                slot(r['user_id'])['dust'] = int(int(r['dust'] or 0) * DUST_RATE)
+        except Exception:
+            pass
+    for s in acc.values():
+        s['total'] = (s['cash'] + s['bank'] + s['stocks'] + s['cards']
+                      + s['tickets'] + s['dust'])
+    return sorted(acc.values(), key=lambda s: -s['total'])[:int(limit)]
 
 
 def movement_count(gid, uid, days: int = 1) -> int:

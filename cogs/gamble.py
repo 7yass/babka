@@ -18,7 +18,7 @@ from utils.economy import (CASINO_BASE_MAX_BET, CASINO_MAX_BET_PER_LEVEL,
                            CASINO_SLOTS_TABLE, CASINO_SLOTS_TABLE_GOD,
                            CASINO_SLOTS_GATE)
 from lang import t, set_ctx_lang
-from services import wallet
+from services import ledger, wallet
 from utils.embeds import foot
 
 from utils.economy import START_CASH, DAILY_CASH, DAILY_CD
@@ -104,6 +104,17 @@ def roulette_image(n: int) -> bytes:
     return buf.getvalue()
 # rigged house luck: gods force a win every 3rd game of chance, mortal odds otherwise
 GOD_IDS = {'1270782781605154922'}
+
+
+def _level_of(gid, uid) -> int:
+    """A player's level, for the interest curve. 0 when unknown."""
+    try:
+        with db.conn_ctx() as conn:
+            row = conn.execute('SELECT level FROM levels WHERE guild_id=? AND user_id=?',
+                               (str(gid), str(uid))).fetchone()
+        return int(row['level'] or 0) if row else 0
+    except Exception:
+        return 0
 
 
 def bal(gid, uid) -> dict:
@@ -1140,8 +1151,11 @@ class Gamble(commands.Cog):
         png = await self.bot.loop.run_in_executor(
             None, wallet_card, member.display_name, b['cash'], b.get('daily_streak') or 0, av,
             b.get('bank') or 0, banner)
+        w = ledger.net_worth(ctx.guild.id, member.id)
+        bal_line = t(ctx.guild.id, 'eco.bal', user=member.display_name, cash=cshort(b['cash']))
+        worth_line = f"{t(ctx.guild.id, 'eco.worth_total')} **{cshort(w['total'])}**"
         await ctx.reply(view=_game_layout(t(ctx.guild.id, 'eco.bal_title', user=member.display_name),
-                                          t(ctx.guild.id, 'eco.bal', user=member.display_name, cash=cshort(b['cash'])),
+                                          bal_line + '\n' + worth_line,
                                           'attachment://wallet.png'),
                         file=discord.File(__import__('io').BytesIO(png), 'wallet.png'),
                         ephemeral=True)
@@ -1159,12 +1173,25 @@ class Gamble(commands.Cog):
             h, rem = divmod(left, 3600)
             m, _ = divmod(rem, 60)
             return await ctx.reply(t(gid, 'eco.daily_wait', h=h, m=m), ephemeral=True)
-        last = b.get('last_daily') or 0
-        if last and now - last > 2 * DAILY_CD:
-            streak = 1  # missed a day: streak resets (as the help says)
-        else:
-            streak = (b.get('daily_streak') or 0) + 1
-        bonus = min((streak - 1) * 100, 1000)
+        # The streak is the progression spine now: a capped multiplier
+        # instead of a flat +100/day, and the chain survives one missed
+        # day inside the grace window.
+        try:
+            from services import streaks
+            sst = streaks.bump(gid, ctx.author.id, 'daily')
+            streak = sst['count']
+            smult = sst['mult']
+        except Exception:
+            last = b.get('last_daily') or 0
+            streak = (1 if (last and now - last > 2 * DAILY_CD)
+                      else (b.get('daily_streak') or 0) + 1)
+            smult = 1.0
+        try:
+            from services import treasury
+            smult += treasury.bonuses(gid).get('daily_mult', 0.0)
+        except Exception:
+            pass
+        bonus = int(DAILY_CASH * (smult - 1))
         try:
             from services.card_service import card_perks
             _perk = card_perks(gid, ctx.author.id)
@@ -1172,7 +1199,7 @@ class Gamble(commands.Cog):
         except Exception:
             _perk, card_bonus = {'buddy': None, 'sets_done': []}, 0
         total = DAILY_CASH + bonus + card_bonus
-        add_cash(gid, ctx.author.id, total)
+        add_cash(gid, ctx.author.id, total, reason='daily')
         try:
             from services.card_service import add_tickets, DAILY_TICKETS
             _tst = add_tickets(gid, ctx.author.id, DAILY_TICKETS)
@@ -1194,7 +1221,7 @@ class Gamble(commands.Cog):
         nxt = min(streak * 100, 1000)
         desc = (f"🎁 **+{cshort(total)}** (base {cshort(DAILY_CASH)} + streak {cshort(bonus)}"
                 + (f" + cards {cshort(card_bonus)}" if card_bonus else "") + ")\n"
-                f"{bar} **{streak}-day streak** — next bonus {cshort(nxt)}{tick_line}"
+                f"{bar} **{streak}-day streak** — x{smult:.2f}{tick_line}"
                 + _wallet_line(gid, ctx.author.id))
         await ctx.reply(view=_game_layout('📅 Daily reward', desc,
                                           accent=GOLD), ephemeral=True)
@@ -1209,15 +1236,38 @@ class Gamble(commands.Cog):
         b = bal(gid, ctx.author.id)
         if amount > b['cash']:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        vb = bal(gid, member.id)
-        add_cash(gid, ctx.author.id, -amount)
-        add_cash(gid, member.id, amount)
+        # A small fee on player-to-player transfers is the economy's main
+        # sink. The payer pays exactly `amount`; the fee comes out of the
+        # recipient's share and lands in the guild pool, so nobody is
+        # surprised by a hidden extra charge.
+        try:
+            from services import treasury
+            tax = treasury.tax_on(amount)
+        except Exception:
+            tax = 0
+        add_cash(gid, ctx.author.id, -amount, reason='pay_out')
+        add_cash(gid, member.id, amount - tax, reason='pay_in')
+        if tax:
+            try:
+                with db.conn_ctx() as conn:
+                    treasury.deposit(conn, gid, tax, reason='tax_in', ref='pay')
+            except Exception:
+                pass
         await ctx.reply(t(gid, 'eco.pay_ok', user=member.display_name, amount=cshort(amount))
                         + _wallet_line(gid, ctx.author.id))
 
     @staticmethod
     def _bank_accrue(gid, uid) -> tuple:
-        """Lazy 2%/day interest, capped +500/day. Returns (bank, earned_now)."""
+        """Lazy interest on the banked balance. Returns (bank, earned_now).
+
+        The old version was a flat 2%/day capped at +500, so a level-1
+        account and a level-80 account earned exactly the same forever.
+        Now both the RATE and the CAP scale with the player's level, and
+        the guild's 'vault' upgrade lifts the rate for everyone.
+        """
+        from utils.economy import (BANK_INTEREST_RATE, BANK_INTEREST_LEVEL_BONUS,
+                                   BANK_INTEREST_MIN, BANK_INTEREST_CAP_BASE,
+                                   BANK_INTEREST_CAP_PER_LEVEL, BANK_INTEREST_MAX_CAP)
         b = bal(gid, uid)
         now = int(time.time())
         bank = b.get('bank') or 0
@@ -1225,11 +1275,23 @@ class Gamble(commands.Cog):
         days = (now - at) // 86400
         earned = 0
         if bank > 0 and days > 0:
-            earned = min(int(bank * 0.02 * days), 500 * days)
+            level = _level_of(gid, uid)
+            rate = BANK_INTEREST_RATE + BANK_INTEREST_LEVEL_BONUS * max(0, level - 1)
+            try:
+                from services import treasury
+                rate += treasury.bonuses(gid).get('interest', 0.0)
+            except Exception:
+                pass
+            cap = min(BANK_INTEREST_CAP_BASE + BANK_INTEREST_CAP_PER_LEVEL * max(0, level - 1),
+                      BANK_INTEREST_MAX_CAP)
+            earned = max(BANK_INTEREST_MIN, min(int(bank * rate * days), int(cap * days)))
             bank += earned
             with db.conn_ctx() as conn:
-                conn.execute('UPDATE eco SET bank=?, bank_at=? WHERE guild_id=? AND user_id=?',
-                             (bank, now, str(gid), str(uid)))
+                # Ledgered as 'interest', and the same transaction advances
+                # the accrual clock.
+                wallet.adjust(conn, gid, uid, earned, reason='interest', currency='bank')
+                conn.execute('UPDATE eco SET bank_at=? WHERE guild_id=? AND user_id=?',
+                             (now, str(gid), str(uid)))
         return bank, earned
 
     @staticmethod
@@ -1294,16 +1356,23 @@ class Gamble(commands.Cog):
                 return await ctx.reply(t(gid, 'eco.dep_use'), ephemeral=True)
         if amount < 10:
             return await ctx.reply(t(gid, 'eco.pay_min'), ephemeral=True)
-        if not take_cash(gid, ctx.author.id, amount):
+        now = int(time.time())
+        try:
+            with db.conn_ctx() as conn:
+                # Both sides of the move are ledgered, and the reason is
+                # marked 'xfer_' so the flow analysis does not read a
+                # deposit as money destroyed. The bank is a different
+                # currency, not a second pile of coins.
+                wallet.take(conn, gid, ctx.author.id, amount, reason='xfer_deposit')
+                wallet.adjust(conn, gid, owner, amount, reason='xfer_deposit',
+                              currency='bank')
+                conn.execute('UPDATE eco SET bank_at=? WHERE guild_id=? AND user_id=?',
+                             (now, str(gid), str(owner)))
+        except wallet.InsufficientFunds:
             b = bal(gid, ctx.author.id)
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        now = int(time.time())
-        with db.conn_ctx() as conn:
-            conn.execute('UPDATE eco SET bank=bank+?, bank_at=? WHERE guild_id=? AND user_id=?',
-                         (amount, now, str(gid), str(owner)))
         await ctx.reply(t(gid, 'eco.dep_ok', amount=cshort(amount), bank=cshort(bank + amount))
                         + _wallet_line(gid, ctx.author.id), ephemeral=True)
-
     @commands.command(name='withdraw', description='Wypłać z banku', aliases=['with'])
     async def withdraw(self, ctx, amount: str = ''):
         gid = ctx.guild.id
@@ -1319,16 +1388,16 @@ class Gamble(commands.Cog):
                 return await ctx.reply(t(gid, 'eco.dep_use'), ephemeral=True)
         if amount < 10:
             return await ctx.reply(t(gid, 'eco.pay_min'), ephemeral=True)
-        with db.conn_ctx() as conn:
-            cur = conn.execute('UPDATE eco SET bank=bank-? WHERE guild_id=? AND user_id=? AND bank>=?',
-                               (amount, str(gid), str(owner), amount))
-            if (cur.rowcount or 0) != 1:
-                bank, _ = self._bank_accrue(gid, owner)
-                return await ctx.reply(t(gid, 'eco.bank_poor', bank=cshort(bank)), ephemeral=True)
-        add_cash(gid, ctx.author.id, amount)
+        try:
+            with db.conn_ctx() as conn:
+                # Two-sided transfer, the mirror of the deposit above.
+                wallet.take(conn, gid, owner, amount, reason='xfer_withdraw', currency='bank')
+                wallet.adjust(conn, gid, ctx.author.id, amount, reason='xfer_withdraw')
+        except wallet.InsufficientFunds:
+            bank, _ = self._bank_accrue(gid, owner)
+            return await ctx.reply(t(gid, 'eco.bank_poor', bank=cshort(bank)), ephemeral=True)
         await ctx.reply(t(gid, 'eco.with_ok', amount=cshort(amount)) + _wallet_line(gid, ctx.author.id),
                         ephemeral=True)
-
     @commands.command(name='tribute', description='Daj babce napiwek')
     async def tribute(self, ctx, amount: int):
         import random
@@ -1338,7 +1407,7 @@ class Gamble(commands.Cog):
         b = bal(gid, ctx.author.id)
         if amount > b['cash']:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-        add_cash(gid, ctx.author.id, -amount)
+        add_cash(gid, ctx.author.id, -amount, reason='tribute_out')
         with db.conn_ctx() as conn:
             conn.execute('''INSERT INTO tributes (guild_id, user_id, total) VALUES (?,?,?)
                 ON CONFLICT(guild_id, user_id) DO UPDATE SET total=total+excluded.total''',
@@ -1924,10 +1993,10 @@ class Gamble(commands.Cog):
     async def rich(self, ctx):
         gid = ctx.guild.id
         await ctx.defer()
-        with db.conn_ctx() as conn:
-            rows = conn.execute('SELECT user_id, cash + COALESCE(bank, 0) AS total '
-                                'FROM eco WHERE guild_id=? ORDER BY total DESC LIMIT 25',
-                                (str(gid),)).fetchall()
+        # Net worth, not cash: a player with a UR card and a fat bank is
+        # richer than one with the same coins and nothing else. Computed in
+        # a handful of queries, not 5 per user.
+        rows = ledger.top_net_worth(gid, 25)
         rows = [r for r in rows if str(r['user_id']) not in HIDDEN_LB][:10]
         if not rows or rows[0]['total'] <= 0:
             return await ctx.reply(t(gid, 'eco.rich_empty'), ephemeral=True)

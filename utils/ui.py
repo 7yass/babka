@@ -51,6 +51,17 @@ def accent_for(rarity: str, default=INK):
     return RARITY.get((rarity or '').upper(), default)
 
 
+def safe(text) -> str:
+    """Escape user-controlled text before it goes into markdown.
+
+    Trade notes, card names, channel topics and nicknames all end up in
+    embed bodies. Unescaped, a user can break the layout or inject a
+    mention. Nothing in the bot escaped anything before this.
+    """
+    import discord.utils
+    return discord.utils.escape_markdown(str(text or ''))
+
+
 def clamp(text: str, limit: int = MAX_DESC) -> str:
     text = text or ''
     return text if len(text) <= limit else text[:limit].rstrip() + '…'

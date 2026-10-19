@@ -658,6 +658,7 @@ class Health(commands.Cog):
     @staff_or('administrator')
     async def health(self, ctx):
         set_ctx_lang(ctx.author)
+        gid = ctx.guild.id if ctx.guild else 0
         try:
             emb = _status_embed(self.bot)
         except Exception as e:
@@ -668,6 +669,7 @@ class Health(commands.Cog):
     @staff_or('administrator')
     async def health_commands(self, ctx, *, args: str = ''):
         set_ctx_lang(ctx.author)
+        gid = ctx.guild.id if ctx.guild else 0
         filt_cat, filt_issue = None, None
         for tok in (args or '').split():
             if tok.startswith('category:'):
