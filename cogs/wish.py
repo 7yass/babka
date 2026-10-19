@@ -126,12 +126,15 @@ class Wish(commands.Cog):
             m = max(1, int(res['wait'] // 60))
             return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'wi.drop_ready_back', a0=m, a1=res['stack'], a2=DROP_STACK_MAX), ephemeral=True)
 
+        rewards = f'{tix_em(gid)} x1'
+        if res.get('casino_tix'):
+            rewards += f'\n🎰 x{res["casino_tix"]}'
         emb = discord.Embed(title=f'{ctx.author.display_name} · Drop',
-                            description='**Drop Claimed**\nYou claimed a regular drop!',
+                            description=t(gid, 'wi.drop_claimed'),
                             color=0x2ECC71)
-        emb.add_field(name='Rewards', value=f'{tix_em(gid)} x1', inline=True)
-        emb.add_field(name='Balance', value=_ticket_line(gid, res), inline=True)
-        emb.add_field(name='Stacked', value=f"{res['stack']}/{DROP_STACK_MAX}", inline=True)
+        emb.add_field(name=t(gid, 'wi.drop_rewards'), value=rewards, inline=True)
+        emb.add_field(name=t(gid, 'wi.drop_balance'), value=_ticket_line(gid, res), inline=True)
+        emb.add_field(name=t(gid, 'wi.drop_stacked'), value=f"{res['stack']}/{DROP_STACK_MAX}", inline=True)
         await ctx.reply(embed=emb, mention_author=False)
 
     @commands.command(name='cd', aliases=['lcd'], description='Cooldowns + ticket balance')

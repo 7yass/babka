@@ -177,6 +177,13 @@ def claim_drop(gid, uid, now: int = None) -> dict:
                      'WHERE guild_id=? AND user_id=?', (stack, last, gid, uid))
     st = ticket_state(gid, uid)
     st.update(ok=True, granted=1, stack=stack)
+    # Every drop also rolls for a casino ticket (CASINO_TIX_DROP_CHANCE).
+    # Gambling is gated on these; see services/casino.py.
+    try:
+        from services.casino import roll_drop_ticket
+        st['casino_tix'] = roll_drop_ticket(gid, uid)
+    except Exception:
+        st['casino_tix'] = 0
     try:
         from services.quests import bump
         bump(gid, uid, 'dropper')

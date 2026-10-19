@@ -92,14 +92,34 @@ POKE_SHOP_PRICES: dict[str, ShopPrice] = {
     'mega_bracelet': ShopPrice('mega_bracelet', 150000),
 }
 
-# ---- casino ----
-CASINO_BASE_MAX_BET = 15000
-CASINO_MAX_BET_PER_LEVEL = 2000
-CASINO_MAX_BET_CAP = 100000
-CASINO_BJ_PAYOUT = 1.0          # blackjack pays even money
+# ---- casino ----------------------------------------------------------
+# Gambling is GATED BY TICKETS, not an hourly counter. One ticket buys one
+# play on any game. Tickets arrive from `.drop` (CASINO_TIX_DROP_CHANCE per
+# claim) and `.daily` (CASINO_TIX_DAILY guaranteed). CASINO_TIX_MAX is the
+# hoard ceiling so the stack can't be banked indefinitely.
+#
+# HOUSE EDGE: every game pays its profit through a scale factor. Scales are
+# chosen so realized RTP lands in the 88-93% band (7-12% edge) — see
+# `tools/economy_rtp.py`, which simulates each table and fails the build if a
+# game drifts outside CASINO_RTP_MIN..CASINO_RTP_MAX.
+CASINO_TIX_DROP_CHANCE = 0.25   # per .drop claim
+CASINO_TIX_DAILY = 2           # per .daily
+CASINO_TIX_MAX = 50            # hoard ceiling
+
+CASINO_BASE_MAX_BET = 12000
+CASINO_MAX_BET_PER_LEVEL = 1500
+CASINO_MAX_BET_CAP = 60000
+
+# Per-game profit scales (1.0 = paytable as written).
+CASINO_ROU_SCALE = 0.90        # even 92.4% / dozen 90.8% / straight 87.8%
+CASINO_POKER_SCALE = 0.88
+CASINO_BJ_SCALE = 0.92
+
+CASINO_BJ_PAYOUT = 1.0          # blackjack natural, before BJ_SCALE
 CASINO_BJ_GOD_PAYOUT = 1.3      # house edge, kept deniable
-CASINO_COINFLIP_RETURN = 1.9    # fair 50/50 coin, 1.9x back: the 5% gap
-                                # is the whole edge, stated in help
+CASINO_COINFLIP_RETURN = 1.78   # fair 50/50 coin: 0.5 * 1.78 = 89% RTP
+CASINO_COIN_CAP_MULT = 1
+
 # Win caps scale with stake so big bets matter: profit = min(raw,
 # max(FLAT_CAP, STAKE_MULT * bet)). Poker HR mult doubles the scaling.
 CASINO_POKER_CAP_MULT = 5
@@ -107,7 +127,36 @@ CASINO_POKER_HR_CAP_MULT = 10
 CASINO_SLOTS_CAP_MULT = 4
 CASINO_ROU_CAP_MULT = 5
 CASINO_BJ_CAP_MULT = 2
-CASINO_COIN_CAP_MULT = 1
+
+# ---- slots paytable --------------------------------------------------
+# (probability, TOTAL RETURN multiplier). A losing spin returns 0 — it does
+# NOT return the stake, so the loss row must be 0.0 and not "profit 0".
+# RTP is the expected value of return: sum(p * ret).
+# These give 89.6% (10.4% edge), down from the old table's 271%, where a
+# "pair" paid 2x on 72% of spins and the machine lost 171 per 100 wagered.
+CASINO_SLOTS_TABLE = (
+    (0.02, 8.0),   # jackpot: three 7s      (profit 7)
+    (0.10, 4.0),   # triple, any non-7     (profit 3)
+    (0.28, 1.2),   # pair                  (profit 0.2)
+    (0.60, 0.0),   # three distinct: lose  (profit 0)
+)
+# The god branch: still tilted, still deniable.
+CASINO_SLOTS_TABLE_GOD = (
+    (0.03, 8.0),
+    (0.13, 4.0),
+    (0.34, 1.2),
+    (0.50, 0.0),
+)
+
+# The paytable is the ONLY loss gate. This used to sit at ~0.30 (log-scaled
+# by stake) in front of the table, so the table's own loss row was applied to
+# only ~23% of spins and real RTP landed at 61.8%. Anything below 1.0 here
+# silently stacks a second house edge; tools/economy_rtp.py fails if it moves.
+CASINO_SLOTS_GATE = 1.0
+
+# Simulated RTP guard rails enforced by tools/economy_rtp.py.
+CASINO_RTP_MIN = 0.86
+CASINO_RTP_MAX = 0.95
 
 # ---- crime ----
 # Stakes and multipliers per heist target. Chances (base 0.30 + 0.07/crew,

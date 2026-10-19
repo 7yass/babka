@@ -657,6 +657,11 @@ def init_db():
             milestone INTEGER DEFAULT 0, burns INTEGER DEFAULT 0,
             msg_prog INTEGER DEFAULT 0, vc_prog INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id))''')
+        # Casino plays are gated by these, not by an hourly counter.
+        c.execute('''CREATE TABLE IF NOT EXISTS casino_tix (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL,
+            tickets INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id))''')
         c.execute('''CREATE TABLE IF NOT EXISTS pk_codes (
             code TEXT PRIMARY KEY, kind TEXT DEFAULT 'cash',
             amount INTEGER DEFAULT 0, uses_left INTEGER DEFAULT 1)''')

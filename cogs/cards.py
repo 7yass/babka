@@ -570,7 +570,8 @@ class Cards(commands.Cog):
                                  (str(gid), str(ctx.author.id))).fetchone()['c']
             alb = conn.execute('SELECT COUNT(*) c FROM card_album WHERE guild_id=? AND user_id=?',
                                (str(gid), str(ctx.author.id))).fetchone()['c']
-        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.a0_inventory_tickets', a0=ctx.author.display_name, a1=st['tickets'] or 0, a2=st['ssr_tickets'] or 0, a3=dust['dust'] if dust else 0, a4=st['milestone'] or 0, a5=locks or 0, a6=alb or 0), ephemeral=True)
+        from services.casino import casino_tix
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.a0_inventory_tickets', a0=ctx.author.display_name, a1=st['tickets'] or 0, a2=st['ssr_tickets'] or 0, a3=dust['dust'] if dust else 0, a4=st['milestone'] or 0, a5=locks or 0, a6=alb or 0, a7=casino_tix(gid, ctx.author.id)), ephemeral=True)
 
 
 

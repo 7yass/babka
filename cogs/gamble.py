@@ -13,7 +13,10 @@ from utils.economy import (CASINO_BASE_MAX_BET, CASINO_MAX_BET_PER_LEVEL,
                            CASINO_COINFLIP_RETURN, CASINO_COIN_CAP_MULT,
                            CASINO_POKER_CAP_MULT, CASINO_POKER_HR_CAP_MULT,
                            CASINO_SLOTS_CAP_MULT, CASINO_ROU_CAP_MULT,
-                           CASINO_BJ_CAP_MULT, CRIME_ROB)
+                           CASINO_BJ_CAP_MULT, CRIME_ROB,
+                           CASINO_ROU_SCALE, CASINO_POKER_SCALE, CASINO_BJ_SCALE,
+                           CASINO_SLOTS_TABLE, CASINO_SLOTS_TABLE_GOD,
+                           CASINO_SLOTS_GATE)
 from lang import t, set_ctx_lang
 from utils.embeds import foot
 
@@ -29,8 +32,8 @@ SLOTS_MAX_WIN = 25000    # max slots payout for mortals
 ROU_MAX_WIN = 25000      # max roulette profit for mortals
 POKER_MAX_WIN = 50000    # max poker profit for mortals
 COIN_MAX_WIN = 15000     # max coinflip profit for mortals (was uncapped)
-# gambling is limited to 15 plays per hour (shared across all games); gods exempt
-GAMBLES_PER_HOUR = 15
+# Gambling is limited by CASINO TICKETS, not an hourly counter: one ticket
+# buys one play on any game. See services/casino.py.
 SUITS = ['♠', '♥', '♦', '♣']
 RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 SLOTS = ['7', '★', '♦', '♣', '●']
@@ -480,41 +483,27 @@ def _jailed(gid, uid):
     return None
 
 
-def _gamble_gate(gid, uid):
-    """Hourly play limit shared by all games of chance.
-    Returns None if allowed, else minutes until the next hour. Gods exempt."""
-    import time
-    if str(uid) in GOD_IDS:
-        return None
-    hr = int(time.time()) // 3600
-    with db.conn_ctx() as conn:
-        row = conn.execute('SELECT gamble_n, gamble_hr FROM eco WHERE guild_id=? AND user_id=?',
-                           (str(gid), str(uid))).fetchone()
-    if row:
-        d = dict(row)
-        if (d.get('gamble_hr') or 0) == hr and (d.get('gamble_n') or 0) >= GAMBLES_PER_HOUR:
-            mins = 60 - (int(time.time()) // 60 % 60)
-            return max(1, mins)
-    return None
+def _tix_count(gid, uid) -> int:
+    """Tickets on hand, for the .casino panel."""
+    from services.casino import casino_tix
+    return casino_tix(gid, uid)
 
 
-def _gamble_use(gid, uid):
-    """Record one gamble towards the hourly limit. Gods exempt."""
-    import time
-    if str(uid) in GOD_IDS:
-        return
-    hr = int(time.time()) // 3600
-    bal(gid, uid)  # ensure row exists
-    with db.conn_ctx() as conn:
-        row = conn.execute('SELECT gamble_n, gamble_hr FROM eco WHERE guild_id=? AND user_id=?',
-                           (str(gid), str(uid))).fetchone()
-        d = dict(row) if row else {}
-        if d.get('gamble_hr') != hr:
-            conn.execute('UPDATE eco SET gamble_n=1, gamble_hr=? WHERE guild_id=? AND user_id=?',
-                         (hr, str(gid), str(uid)))
-        else:
-            conn.execute('UPDATE eco SET gamble_n=gamble_n+1 WHERE guild_id=? AND user_id=?',
-                         (str(gid), str(uid)))
+def _tix_ok(gid, uid) -> bool:
+    """Cheap pre-check: can this player afford a play in tickets?
+    Called before the stake is taken, so nobody loses a ticket to a bust."""
+    from services.casino import casino_tix
+    return casino_tix(gid, uid) > 0
+
+
+def _tix_take(gid, uid):
+    """Spend one casino ticket and book the gambler quest progress.
+    Called only once the stake is safely taken."""
+    from services.casino import take_casino_tix, is_free
+    if not take_casino_tix(gid, uid):
+        return False
+    if not is_free(uid):
+        bal(gid, uid)  # ensure row exists
     try:
         from services.quests import bump
         bump(gid, uid, 'gambler')
@@ -826,6 +815,7 @@ class PokerView(discord.ui.LayoutView):
                 if mult:
                     raw = self.bet * mult
                     if str(self.player_id) not in GOD_IDS:
+                        raw = int(raw * CASINO_POKER_SCALE)
                         # Caps scale with stake (5x, 10x on High Roller) so big
                         # bets and big hands both matter; notice when it binds.
                         sm = (CASINO_POKER_HR_CAP_MULT
@@ -1221,6 +1211,14 @@ class Gamble(commands.Cog):
             tick_line = f"\n🎟 +{DAILY_TICKETS} tickets (x{_tst['tickets'] or 0})"
         except Exception:
             tick_line = ''
+        # Gambling is ticket-gated: the daily is one of two ways in.
+        try:
+            from services.casino import grant_daily, casino_tix
+            _tix = grant_daily(gid, ctx.author.id)
+            if _tix:
+                tick_line += f"\n🎰 +{_tix} {t(gid, 'eco.tix_word')} (x{casino_tix(gid, ctx.author.id)})"
+        except Exception:
+            pass
         with db.conn_ctx() as conn:
             conn.execute('UPDATE eco SET last_daily=?, daily_streak=? WHERE guild_id=? AND user_id=?',
                          (now, streak, str(gid), str(ctx.author.id)))
@@ -1400,14 +1398,13 @@ class Gamble(commands.Cog):
             cap = max_bet_for(get_user(gid, ctx.author.id).get('level', 0))
             if bet > cap and not has_highroller(gid, ctx.author.id):
                 return await ctx.reply(t(gid, 'eco.bj_maxbet', max=cshort(cap)), ephemeral=True)
-            wait = _gamble_gate(gid, ctx.author.id)
-            if wait is not None:
-                return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
+            if not _tix_ok(gid, ctx.author.id):
+                return await ctx.reply(t(gid, 'eco.gamble_no_tix'), ephemeral=True)
         b = bal(gid, ctx.author.id)
         if bet > b['cash']:
             return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
         add_cash(gid, ctx.author.id, -bet)
-        _gamble_use(gid, ctx.author.id)
+        _tix_take(gid, ctx.author.id)
         deck = [(r, s) for s in SUITS for r in RANKS]
         random.shuffle(deck)
         if god:
@@ -1431,6 +1428,7 @@ class Gamble(commands.Cog):
         if hand_value(phand) == 21:
             raw = int(bet * (CASINO_BJ_GOD_PAYOUT if god else CASINO_BJ_PAYOUT))  # mortals get even money
             if not god:
+                raw = int(raw * CASINO_BJ_SCALE)
                 win, capped = self._cap_profit(raw, BJ_MAX_WIN, CASINO_BJ_CAP_MULT, bet)
             else:
                 win, capped = raw, False
@@ -1470,17 +1468,18 @@ class Gamble(commands.Cog):
         return b, None, bet
 
     def _win_chance(self, gid, user_id, bet: int) -> float:
-        """House-tilted casino: the house always walks out smiling, mortals
-        hit ~30% with small payouts (pairs mostly, sevens rarely).
-        Bet scaling is gentle now — big bets don't get secretly punished."""
+        """Always 1.0 — the paytable is the ONLY gate.
+
+        This used to be a second, hidden loss gate: ~30% (log-scaled by bet)
+        of spins reached the table, whose own rows then lost 72% of those.
+        Two loss gates in series gave a 61.8% RTP that read as a fair-looking
+        "30% win rate" in the code. CASINO_SLOTS_TABLE now carries the whole
+        house edge (89.6% RTP, 10.4% edge) and tools/economy_rtp.py asserts it
+        with the gate applied, so this can't silently double-count again.
+        """
         if str(user_id) in GOD_IDS:
             god_tick(gid, user_id)
-            return 1.0
-        base_chance = 0.30
-        # Higher bet = slightly lower chance. Scale logarithmically.
-        import math
-        bet_factor = 1 - min(0.90, math.log10(max(1, bet)) * 0.08)
-        return base_chance * bet_factor
+        return CASINO_SLOTS_GATE
 
     @staticmethod
     def _cap_profit(raw: int, flat_cap: int, stake_mult: int, bet: int) -> tuple:
@@ -1500,13 +1499,12 @@ class Gamble(commands.Cog):
         jm = _jailed(gid, ctx.author.id)
         if jm:
             return await ctx.reply(jm, ephemeral=True)
-        wait = _gamble_gate(gid, ctx.author.id)
-        if wait is not None:
-            return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
+        if not _tix_ok(gid, ctx.author.id):
+            return await ctx.reply(t(gid, 'eco.gamble_no_tix'), ephemeral=True)
         b, err_msg, bet = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
-        _gamble_use(gid, ctx.author.id)
+        _tix_take(gid, ctx.author.id)
 
         win_chance = self._win_chance(gid, ctx.author.id, bet)
         won = random.random() < win_chance
@@ -1515,26 +1513,42 @@ class Gamble(commands.Cog):
             # casino tiers: frequent pairs (x1), rare triples (x3), mythic sevens (x8).
             # The house wins quietly: mostly pairs, a triple now and then.
             god = str(ctx.author.id) in GOD_IDS
+            # Table rows are TOTAL RETURN multipliers; 0.0 means the stake
+            # is gone. Return = bet + raw, so raw is profit = bet*(ret-1).
+            table = CASINO_SLOTS_TABLE_GOD if god else CASINO_SLOTS_TABLE
             r = random.random()
-            j_ch, t_ch = (0.005, 0.10) if god else (0.03, 0.28)
-            if r < j_ch:
-                sym, reels, mult = '7', ['7', '7', '7'], 8
-            elif r < t_ch:
+            acc, ret = 0.0, table[-1][1]
+            for _p, _ret in table:
+                acc += _p
+                if r < acc:
+                    ret = _ret
+                    break
+            if ret >= 8.0:                      # jackpot: three 7s
+                reels, mult = ['7', '7', '7'], 7
+            elif ret >= 4.0:                    # triple, any non-7
                 sym = random.choice([s for s in SLOTS if s != '7'])
                 reels, mult = [sym, sym, sym], 3
-            else:
+            elif ret >= 1.0:                    # pair
                 sym = random.choice(SLOTS)
                 odd = random.choice([s for s in SLOTS if s != sym])
                 reels, mult = [sym, sym, odd], 1
                 random.shuffle(reels)
-            raw = bet * mult
+            else:                               # three distinct: stake gone
+                reels, mult = random.sample(SLOTS, 3), 0
+            raw = int(bet * (ret - 1.0)) if ret > 0 else 0
             if str(ctx.author.id) not in GOD_IDS:
                 win, capped = self._cap_profit(raw, SLOTS_MAX_WIN,
                                                CASINO_SLOTS_CAP_MULT, bet)
             else:
                 win, capped = raw, False
-            msg = (t(gid, 'eco.slots_jackpot', mult=mult, win=cshort(win)) if mult >= 3
-                   else t(gid, 'eco.slots_small', win=cshort(win)))
+            # ret == 0.0 is a real losing outcome now (60% of spins), so it
+            # must read as a loss, not as a "small win" with win=0.
+            if mult >= 3:
+                msg = t(gid, 'eco.slots_jackpot', mult=mult, win=cshort(win))
+            elif win:
+                msg = t(gid, 'eco.slots_small', win=cshort(win))
+            else:
+                msg = t(gid, 'eco.slots_lose', bet=cshort(bet))
             if capped:
                 msg += '\n' + t(gid, 'eco.cap_hit', win=cshort(win))
             msg += '\n-# ' + t(gid, 'eco.paytable_slots')
@@ -1589,13 +1603,12 @@ class Gamble(commands.Cog):
         pick = 'O' if side.startswith(('o', 'e', 'h')) else ('R' if side.startswith(('r', 't')) else None)
         if pick is None:
             return await ctx.reply(t(gid, 'eco.cf_use'), ephemeral=True)
-        wait = _gamble_gate(gid, ctx.author.id)
-        if wait is not None:
-            return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
+        if not _tix_ok(gid, ctx.author.id):
+            return await ctx.reply(t(gid, 'eco.gamble_no_tix'), ephemeral=True)
         b, err_msg, bet = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
-        _gamble_use(gid, ctx.author.id)
+        _tix_take(gid, ctx.author.id)
         # Coinflip is fair 50/50 (the house just reads the spin better).
         # Pays 1.9x back, not 2x — the 5% gap is the whole edge, stated.
         if str(ctx.author.id) in GOD_IDS:
@@ -1685,13 +1698,12 @@ class Gamble(commands.Cog):
             kind = 'col3'
         if kind is None:
             return await ctx.reply(t(gid, 'eco.rou_use'), ephemeral=True)
-        wait = _gamble_gate(gid, ctx.author.id)
-        if wait is not None:
-            return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
+        if not _tix_ok(gid, ctx.author.id):
+            return await ctx.reply(t(gid, 'eco.gamble_no_tix'), ephemeral=True)
         b, err_msg, bet = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
-        _gamble_use(gid, ctx.author.id)
+        _tix_take(gid, ctx.author.id)
         n, msg, _won = self._roulette_round(gid, ctx.author.id, bet, kind, num)
         title = f"🎡 {t(gid, 'eco.rou_title', bet=cshort(bet))}"
         layout = _result_layout(title, msg, 'attachment://rou.png', won=_won,
@@ -1743,6 +1755,7 @@ class Gamble(commands.Cog):
         if _rou_wins(n, kind, num):
             raw = bet * mult
             if str(uid) not in GOD_IDS:
+                raw = int(raw * CASINO_ROU_SCALE)
                 profit, capped = self._cap_profit(raw, ROU_MAX_WIN,
                                                   CASINO_ROU_CAP_MULT, bet)
             else:
@@ -1776,10 +1789,9 @@ class Gamble(commands.Cog):
             # Acknowledge FIRST: the spin does DB reads, a settle and possibly
             # a wheel render — past Discord's 3s click window otherwise.
             mode = await ack(interaction)
-            wait = _gamble_gate(gid, uid)
-            if wait is not None:
+            if not _tix_ok(gid, uid):
                 return await interaction.followup.send(
-                    t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
+                    t(gid, 'eco.gamble_no_tix'), ephemeral=True)
             b = bal(gid, uid)
             if bet <= 0 or bet > b['cash']:
                 return await interaction.followup.send(
@@ -1788,7 +1800,7 @@ class Gamble(commands.Cog):
                 b = bal(gid, uid)
                 return await interaction.followup.send(
                     t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-            _gamble_use(gid, uid)
+            _tix_take(gid, uid)
             n, msg, _won2 = cog._roulette_round(gid, uid, bet, kind, num)
             png = cog._rou_wheels.get(n)
             if png is None:
@@ -1816,13 +1828,12 @@ class Gamble(commands.Cog):
         jm = _jailed(gid, ctx.author.id)
         if jm:
             return await ctx.reply(jm, ephemeral=True)
-        wait = _gamble_gate(gid, ctx.author.id)
-        if wait is not None:
-            return await ctx.reply(t(gid, 'eco.gamble_limit', m=wait), ephemeral=True)
+        if not _tix_ok(gid, ctx.author.id):
+            return await ctx.reply(t(gid, 'eco.gamble_no_tix'), ephemeral=True)
         b, err_msg, bet = self._take_bet(ctx, bet)
         if err_msg:
             return await ctx.reply(err_msg, ephemeral=True)
-        _gamble_use(gid, ctx.author.id)
+        _tix_take(gid, ctx.author.id)
         deck = [(r, s) for s in SUITS for r in RANKS]
         random.shuffle(deck)
         hand = [deck.pop() for _ in range(5)]
@@ -1934,7 +1945,7 @@ class Gamble(commands.Cog):
         hr = has_highroller(gid, ctx.author.id)
         await ctx.reply(view=_game_layout(
             t(gid, 'eco.casino_title'),
-            t(gid, 'eco.casino_body', maxbet=cshort(cap), limit=GAMBLES_PER_HOUR,
+            t(gid, 'eco.casino_body', maxbet=cshort(cap), tix=_tix_count(gid, ctx.author.id),
               hr=t(gid, 'eco.casino_hr_on') if hr else t(gid, 'eco.casino_hr_off'))),
             ephemeral=True)
 
