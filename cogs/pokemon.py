@@ -10,6 +10,7 @@ from discord.utils import MISSING
 
 import database as db
 from lang import t, set_ctx_lang
+from services import wallet
 from utils.cards import short as cshort
 from utils.economy import POKE_SHOP_PRICES
 from utils.emojis import em, emoji_id
@@ -5724,7 +5725,9 @@ class Pokemon(commands.Cog):
                 # Double-settle guard: prize + badge only if unclaimed today.
                 if not already or (already['day'] or 0) != today:
                     b = bal(gid, uwin)
-                    add_cash(gid, uwin, prize)
+                    # Same connection as the enclosing transaction: a nested
+                    # write would block on SQLite's single write lock.
+                    wallet.adjust(conn, gid, uwin, prize, reason='pk_npc_prize')
                     line += '\n' + t(gid, 'eco.pk_npc_win', prize=cshort(prize))
                     conn.execute('INSERT OR REPLACE INTO pk_npc (guild_id, user_id, npc, day) VALUES (?,?,?,?)',
                                  (str(gid), str(uwin), st.get('npckey', ''), today))

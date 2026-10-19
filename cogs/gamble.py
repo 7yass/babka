@@ -18,9 +18,10 @@ from utils.economy import (CASINO_BASE_MAX_BET, CASINO_MAX_BET_PER_LEVEL,
                            CASINO_SLOTS_TABLE, CASINO_SLOTS_TABLE_GOD,
                            CASINO_SLOTS_GATE)
 from lang import t, set_ctx_lang
+from services import wallet
 from utils.embeds import foot
 
-START_CASH, DAILY_CASH, DAILY_CD = 1000, 1500, 86400
+from utils.economy import START_CASH, DAILY_CASH, DAILY_CD
 # hidden from public leaderboards (progress kept, just not shown)
 HIDDEN_LB = {'1270782781605154922', '558332192531546114', '908532356397285460'}
 ROB_CD = 3600
@@ -116,53 +117,36 @@ def bal(gid, uid) -> dict:
         return dict(row)
 
 
-def set_cash(gid, uid, cash: int):
-    bal(gid, uid)
+def set_cash(gid, uid, cash: int, reason: str = 'set_cash'):
+    """Set the wallet outright. Ledgered, so the trail shows the jump."""
     with db.conn_ctx() as conn:
-        conn.execute('UPDATE eco SET cash=? WHERE guild_id=? AND user_id=?',
-                     (cash, str(gid), str(uid)))
-
-
-def take_cash(gid, uid, amount: int) -> bool:
+        wallet.set_balance(conn, gid, uid, cash, reason=reason)
+def take_cash(gid, uid, amount: int, reason: str = None) -> bool:
     """Atomic spend: single UPDATE guarded by balance. A fast double-click
     can't overspend (the old bal()+set_cash() pair read stale cash twice)."""
-    bal(gid, uid)  # ensure the row exists
-    with db.conn_ctx() as conn:
-        cur = conn.execute('UPDATE eco SET cash=cash-? WHERE guild_id=? AND user_id=? AND cash>=?',
-                           (amount, str(gid), str(uid), amount))
-        return (cur.rowcount or 0) > 0
-
-
-def take_cash_upto(gid, uid, amount: int) -> int:
+    try:
+        wallet.spend(gid, uid, amount, reason=reason)
+        return True
+    except wallet.InsufficientFunds:
+        return False
+def take_cash_upto(gid, uid, amount: int, reason: str = None) -> int:
     """Atomic debit that floors at zero (mirrors the old max(0, cash - n)).
 
-    For penalties where the wallet may not cover the amount: one UPDATE, so a
-    concurrent credit can't bring back the balance it just wrote."""
-    bal(gid, uid)  # ensure the row exists
-    with db.conn_ctx() as conn:
-        conn.execute('UPDATE eco SET cash=MAX(0, cash-?) WHERE guild_id=? AND user_id=?',
-                     (int(amount), str(gid), str(uid)))
-        row = conn.execute('SELECT cash FROM eco WHERE guild_id=? AND user_id=?',
-                           (str(gid), str(uid))).fetchone()
-    return int(row['cash']) if row else 0
-
-
-def add_cash(gid, uid, delta: int) -> int:
+    For penalties where the wallet may not cover the amount: one UPDATE, so
+    a concurrent credit can't bring back the balance it just wrote."""
+    return wallet.apply(gid, uid, -int(amount), reason=reason, floor=0)
+def add_cash(gid, uid, delta: int, reason: str = None) -> int:
     """Atomic credit/debit: one UPDATE, nothing read first.
 
-    The old shape (`b = bal(...)` … await … `set_cash(b['cash'] + pay)`) writes
+    The old shape (`b = bal(...)` ... await ... `set_cash(b['cash'] + pay)`) writes
     back a balance computed from a possibly stale read, so anything that
     credited the same wallet in between gets clobbered (lost or duplicated
-    money). Returns the resulting balance."""
-    bal(gid, uid)  # ensure the row exists
-    with db.conn_ctx() as conn:
-        conn.execute('UPDATE eco SET cash=cash+? WHERE guild_id=? AND user_id=?',
-                     (int(delta), str(gid), str(uid)))
-        row = conn.execute('SELECT cash FROM eco WHERE guild_id=? AND user_id=?',
-                           (str(gid), str(uid))).fetchone()
-    return int(row['cash']) if row else 0
+    money). Returns the resulting balance.
 
-
+    Every movement lands in the ledger (services/ledger.py) in the same
+    transaction. Without a reason the wallet infers one from the call
+    stack, so the analytics still work if a call site forgets."""
+    return wallet.apply(gid, uid, delta, reason=reason)
 def hand_value(cards) -> int:
     total, aces = 0, 0
     for r, _ in cards:
@@ -1886,8 +1870,11 @@ class Gamble(commands.Cog):
                                       (str(gid), str(member.id))).fetchone()
                 if bounty:
                     conn.execute('DELETE FROM bounties WHERE id=?', (bounty['id'],))
-                    ab2 = bal(gid, ctx.author.id)
-                    add_cash(gid, ctx.author.id, bounty['amount'])
+                    # Same connection: the DELETE above already holds
+                    # SQLite's single write lock. A second connection here
+                    # used to block for 30s and then fail.
+                    wallet.adjust(conn, gid, ctx.author.id, bounty['amount'],
+                                  reason='bounty_claim', ref=str(bounty['id']))
                     msg += '\n' + t(gid, 'eco.bounty_claim', amount=cshort(bounty['amount']))
         msg += _wallet_line(gid, ctx.author.id)
         await ctx.reply(view=_game_layout(t(gid, 'eco.rob_title'), msg))

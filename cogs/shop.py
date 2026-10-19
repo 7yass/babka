@@ -10,6 +10,7 @@ import database as db
 from utils.cards import short as cshort
 from utils.economy import SHOP_PRICES
 from lang import t, set_ctx_lang
+from services import wallet
 from utils.embeds import card
 from utils.emojis import em
 
@@ -718,7 +719,9 @@ class Shop(commands.Cog):
             b = bal(gid, ctx.author.id)
             if b['cash'] < price:
                 return await ctx.reply(t(gid, 'eco.broke', cash=cshort(b['cash'])), ephemeral=True)
-            add_cash(gid, ctx.author.id, -price)
+            # Same connection as the enclosing transaction: a nested write
+            # would block on SQLite's single write lock.
+            wallet.adjust(conn, gid, ctx.author.id, -price, reason='shop_pardon')
             conn.execute('DELETE FROM warns WHERE id=?', (row['id'],))
         await ctx.reply(t(gid, 'shop.pardon_ok'), ephemeral=True)
 

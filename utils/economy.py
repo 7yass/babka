@@ -195,3 +195,75 @@ CRIME_ROB = RobTuning(loot_min_pct=0.08, loot_max_pct=0.20, loot_min=10,
                       loot_cap=25000, fine_min=100, fine_pct=0.20, fine_cap=15000)
 
 CRIME_BOUNTY_MIN = 100
+
+
+# ---- wallet seed & daily --------------------------------------------
+# What a fresh wallet holds, and what the daily hands out. These lived in
+# cogs/gamble.py as literals; they are money, so they live HERE.
+START_CASH = 1000
+DAILY_CASH = 1500
+DAILY_CD = 86400
+
+# ---- streaks ---------------------------------------------------------
+# The cheapest legible progression there is: it costs a player nothing but
+# attention and it pays every single day. The multiplier steps up every
+# STREAK_STEP days and is capped, so a streak is worth chasing but not
+# worth breaking your life over.
+STREAK_KINDS = ('daily', 'work')
+STREAK_STEP = 6              # days per multiplier step
+STREAK_MULT_PER_STEP = 0.1   # +0.1x per step
+STREAK_MAX_MULT = 2.0
+STREAK_GRACE = 172800        # 48h: one missed day does NOT kill the streak
+
+# ---- bank interest ---------------------------------------------------
+# Interest on the banked balance. The flat cap is gone: the cap and the
+# rate both scale with the player's level, so a level-1 account and a
+# level-80 account do not earn the same 500 forever. The bank is a real
+# money sink for players who do not want to gamble it.
+BANK_INTEREST_RATE = 0.02          # per day, on the banked balance
+BANK_INTEREST_LEVEL_BONUS = 0.002  # +0.2% of the rate per level above 1
+BANK_INTEREST_MIN = 1
+BANK_INTEREST_CAP_BASE = 500       # cap at level 1
+BANK_INTEREST_CAP_PER_LEVEL = 60   # +60 cap per level
+BANK_INTEREST_MAX_CAP = 5000
+
+# ---- tax -------------------------------------------------------------
+# An economy needs sinks as well as faucets. Windfalls above the threshold
+# pay a small tax into the guild treasury, which buys upgrades that benefit
+# every member. Capped so a big win is never punished into nothing.
+TAX_THRESHOLD = 25000
+TAX_RATE = 0.03
+TAX_CAP = 5000
+
+# ---- valuation (net worth only — NOT tradable) -----------------------
+# Shadow prices used to turn non-coin holdings into a single number. They
+# are deliberately conservative and never leave the net-worth screen.
+TICKET_VALUE = 2500        # one casino ticket
+CARD_TICKET_VALUE = 1500   # one card-pull ticket
+SSR_TICKET_VALUE = 20000   # one guaranteed LR+ ticket
+CARD_VALUE = {'C': 100, 'R': 400, 'SR': 1500, 'LR': 5000, 'UR': 10000}
+DUST_RATE = 0.1            # dust is grind currency: 10 000 dust ~= one card
+
+# ---- guild upgrades --------------------------------------------------
+# The server-wide progression track. Members pay into the guild treasury,
+# the guild buys upgrades, and every member gets the buff. Costs are
+# per-level and the effect is per-member, so a single whale cannot make
+# the upgrade worthless for everyone else.
+GUILD_UPGRADES = {
+    'luck': {
+        'name': 'luck', 'max': 3,
+        'costs': (60000, 180000, 450000),
+        'effect': 'chance', 'per_level': 0.01,
+    },
+    'vault': {
+        'name': 'vault', 'max': 3,
+        'costs': (50000, 150000, 400000),
+        'effect': 'interest', 'per_level': 0.01,
+    },
+    'hearth': {
+        'name': 'hearth', 'max': 3,
+        'costs': (40000, 120000, 320000),
+        'effect': 'daily_mult', 'per_level': 0.1,
+    },
+}
+GUILD_UPGRADE_TAX_SHARE = 1.0   # fraction of a tax that funds upgrades

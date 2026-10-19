@@ -4,6 +4,7 @@ Local-first: one plain SQLite file (WAL mode). Daily snapshots go to backups/.
 """
 import functools
 import sqlite3
+import time as _time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -64,12 +65,22 @@ def prune() -> dict:
     daily closes for the 1Y chart). Cutoff-based deletes (indexed range)
     instead of a correlated NOT IN, which re-ran the subquery per row and
     took double-digit seconds on a tiny table."""
-    out = {'msg_stats': 0, 'stock_hist': 0}
+    out = {'msg_stats': 0, 'stock_hist': 0, 'eco_ledger': 0}
     with conn_ctx() as conn:
         cur = conn.execute("DELETE FROM msg_stats WHERE day < date('now','-30 days')")
         out['msg_stats'] = cur.rowcount or 0
         try:
             conn.execute("DELETE FROM quest_progress WHERE day < date('now','-2 days')")
+        except Exception:
+            pass
+        # The ledger grows fastest of anything here (one row per money move,
+        # and a busy casino does hundreds a minute). 90 days keeps a full
+        # quarter of history for the statements and the flow analytics while
+        # bounding the table.
+        try:
+            cur = conn.execute("DELETE FROM eco_ledger WHERE at < ?",
+                               (int(_time.time()) - 90 * 86400,))
+            out['eco_ledger'] = cur.rowcount or 0
         except Exception:
             pass
         syms = conn.execute('SELECT DISTINCT guild_id, symbol FROM stock_hist').fetchall()
@@ -84,13 +95,42 @@ def prune() -> dict:
     return out
 
 
+# Live connections, so we can tell whether a write lock is already held.
+# SQLite allows exactly one writer at a time. When a helper opens its own
+# connection while the caller still holds a write transaction, the inner
+# write blocks on busy_timeout for 30 SECONDS and then raises "database is
+# locked" -- and because that happens on the event loop, the whole bot
+# freezes for those 30 seconds. This has happened for real: `.rob` bounty
+# claims, `.pardon` purchases and the pokemon NPC duel prize all did it.
+#
+# write_lock_held() lets callers detect the condition and refuse loudly
+# instead of freezing silently.
+_open_conns = []
+
+
+def write_lock_held() -> bool:
+    """True when some live connection is inside a write transaction."""
+    for conn in list(_open_conns):
+        try:
+            if conn.in_transaction:
+                return True
+        except Exception:
+            pass
+    return False
+
+
 @contextmanager
 def conn_ctx():
     conn = get_conn()
+    _open_conns.append(conn)
     try:
         yield conn
         conn.commit()
     finally:
+        try:
+            _open_conns.remove(conn)
+        except ValueError:
+            pass
         try:
             conn.close()
         except Exception:
@@ -662,6 +702,42 @@ def init_db():
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL,
             tickets INTEGER DEFAULT 0,
             PRIMARY KEY (guild_id, user_id))''')
+        # ---- the money ledger -------------------------------------------
+        # Every currency movement lands here, in the SAME transaction as the
+        # balance change, so the ledger can never disagree with the wallet.
+        # `reason` is a stable machine key ('daily', 'casino_slots_win', ...);
+        # `ref` carries optional context (a card code, a game, a job).
+        # Guild-pool rows use user_id = 'guild:<id>' and currency = 'treasury'.
+        c.execute('''CREATE TABLE IF NOT EXISTS eco_ledger (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            currency TEXT NOT NULL DEFAULT 'coins',
+            delta INTEGER NOT NULL,
+            balance INTEGER NOT NULL DEFAULT 0,
+            reason TEXT NOT NULL DEFAULT 'misc',
+            ref TEXT DEFAULT '',
+            at INTEGER NOT NULL DEFAULT 0)''')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_ledger_user ON eco_ledger(guild_id, user_id, id DESC)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_ledger_at ON eco_ledger(at)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_ledger_reason ON eco_ledger(reason)')
+        c.execute('CREATE INDEX IF NOT EXISTS idx_ledger_guild ON eco_ledger(guild_id, at)')
+        # ---- streaks ----------------------------------------------------
+        # Daily/work streaks live here so the multiplier survives a restart
+        # and can be measured (the old eco.daily_streak column is a copy).
+        c.execute('''CREATE TABLE IF NOT EXISTS eco_streaks (
+            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, kind TEXT NOT NULL,
+            count INTEGER DEFAULT 0, best INTEGER DEFAULT 0, last_at INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, user_id, kind))''')
+        # ---- guild treasury ---------------------------------------------
+        # Server-wide pool fed by taxes and donations, spent on upgrades
+        # that buff every member. Guild rows use user_id='guild:<id>'.
+        c.execute('''CREATE TABLE IF NOT EXISTS guild_treasury (
+            guild_id TEXT PRIMARY KEY, balance INTEGER DEFAULT 0, created INTEGER DEFAULT 0)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS guild_upgrades (
+            guild_id TEXT NOT NULL, key TEXT NOT NULL,
+            level INTEGER DEFAULT 0, at INTEGER DEFAULT 0,
+            PRIMARY KEY (guild_id, key))''')
         c.execute('''CREATE TABLE IF NOT EXISTS pk_codes (
             code TEXT PRIMARY KEY, kind TEXT DEFAULT 'cash',
             amount INTEGER DEFAULT 0, uses_left INTEGER DEFAULT 1)''')
