@@ -158,7 +158,9 @@ class Economy(commands.Cog):
         if not ok:
             return await ctx.reply(t(gid, f'eco.{key_msg}',
                                      cost=extra.get('cost', 0)), ephemeral=True)
-        await ctx.reply(t(gid, 'eco.treasury_bought', key=key,
+        # `t(guild_id, key, **vars)` - passing key= would collide with the
+        # parameter name and raise TypeError at runtime.
+        await ctx.reply(t(gid, 'eco.treasury_bought', cfg=key,
                           level=extra.get('level', 0), cost=extra.get('cost', 0)),
                         ephemeral=True)
 

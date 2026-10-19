@@ -169,7 +169,13 @@ _CFG_TTL = 30
 
 
 def _cfg_drop(gid):
-    _cfg_drop(gid)
+    """Forget the cached automod config for this guild.
+
+    It used to call itself, which raised RecursionError inside the
+    caller's `with db.conn_ctx()` block - and an exception there rolls the
+    transaction back, so every automod setting silently never saved.
+    """
+    _CFG_CACHE.pop(str(gid), None)
 
 
 
