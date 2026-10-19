@@ -1,6 +1,9 @@
-﻿"""Verification gate: button or captcha, unverified role on join, auto-kick. Hybrid."""
-import asyncio
-import random
+﻿"""Verification gate: button or captcha, unverified role on join, auto-kick. Hybrid.
+
+The gate view is built and registered by services.persistent, so the button
+keeps working after a restart (the role and the method are read from the DB
+on every click, never from a closure).
+"""
 import time
 
 import discord
@@ -8,59 +11,20 @@ from discord.ext import commands, tasks
 
 import database as db
 from lang import t, set_ctx_lang
-from utils.embeds import WHITE, foot
+from services import persistent
 from utils.checks import staff_or
-from utils.common import log_to_mod
+
+# The gate itself (button, captcha, role granting) lives in the persistent
+# layer, so the same code answers the click whether the view was built at
+# runtime or rebuilt from the DB after a restart.
+CaptchaModal = persistent.CaptchaModal
+grant = persistent.grant
 
 
 def vcfg(gid) -> dict:
     with db.conn_ctx() as conn:
         row = conn.execute('SELECT * FROM verify_cfg WHERE guild_id=?', (str(gid),)).fetchone()
         return dict(row) if row else {}
-
-
-async def grant(member: discord.Member, cfg: dict):
-    gid = member.guild.id
-    try:
-        if cfg.get('unverified_role'):
-            role = member.guild.get_role(int(cfg['unverified_role']))
-            if role and role in member.roles:
-                await member.remove_roles(role, reason='verified')
-        role = member.guild.get_role(int(cfg['role_id']))
-        if role and role not in member.roles:
-            await member.add_roles(role, reason='verified')
-    except Exception:
-        pass
-    await log_to_mod(member.guild, discord.Embed(
-        description=t(gid, 'vf.log', user=member.mention), title=t(gid, 'vf.log_title'), color=WHITE))
-
-
-class CaptchaModal(discord.ui.Modal):
-    def __init__(self, gid, a: int, b: int):
-        super().__init__(title=t(gid, 'vf.cap_title'))
-        self.answer = a + b
-        self.gid = gid
-        self.q = discord.ui.TextInput(label=t(gid, 'vf.cap_q', a=a, b=b), max_length=10)
-        self.add_item(self.q)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        set_ctx_lang(interaction.user)
-        cfg = vcfg(self.gid)
-        try:
-            ok = int(self.q.value.strip()) == self.answer
-        except Exception:
-            ok = False
-        if not ok:
-            return await interaction.response.send_message(t(self.gid, 'vf.cap_no'), ephemeral=True)
-        await grant(interaction.user, cfg)
-        role = interaction.guild.get_role(int(cfg['role_id'])) if cfg.get('role_id') else None
-        await interaction.response.send_message(
-            t(self.gid, 'vf.done', role=role.name if role else ''), ephemeral=True)
-        await asyncio.sleep(120)
-        try:
-            await interaction.delete_original_response()
-        except Exception:
-            pass
 
 
 class Verify(commands.Cog):
@@ -89,7 +53,7 @@ class Verify(commands.Cog):
                 if (now - m.joined_at.timestamp()) > mins * 60:
                     try:
                         try:
-                            await m.send(t(guild.id, 'vf.kicked', server=guild.name, mins=mins))
+                            await m.send(t(guild.id, 'pv.vf.kicked', server=guild.name, mins=mins))
                         except Exception:
                             pass
                         await m.kick(reason='never verified')
@@ -114,33 +78,10 @@ class Verify(commands.Cog):
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
         set_ctx_lang(interaction.user)
-        if interaction.type != discord.InteractionType.component:
-            return
-        cid = interaction.data.get('custom_id', '')
-        if not cid.startswith('gate:'):
-            return
-        gid = interaction.guild_id
-        cfg = vcfg(gid)
-        if not cfg.get('role_id'):
-            return await interaction.response.send_message(t(gid, 'vfy.none'), ephemeral=True)
-        role = interaction.guild.get_role(int(cfg['role_id']))
-        if not role:
-            return await interaction.response.send_message(t(gid, 'vfy.no_role'), ephemeral=True)
-        member = interaction.user
-        if role in member.roles:
-            await interaction.response.send_message(t(gid, 'vfy.have'), ephemeral=True)
-        elif (cfg.get('method') or 'button') == 'captcha':
-            a, b = random.randint(2, 20), random.randint(2, 20)
-            await interaction.response.send_modal(CaptchaModal(gid, a, b))
-            return
-        else:
-            await grant(member, cfg)
-            await interaction.response.send_message(t(gid, 'vfy.done', role=role.name), ephemeral=True)
-        await asyncio.sleep(120)
-        try:
-            await interaction.delete_original_response()
-        except Exception:
-            pass
+        # Registered panel views answer their own clicks (services/persistent
+        # rebuilds them from the DB on every boot). This is only the safety
+        # net for panels the registry does not know about.
+        await persistent.handle_fallback(interaction)
 
     @commands.group(name='verify', description='Verification gate')
     async def verify(self, ctx):
@@ -169,28 +110,19 @@ class Verify(commands.Cog):
                 VALUES (?,?,?,?,?,?,?,?,?)''',
                          (str(gid), str(channel.id), str(role.id),
                           str(unverified.id) if unverified else None, method, kick_minutes,
-                          title or t(gid, 'vf.def_title'), description,
-                          label or t(gid, 'vf.def_label')))
-        from discord.ui import LayoutView, Container, TextDisplay, ActionRow
-        body = title or t(gid, 'vf.def_title')
-        desc = description or ''
-        if method == 'captcha':
-            desc = (desc + '\n\n' if desc else '') + t(gid, 'vf.cap_hint')
-        layout = LayoutView(timeout=None)
-        box = Container(accent_color=0xFFFFFF)
-        box.add_item(TextDisplay(f'## {body}\n{desc}'))
-        row = ActionRow()
-        row.add_item(discord.ui.Button(label=label or t(gid, 'vf.def_label'),
-                                       style=discord.ButtonStyle.grey, custom_id='gate:new'))
-        box.add_item(row)
-        layout.add_item(box)
+                          title or t(gid, 'pv.vf.def_title'), description,
+                          label or t(gid, 'pv.vf.def_label')))
+        # One view, built by the persistent layer: the same custom_id the
+        # registry rebuilds after a restart, so the button never dies.
+        layout = persistent.build_verify_view(gid)
         try:
             msg = await channel.send(view=layout)
         except Exception:
-            return await ctx.reply(t(gid, 'info.post_fail'), ephemeral=True)
+            return await ctx.reply(t(gid, 'pv.info.post_fail'), ephemeral=True)
         with db.conn_ctx() as conn:
             conn.execute('UPDATE verify_cfg SET message_id=? WHERE guild_id=?', (str(msg.id), str(gid)))
-        await ctx.reply(t(gid, 'vf.live', ch=channel.mention, role=role.mention, method=method), ephemeral=True)
+        persistent.track(layout, self.bot)
+        await ctx.reply(t(gid, 'pv.vf.live', ch=channel.mention, role=role.mention, method=method), ephemeral=True)
 
     @verify.command(name='off', description='Remove verification')
     @staff_or('manage_guild')
@@ -205,7 +137,7 @@ class Verify(commands.Cog):
                 except Exception:
                     pass
             conn.execute('DELETE FROM verify_cfg WHERE guild_id=?', (str(gid),))
-        await ctx.reply(t(gid, 'vf.off'), ephemeral=True)
+        await ctx.reply(t(gid, 'pv.vf.off'), ephemeral=True)
 
 
 async def setup(bot):

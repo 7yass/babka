@@ -134,7 +134,13 @@ class CommitLog(commands.Cog):
         self.bot = bot
 
     async def cog_load(self):
-        self.bot.loop.create_task(self._once_after_ready())
+        # bot.loop does not exist before login in discord.py 2.7 - touching
+        # it here raised AttributeError and took the whole cog down, so the
+        # bot booted with "[-] Failed cogs.commitlog" every time.
+        # asyncio.create_task needs only a running loop, which a coroutine
+        # already has.
+        import asyncio as _aio
+        _aio.create_task(self._once_after_ready())
 
     async def _once_after_ready(self):
         try:

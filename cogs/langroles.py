@@ -1,13 +1,18 @@
-"""Language roles: one command builds channel + 3 roles + select panel."""
+"""Language roles: one command builds channel + 3 roles + select panel.
+
+The select is built and registered by services.persistent, so it keeps
+working after a restart (the picked roles are read from the click, the
+roles themselves live in the guild).
+"""
 import discord
 from discord.ext import commands
 
 import database as db
 from lang import t
-from utils.embeds import ok
+from services import persistent
 from utils.checks import staff_or
 
-LANGS = [('Italiano', '🇮🇹'), ('English', '🇬🇧'), ('Polski', '🇵🇱')]
+LANGS = persistent.LANGS
 
 # Mathematical Sans-Serif Bold Italic (like 𝙊𝙜𝙤𝙡𝙣𝙮)
 _BI_U = {chr(c): chr(0x1D63C + c - 65) for c in range(65, 91)}
@@ -44,7 +49,7 @@ class LangRoles(commands.Cog):
                 try:
                     role = await ctx.guild.create_role(name=name, reason='language roles')
                 except Exception:
-                    return await ctx.reply(t(gid, 'lr.fail'), ephemeral=True)
+                    return await ctx.reply(t(gid, 'pv.lr.fail'), ephemeral=True)
             roles.append(role)
         ch = discord.utils.find(lambda c: isinstance(c, discord.TextChannel) and 'reakcyjne' in
                                 (c.name or '').lower().replace(' ', ''), ctx.guild.text_channels)
@@ -52,7 +57,7 @@ class LangRoles(commands.Cog):
             try:
                 ch = await ctx.guild.create_text_channel(CHANNEL_NAME, reason='language roles')
             except Exception:
-                return await ctx.reply(t(gid, 'lr.fail'), ephemeral=True)
+                return await ctx.reply(t(gid, 'pv.lr.fail'), ephemeral=True)
         with db.conn_ctx() as conn:
             old = conn.execute('SELECT message_id FROM langroles_cfg WHERE guild_id=?',
                                (str(gid),)).fetchone()
@@ -62,51 +67,27 @@ class LangRoles(commands.Cog):
                     await old_msg.delete()
                 except Exception:
                     pass
-        emb = discord.Embed(title=t(gid, 'lr.title'), description=t(gid, 'lr.desc'), color=0xFFFFFF)
+        emb = discord.Embed(title=t(gid, 'pv.lr.title'), description=t(gid, 'pv.lr.desc'), color=0xFFFFFF)
         emb.set_footer(text='babka :3')
-        view = discord.ui.View(timeout=None)
-        opts = [discord.SelectOption(label=name, value=str(role.id), emoji=flag)
-                for (name, flag), role in zip(LANGS, roles)]
-        sel = discord.ui.Select(custom_id='langroles_pick', placeholder=t(gid, 'lr.pick'),
-                                min_values=1, max_values=len(opts), options=opts)
-        view.add_item(sel)
+        # The select carries a custom_id derived from the guild, so the
+        # registry can rebuild it after a restart.
+        view = persistent.build_langroles_view(gid, roles=roles)
         try:
             msg = await ch.send(embed=emb, view=view)
         except Exception:
-            return await ctx.reply(t(gid, 'lr.fail'), ephemeral=True)
+            return await ctx.reply(t(gid, 'pv.lr.fail'), ephemeral=True)
         with db.conn_ctx() as conn:
             conn.execute('INSERT OR REPLACE INTO langroles_cfg (guild_id, channel_id, message_id) VALUES (?,?,?)',
                          (str(gid), str(ch.id), str(msg.id)))
-        await ctx.reply(t(gid, 'lr.done', ch=ch.mention), ephemeral=True)
+        persistent.track(view, self.bot)
+        await ctx.reply(t(gid, 'pv.lr.done', ch=ch.mention), ephemeral=True)
 
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
-        if interaction.type != discord.InteractionType.component:
-            return
-        if (interaction.data.get('custom_id', '')) != 'langroles_pick':
-            return
-        member = interaction.user
-        got, dropped = [], []
-        for rid in (interaction.data.get('values') or []):
-            role = interaction.guild.get_role(int(rid)) if rid.isdigit() else None
-            if not role:
-                continue
-            try:
-                if role in member.roles:
-                    await member.remove_roles(role, reason='language roles')
-                    dropped.append(role.name)
-                else:
-                    await member.add_roles(role, reason='language roles')
-                    got.append(role.name)
-            except Exception:
-                pass
-        bits = []
-        if got:
-            bits.append(t(interaction.guild_id, 'lr.got', roles=', '.join(got)))
-        if dropped:
-            bits.append(t(interaction.guild_id, 'lr.dropped', roles=', '.join(dropped)))
-        await interaction.response.send_message(embed=ok(' '.join(bits) or t(interaction.guild_id, 'lr.nothing')),
-                                                ephemeral=True)
+        # Registered panel views answer their own clicks (services/persistent
+        # rebuilds them from the DB on every boot). This is only the safety
+        # net for panels the registry does not know about.
+        await persistent.handle_fallback(interaction)
 
 
 async def setup(bot):

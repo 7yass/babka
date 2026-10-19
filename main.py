@@ -33,7 +33,75 @@ def dynamic_prefix(bot, message):
 
 
 intents = discord.Intents.all()
-bot = commands.Bot(command_prefix=dynamic_prefix, intents=intents, help_command=None)
+
+# ---- ephemeral replies in a prefix bot --------------------------------
+# discord.py drops the `ephemeral` flag whenever the context has no
+# interaction:
+#
+#     if self.interaction is None or self.interaction.is_expired():
+#         return await super().send(...)      # <- ephemeral not passed
+#
+# A prefix command NEVER has an interaction. So every one of the bot's
+# ~1,160 "private" replies was a PUBLIC message: your wallet, your card
+# collection, your pulls, your confirmation codes - all readable by the
+# room, and they stayed up forever.
+#
+# Discord has no ephemeral channel for prefix commands, so the closest
+# honest equivalent is to post it and take it back down:
+#
+#   * slash commands -> the native path, genuinely ephemeral
+#   * prefix text    -> removed after EPHEMERAL_TTL seconds
+#   * prefix views   -> kept long enough for the buttons to work
+#   * DMs            -> left alone; a DM is already private
+#
+# The window in the channel is real. It is still strictly better than a
+# message that stayed up forever, and the slash layer gives a truly
+# private path for everything that matters.
+EPHEMERAL_TTL = int(os.getenv('EPHEMERAL_TTL', '30') or 30)
+EPHEMERAL_VIEW_TTL = int(os.getenv('EPHEMERAL_VIEW_TTL', '300') or 300)
+_EPH = {'n': 0, 'warned': False}
+
+
+class BabkaContext(commands.Context):
+    """A context where `ephemeral=True` means something."""
+
+    async def send(self, content=None, *, ephemeral: bool = False, **kwargs):
+        if not ephemeral:
+            return await super().send(content, **kwargs)
+
+        interaction = self.interaction
+        if interaction is not None and not interaction.is_expired():
+            # Slash command: the native path works and is truly ephemeral.
+            return await super().send(content, ephemeral=True, **kwargs)
+
+        if self.guild is None:
+            # A DM is already private. Do not make it vanish.
+            return await super().send(content, **kwargs)
+
+        view = kwargs.get('view')
+        ttl = EPHEMERAL_VIEW_TTL if view is not None else EPHEMERAL_TTL
+        if not kwargs.get('delete_after'):
+            kwargs['delete_after'] = ttl
+        # Nothing in the visible window may ping anyone.
+        kwargs.setdefault('allowed_mentions', discord.AllowedMentions.none())
+
+        _EPH['n'] += 1
+        if not _EPH['warned']:
+            _EPH['warned'] = True
+            print(f'[!] ephemeral reply in a PREFIX command -> public for {ttl}s. '
+                  f'Discord has no ephemeral channel for prefix commands; the '
+                  f'slash layer is the truly private path.', flush=True)
+        return await super().send(content, **kwargs)
+
+
+class BabkaBot(commands.Bot):
+    """Bot that hands out BabkaContext."""
+
+    async def get_context(self, origin, /, *, cls=BabkaContext):
+        return await super().get_context(origin, cls=cls)
+
+
+bot = BabkaBot(command_prefix=dynamic_prefix, intents=intents, help_command=None)
 
 COGS = [
     'cogs.levels',
@@ -89,6 +157,11 @@ COGS = [
     'cogs.ping',
     'cogs.health',
     'cogs.commitlog',
+    # native Discord layer
+    'cogs.slash',
+    'cogs.contextmenus',
+    'cogs.events',
+    'cogs.feedback',
 ]
 
 
@@ -233,6 +306,15 @@ async def on_ready():
     if _READY['n'] == 1:
         await bot.change_presence(activity=discord.Activity(
             type=discord.ActivityType.watching, name='Jestem prawdziwą babcią Matrofa osły'))
+    # Panels that were posted before the restart have buttons that Discord
+    # no longer knows about. Re-register them so they keep working.
+    try:
+        from services.persistent import register_all
+        n = register_all(bot)
+        if n:
+            print(f'[+] {n} persistent panel view(s) registered')
+    except Exception as e:
+        print(f'[-] persistent views failed to register: {e}')
     # on_ready fires again whenever the session could NOT be resumed. Once or
     # twice after a blip is normal; a sustained storm is not — the usual cause
     # is a second process on the same token (panel + local run), because each
@@ -528,4 +610,5 @@ async def main():
                 await asyncio.sleep(10 * attempt)
 
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())

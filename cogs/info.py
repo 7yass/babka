@@ -1,4 +1,9 @@
-﻿"""Info panels: FAQ buttons with private self-deleting answers. Hybrid."""
+﻿"""Info panels: FAQ buttons with private self-deleting answers. Hybrid.
+
+The panel view is built and registered by services.persistent, so the
+buttons keep working after a restart (the answer is read from the DB on
+every click, never from a closure).
+"""
 import asyncio
 
 import discord
@@ -6,10 +11,11 @@ from discord.ext import commands
 
 import database as db
 from lang import t
+from services import persistent
 from utils.embeds import build, err, foot, WHITE
 from utils.checks import staff_or
 
-STYLES = {'grey': discord.ButtonStyle.grey, 'green': discord.ButtonStyle.grey, 'red': discord.ButtonStyle.grey}
+STYLES = persistent.STYLES
 
 
 async def refresh_panel(bot, panel: dict) -> bool:
@@ -20,20 +26,16 @@ async def refresh_panel(bot, panel: dict) -> bool:
     ch = guild and guild.get_channel(int(panel['channel_id']))
     if not ch:
         return False
-    view = discord.ui.View(timeout=None)
-    for i in range(0, len(buttons), 5):
-        row = discord.ui.View(timeout=None)
-        for b in buttons[i:i + 5]:
-            row.add_item(discord.ui.Button(label=b['label'][:80], style=STYLES.get(b.get('style'), discord.ButtonStyle.grey),
-                                           custom_id=f"info:{b['id']}"))
-        for item in row.children:
-            view.add_item(item)
+    # One button per info_buttons row; the handler re-reads its row on click.
+    view = persistent.build_info_view(panel['id'])
     embed = discord.Embed(title=panel.get('title') or 'Info', description=panel.get('description') or '', color=WHITE)
     embed.set_footer(text=foot())
     if panel.get('message_id'):
         try:
             msg = await ch.fetch_message(int(panel['message_id']))
             await msg.edit(embed=embed, view=view if buttons else None)
+            if buttons:
+                persistent.track(view, bot)
             return True
         except Exception:
             pass
@@ -43,6 +45,8 @@ async def refresh_panel(bot, panel: dict) -> bool:
         return False
     with db.conn_ctx() as conn:
         conn.execute('UPDATE info_panels SET message_id=? WHERE id=?', (str(msg.id), panel['id']))
+    if buttons:
+        persistent.track(view, bot)
     return True
 
 
@@ -52,23 +56,10 @@ class Info(commands.Cog):
 
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
-        if interaction.type != discord.InteractionType.component:
-            return
-        cid = interaction.data.get('custom_id', '')
-        if not cid.startswith('info:'):
-            return
-        gid = interaction.guild_id
-        with db.conn_ctx() as conn:
-            btn = conn.execute('''SELECT b.*, p.guild_id AS g FROM info_buttons b
-                JOIN info_panels p ON p.id = b.panel_id WHERE b.id=?''', (cid.split(':')[1],)).fetchone()
-        if not btn or str(btn['g']) != str(gid):
-            return await interaction.response.send_message(t(gid, 'info.gone'), ephemeral=True)
-        await interaction.response.send_message(btn['text'][:2000], ephemeral=True)
-        await asyncio.sleep(120)
-        try:
-            await interaction.delete_original_response()
-        except Exception:
-            pass
+        # Registered panel views answer their own clicks (services/persistent
+        # rebuilds them from the DB on every boot). This is only the safety
+        # net for panels the registry does not know about.
+        await persistent.handle_fallback(interaction)
 
     @commands.group(name='info', description='Panele FAQ')
     async def info(self, ctx):
@@ -85,8 +76,8 @@ class Info(commands.Cog):
         panel = {'id': pid, 'guild_id': str(ctx.guild.id), 'channel_id': str(channel.id),
                  'message_id': None, 'title': title, 'description': description}
         if not await refresh_panel(self.bot, panel):
-            return await ctx.reply(t(ctx.guild.id, 'info.post_fail'), ephemeral=True)
-        await ctx.reply(t(ctx.guild.id, 'info.live', id=pid, ch=channel.mention), ephemeral=True)
+            return await ctx.reply(t(ctx.guild.id, 'pv.info.post_fail'), ephemeral=True)
+        await ctx.reply(t(ctx.guild.id, 'pv.info.live', id=pid, ch=channel.mention), ephemeral=True)
 
     @info.command(name='add', description='Dodaj guzik')
     @staff_or('manage_guild')
@@ -95,7 +86,7 @@ class Info(commands.Cog):
         if panel is not None and label and text:
             return await self._do_add(ctx, panel, label, text, color or 'grey')
         if ctx.interaction is None:
-            return await ctx.reply(t(gid, 'wiz.args_needed',
+            return await ctx.reply(t(gid, 'pv.wiz.args_needed',
                                      use='.info add <panel> <label> [color] <answer...>'), ephemeral=True)
         await ctx.interaction.response.send_modal(_AddModal(self, gid))
 
@@ -123,15 +114,15 @@ class Info(commands.Cog):
         with db.conn_ctx() as conn:
             prow = conn.execute('SELECT * FROM info_panels WHERE id=? AND guild_id=?', (panel, str(gid))).fetchone()
             if not prow:
-                return await say(t(gid, 'info.no_panel'))
+                return await say(t(gid, 'pv.info.no_panel'))
             count = conn.execute('SELECT COUNT(*) c FROM info_buttons WHERE panel_id=?', (panel,)).fetchone()['c']
             if count >= 25:
-                return await say(t(gid, 'info.full'))
+                return await say(t(gid, 'pv.info.full'))
             conn.execute('INSERT INTO info_buttons (panel_id, label, text, style) VALUES (?,?,?,?)',
                          (panel, label, text, color if color in STYLES else 'grey'))
             prow = dict(conn.execute('SELECT * FROM info_panels WHERE id=?', (panel,)).fetchone())
         await refresh_panel(self.bot, prow)
-        await say(t(gid, 'info.added', id=panel))
+        await say(t(gid, 'pv.info.added', id=panel))
 
     @info.command(name='remove', description='Zdejmij guzik')
     @staff_or('manage_guild')
@@ -140,11 +131,11 @@ class Info(commands.Cog):
         with db.conn_ctx() as conn:
             prow = conn.execute('SELECT * FROM info_panels WHERE id=? AND guild_id=?', (panel, str(gid))).fetchone()
             if not prow:
-                return await ctx.reply(t(gid, 'info.no_panel'), ephemeral=True)
+                return await ctx.reply(t(gid, 'pv.info.no_panel'), ephemeral=True)
             conn.execute('DELETE FROM info_buttons WHERE panel_id=? AND label=?', (panel, label))
             prow = dict(conn.execute('SELECT * FROM info_panels WHERE id=?', (panel,)).fetchone())
         await refresh_panel(self.bot, prow)
-        await ctx.reply(t(gid, 'info.removed', label=label, id=panel), ephemeral=True)
+        await ctx.reply(t(gid, 'pv.info.removed', label=label, id=panel), ephemeral=True)
 
     @info.command(name='list', description='Lista paneli')
     async def list_p(self, ctx):
@@ -152,7 +143,7 @@ class Info(commands.Cog):
         with db.conn_ctx() as conn:
             panels = conn.execute('SELECT * FROM info_panels WHERE guild_id=?', (str(gid),)).fetchall()
             if not panels:
-                return await ctx.reply(t(gid, 'info.empty'), ephemeral=True)
+                return await ctx.reply(t(gid, 'pv.info.empty'), ephemeral=True)
             lines = []
             for p in panels:
                 btns = conn.execute('SELECT label FROM info_buttons WHERE panel_id=?', (p['id'],)).fetchall()
@@ -175,17 +166,17 @@ class Info(commands.Cog):
                     pass
             conn.execute('DELETE FROM info_buttons WHERE panel_id=?', (panel,))
             conn.execute('DELETE FROM info_panels WHERE id=? AND guild_id=?', (panel, str(gid)))
-        await ctx.reply(t(gid, 'info.deleted', id=panel), ephemeral=True)
+        await ctx.reply(t(gid, 'pv.info.deleted', id=panel), ephemeral=True)
 
 
 class _AddModal(discord.ui.Modal):
     def __init__(self, gid):
-        super().__init__(title=t(gid, 'info.add_title'))
-        self.panel_in = discord.ui.TextInput(label=t(gid, 'info.add_panel'), max_length=10)
-        self.label_in = discord.ui.TextInput(label=t(gid, 'info.add_label'), max_length=80)
-        self.color_in = discord.ui.TextInput(label=t(gid, 'sr.q_color'), required=False, max_length=10,
+        super().__init__(title=t(gid, 'pv.info.add_title'))
+        self.panel_in = discord.ui.TextInput(label=t(gid, 'pv.info.add_panel'), max_length=10)
+        self.label_in = discord.ui.TextInput(label=t(gid, 'pv.info.add_label'), max_length=80)
+        self.color_in = discord.ui.TextInput(label=t(gid, 'pv.sr.q_color'), required=False, max_length=10,
                                              placeholder='grey')
-        self.text_in = discord.ui.TextInput(label=t(gid, 'info.add_text'),
+        self.text_in = discord.ui.TextInput(label=t(gid, 'pv.info.add_text'),
                                             style=discord.TextStyle.paragraph, max_length=1500)
         for i in (self.panel_in, self.label_in, self.color_in, self.text_in):
             self.add_item(i)
@@ -195,7 +186,7 @@ class _AddModal(discord.ui.Modal):
         try:
             panel = int(self.panel_in.value.strip())
         except Exception:
-            return await interaction.response.send_message(t(gid, 'info.no_panel'), ephemeral=True)
+            return await interaction.response.send_message(t(gid, 'pv.info.no_panel'), ephemeral=True)
         await interaction.response.defer(ephemeral=True, thinking=False)
         cog = interaction.client.get_cog('Info')
         await cog._do_add(interaction, panel, self.label_in.value.strip(), self.text_in.value,
