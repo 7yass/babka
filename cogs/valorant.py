@@ -4,10 +4,11 @@ peak rank and last match."""
 import os
 import urllib.parse
 
-import discord
 from discord.ext import commands
 
 from lang import t
+from utils.ui import panel, ACCENT, stat
+from discord.ui.media_gallery import MediaGalleryItem
 
 API = 'https://api.henrikdev.xyz/valorant'
 REGIONS = ('eu', 'na', 'ap', 'kr', 'latam', 'br')
@@ -33,29 +34,6 @@ async def _get(session, url):
     except Exception:
         pass
     return None
-
-
-def _rank_emoji(tier_name: str) -> str:
-    n = (tier_name or '').lower()
-    if 'radiant' in n:
-        return '🌟'
-    if 'immortal' in n:
-        return '🟥'
-    if 'ascendant' in n:
-        return '🟩'
-    if 'diamond' in n:
-        return '💠'
-    if 'platinum' in n:
-        return '🔷'
-    if 'gold' in n:
-        return '🟡'
-    if 'silver' in n:
-        return '⬜'
-    if 'bronze' in n:
-        return '🟫'
-    if 'iron' in n:
-        return '⬛'
-    return '❓'
 
 
 class Valorant(commands.Cog):
@@ -103,7 +81,8 @@ class Valorant(commands.Cog):
         peak_s = peak.get('season') or '?'
         lines = [
             f"**{name}#{tag}** — {t(gid, 'eco.val_level', lvl=lvl)}",
-            f"{_rank_emoji(tier)} **{tier}** — {rr} RR ({games} {t(gid, 'eco.val_games')}, {elo} ELO)",
+            stat(t(gid, 'ui.val_rank'),
+                 f"{tier} — {rr} RR ({games} {t(gid, 'eco.val_games')}, {elo} ELO)"),
             t(gid, 'eco.val_peak', tier=peak_t, season=peak_s),
         ]
         if region:
@@ -115,8 +94,8 @@ class Valorant(commands.Cog):
                 last5 = hist[:5]
                 deltas = [h.get('mmr_change_to_last_game', 0) or 0 for h in last5]
                 trend = sum(deltas)
-                arrow = '📈' if trend > 0 else ('📉' if trend < 0 else '➖')
-                lines.append(f'{arrow} Last {len(last5)} ranked: {" ".join(f"{x:+d}" for x in deltas)} (net {trend:+d} RR)')
+                lines.append(stat(t(gid, 'ui.val_trend'),
+                                  f'Last {len(last5)} ranked: {" ".join(f"{x:+d}" for x in deltas)} (net {trend:+d} RR)'))
         except Exception:
             pass
         # Last 5 matches: W/L, KDA, agents, maps
@@ -147,13 +126,15 @@ class Valorant(commands.Cog):
                 theirs = blue if team == 'red' else red
                 w = mine > theirs
                 wins += 1 if w else 0
-                det.append(f"{'✅' if w else '❌'} {ag} {mp} {mine}-{theirs} ({st.get('kills', '?')}/{st.get('deaths', '?')}/{st.get('assists', '?')})")
+                det.append(stat(t(gid, 'ui.val_win' if w else 'ui.val_loss'),
+                                f"{ag} {mp} {mine}-{theirs} ({st.get('kills', '?')}/{st.get('deaths', '?')}/{st.get('assists', '?')})"))
             if mlist and det:
                 n = len(det)
                 kd = f'{k}/{dd}/{a}'
                 kda = round((k + a) / max(1, dd), 2)
                 fav = max(agents, key=agents.get) if agents else '?'
-                lines.append(f'📊 Last {n}: **{wins}W-{n - wins}L** • KDA {kd} ({kda}) • fav {fav}')
+                lines.append(stat(t(gid, 'ui.val_record'),
+                                  f"Last {n}: {wins}W-{n - wins}L • KDA {kd} ({kda}) • fav {fav}"))
                 lines.extend(det[:5])
             elif mlist:
                 # fallback: single last match line (old behaviour)
@@ -170,12 +151,13 @@ class Valorant(commands.Cog):
                                    score=st.get('score', '?')))
         except Exception:
             pass
-        e = discord.Embed(title=t(gid, 'eco.val_title'), description='\n'.join(lines),
-                          color=0xFF4655)
+        media = []
         if card:
-            e.set_thumbnail(url=card)
-        e.set_footer(text='Babka Danka · henrikdev')
-        await ctx.reply(embed=e, mention_author=False)
+            media.append(MediaGalleryItem(media=card))
+        await ctx.reply(view=panel(t(gid, 'eco.val_title'), '\n'.join(lines),
+                                   accent=ACCENT['default'], media_items=media,
+                                   footer_text='Babka Danka · henrikdev'),
+                        mention_author=False)
 
 
 async def setup(bot):

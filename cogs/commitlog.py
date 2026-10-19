@@ -11,6 +11,9 @@ from datetime import datetime
 import discord
 from discord.ext import commands
 
+from lang import t
+from utils.ui import panel, ACCENT, stat, divider, eyebrow
+
 CHANNEL_ID = int(os.getenv('COMMITLOG_CHANNEL_ID', 1551796397420978298))
 REPO_PATH = os.getenv('REPO_PATH') or os.getcwd()
 REPO_URL = os.getenv('REPO_URL', '')
@@ -27,14 +30,15 @@ def _git(args):
 
 
 def _tagged(title: str):
+    """(tag, accent key). The kit takes accent names, never raw hex."""
     low = (title or '').lower()
     for k in ('fix', 'repaired', 'bugfix', 'hotfix'):
         if k in low:
-            return 'fix', 0x57f085  # green
+            return 'fix', 'good'
     for k in ('update', 'upgrade', 'change', 'refactor', 'feat', 'feature', 'chore', 'docs'):
         if k in low:
-            return 'update', 0x3498db  # blue
-    return 'other', 0x95a5a6  # grey
+            return 'update', 'default'
+    return 'other', 'muted'
 
 
 def _load_seen():
@@ -83,29 +87,34 @@ async def _run_once(bot):
                 channel = await bot.fetch_channel(CHANNEL_ID)
             except Exception:
                 return
+        gch = getattr(channel, 'guild', None)
+        gid = gch.id if gch is not None else 0
 
         for c in reversed(commits):  # oldest first
             if c['cid'] in seen:
                 continue
-            tag, color = _tagged(c['subj'])
+            tag, kind = _tagged(c['subj'])
             when = ''
             try:
                 when = datetime.strptime(c['date'][:19], '%Y-%m-%d %H:%M:%S').strftime('%Y-%m-%d %H:%M')
             except Exception:
                 when = c['date']
 
-            emb = discord.Embed(
-                title=f"[{tag}] {c['subj'] or '(no subject)'}",
-                color=color, timestamp=datetime.utcnow(),
-            )
+            body = (eyebrow(t(gid, 'ui.commit_message')) + '\n'
+                    + ((c['body'] or c['subj'] or '-')[:MAX_BODY] or '-')
+                    + '\n' + divider() + '\n'
+                    + stat(t(gid, 'ui.commit_author'), c['author'] or 'unknown')
+                    + '\n' + stat(t(gid, 'ui.commit_posted'),
+                                  f'<t:{int(discord.utils.utcnow().timestamp())}:R>'))
             if REPO_URL:
-                emb.url = f"{REPO_URL.rstrip('/')}/commit/{c['cid']}"
-            emb.set_author(name=c['author'] or 'unknown')
-            emb.set_footer(text=f"commit {c['cid'][:7]}  ·  {when}")
-            emb.add_field(name='message', value=(c['body'] or c['subj'] or '-')[:MAX_BODY] or '-', inline=False)
+                body += '\n' + stat(t(gid, 'ui.commit_link'),
+                                    f"{REPO_URL.rstrip('/')}/commit/{c['cid']}")
+
+            layout = panel(f"[{tag}] {c['subj'] or '(no subject)'}", body, accent=ACCENT[kind],
+                           footer_text=f"commit {c['cid'][:7]}  ·  {when}")
 
             try:
-                await channel.send(embed=emb)
+                await channel.send(view=layout)
             except Exception:
                 return
 

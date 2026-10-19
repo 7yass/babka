@@ -14,6 +14,7 @@ from services import wallet
 from utils.cards import short as cshort
 from utils.economy import POKE_SHOP_PRICES
 from utils.emojis import em, emoji_id
+from utils.ui import safe, uname
 
 POKEAPI = 'https://pokeapi.co/api/v2'
 HUNT_CD = 7  # ~Discord rate-limit floor; spam-friendly hunts
@@ -2125,7 +2126,7 @@ class Pokemon(commands.Cog):
         from discord.ui.media_gallery import MediaGalleryItem
         layout = LayoutView(timeout=60)
         box = Container(accent_color=accent)
-        head = f"## Congratulations, {display_name}!\n{msg}"
+        head = f"## Congratulations, {safe(display_name)}!\n{msg}"
         if avatar_url:
             try:
                 box.add_item(Section(TextDisplay(head), accessory=Thumbnail(media=avatar_url)))
@@ -2637,7 +2638,7 @@ class Pokemon(commands.Cog):
                 mode = await ack(ix)
                 from cogs.gamble import bal
                 member = ix.guild.get_member(int(uid)) if ix.guild else None
-                name = member.display_name if member else f'User {uid}'
+                name = uname(member) if member else f'User {uid}'
                 filt = None if idx < 0 else self.BALL_SECTIONS[idx][0]
                 layout = self._balls_layout(gid, int(uid), bal(gid, int(uid))['cash'],
                                             filt=filt, owner_name=name)
@@ -2831,7 +2832,7 @@ class Pokemon(commands.Cog):
             try:
                 member = ix.guild.get_member(int(owner)) if ix.guild else None
                 user = member or self.bot.get_user(int(owner))
-                name = member.display_name if member else (user.name if user else f'User {owner}')
+                name = uname(member) if member else (safe(user.name) if user else f'User {owner}')
                 avatar = str(user.display_avatar.url) if user and hasattr(user, 'display_avatar') else ''
                 view, files = self._box_view(gid, viewer, int(owner), name, filt, pg,
                                              avatar=avatar)
@@ -2851,7 +2852,7 @@ class Pokemon(commands.Cog):
                 try:
                     member = ix.guild.get_member(int(owner)) if ix.guild else None
                     user = member or self.bot.get_user(int(owner))
-                    name = member.display_name if member else (user.name if user else f'User {owner}')
+                    name = uname(member) if member else (safe(user.name) if user else f'User {owner}')
                     avatar = str(user.display_avatar.url) if user and hasattr(user, 'display_avatar') else ''
                     view, files = self._box_view(gid, viewer, int(owner), name, filt, 1,
                                                  avatar=avatar)
@@ -2879,7 +2880,7 @@ class Pokemon(commands.Cog):
             if m:
                 owner = int(m.group(1))
                 member = ctx.guild.get_member(owner)
-                owner_name = member.display_name if member else f'User {owner}'
+                owner_name = uname(member) if member else f'User {owner}'
             elif str(a).isdigit():
                 page = max(1, int(a))
             elif not filt:
@@ -3113,7 +3114,7 @@ class Pokemon(commands.Cog):
         tbox = Container(accent_color=0xFFD43B)
         tbox.add_item(TextDisplay(
             f"## {(medal + ' ' if medal else '')}"
-            f"{t(gid, 'eco.pk_stats_title', user=member.display_name)}"))
+            f"{t(gid, 'eco.pk_stats_title', user=uname(member))}"))
         tbody = (t(gid, 'eco.pk_stats', n=len(mons), lv=total_lv, dex=dex, catches=catches,
                    shinies=shinies, w=(st['duels_won'] if st else 0), l=(st['duels_lost'] if st else 0))
                  + f"\nServer rank: **#{rank}**")

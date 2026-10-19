@@ -12,8 +12,9 @@ from discord.ext import commands, tasks
 
 import database as db
 from lang import t, set_ctx_lang
-from utils.embeds import WHITE, foot, ok
+from utils.embeds import ok
 from utils.checks import staff_or, is_staff
+from utils.ui import panel, ACCENT, button_row, attach_rows
 
 
 def cfg(gid) -> dict:
@@ -73,12 +74,25 @@ class _TypeSelect(discord.ui.Select):
                          options=options, min_values=1, max_values=1)
 
 
-def control_view() -> discord.ui.View:
-    view = discord.ui.View(timeout=None)
-    for label, cid in (('Claim', 'tix_claim'), ('Close', 'tix_close'),
-                       ('Add', 'tix_add'), ('Transcript', 'tix_transcript')):
-        view.add_item(discord.ui.Button(label=label, style=discord.ButtonStyle.grey, custom_id=cid))
-    return view
+
+
+def control_buttons() -> list:
+    """The ticket control bar: claim, close, add, transcript."""
+    return [discord.ui.Button(label=label, style=discord.ButtonStyle.grey, custom_id=cid)
+            for label, cid in (('Claim', 'tix_claim'), ('Close', 'tix_close'),
+                               ('Add', 'tix_add'), ('Transcript', 'tix_transcript'))]
+
+
+def greeting_layout(gid, guild, mention: str, name: str, label: str, claim_disabled: bool = False):
+    """Ticket greeting card: the text and the control bar, inside one panel."""
+    greet = (cfg(gid).get('greeting') or t(gid, 'tix.greet')).replace(
+        '{user}', mention).replace('{type}', label).replace('{server}', guild.name)
+    layout = panel(f'{label} — {name}', greet, accent=ACCENT['default'])
+    buttons = control_buttons()
+    if claim_disabled:
+        buttons[0].disabled = True
+    attach_rows(layout, *button_row(*buttons))
+    return layout
 
 
 async def _safe_open(interaction: discord.Interaction, type_id=None):
@@ -184,15 +198,11 @@ async def open_ticket(interaction: discord.Interaction, type_id=None):
         except Exception:
             pass
         return await _say(t(gid, 'tix.max_open', n=c.get('max_open') or 3))
-    greet = (c.get('greeting') or t(gid, 'tix.greet')).replace('{user}', interaction.user.mention).replace(
-        '{type}', label).replace('{server}', guild.name)
     content = ' '.join(support_mention) if support_mention else None
-    greet_emb = discord.Embed(title=f'{label} — {interaction.user.display_name}',
-                              description=greet, color=WHITE)
-    greet_emb.set_footer(text=foot())
+    layout = greeting_layout(gid, guild, interaction.user.mention, interaction.user.display_name, label)
     try:
-        await ch.send(content=content, embed=greet_emb,
-                      view=control_view(), allowed_mentions=discord.AllowedMentions.all())
+        await ch.send(content=content, view=layout,
+                      allowed_mentions=discord.AllowedMentions.all())
     except Exception:
         pass
     await _say(t(gid, 'tix.created', ch=ch.mention))
@@ -387,9 +397,19 @@ class Tickets(commands.Cog):
                 pass
             # Resolve on the card: Claim goes dead so it can't be re-clicked.
             try:
-                claimed_view = control_view()
-                claimed_view.children[0].disabled = True
-                await interaction.response.edit_message(view=claimed_view)
+                owner = interaction.guild.get_member(int(tl['owner_id']))
+                tlabel = t(gid, 'tix.general')
+                if tl.get('type_id'):
+                    with db.conn_ctx() as conn:
+                        ty = conn.execute('SELECT label FROM ticket_types WHERE id=? AND guild_id=?',
+                                          (tl['type_id'], str(gid))).fetchone()
+                    if ty:
+                        tlabel = ty['label']
+                mention = owner.mention if owner else f'<@{tl["owner_id"]}>'
+                name = owner.display_name if owner else str(tl['owner_id'])
+                claimed = greeting_layout(gid, interaction.guild, mention, name, tlabel,
+                                          claim_disabled=True)
+                await interaction.response.edit_message(embed=None, view=claimed)
             except Exception:
                 pass
             return await interaction.followup.send(t(gid, 'tix.claimed', user=member.mention))

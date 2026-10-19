@@ -4,6 +4,8 @@ from discord.ext import commands
 
 import database as db
 from lang import t
+from utils.ui import panel, ACCENT
+from discord.ui.media_gallery import MediaGalleryItem
 
 FIT_CHANNEL = '1546599670074310716'
 POS = {'❤', '🔥', '👽'}
@@ -140,6 +142,7 @@ class FitCheck(commands.Cog):
     @commands.hybrid_command(name='fitleader', description='Najtrwadsze fity')
     async def fitleader(self, ctx):
         await ctx.defer()
+        gid = ctx.guild.id
         ch = ctx.guild.get_channel(int(FIT_CHANNEL))
         if not ch:
             return await ctx.reply(t(gid, 'fc.no_channel'), ephemeral=True)
@@ -150,9 +153,9 @@ class FitCheck(commands.Cog):
                     continue
                 pos = sum(r.count for r in m.reactions if _norm(r.emoji) in POS)
                 neg = sum(r.count for r in m.reactions if _norm(r.emoji) in NEG)
-                t = totals.setdefault(str(m.author.id), {'pos': 0, 'neg': 0, 'm': m.author})
-                t['pos'] += pos
-                t['neg'] += neg
+                entry = totals.setdefault(str(m.author.id), {'pos': 0, 'neg': 0, 'm': m.author})
+                entry['pos'] += pos
+                entry['neg'] += neg
         except Exception:
             pass
         ranked = sorted(totals.values(), key=lambda t: (-t['pos'], t['neg']))
@@ -165,34 +168,34 @@ class FitCheck(commands.Cog):
             partner[r['u1']] = r['u2']
             partner[r['u2']] = r['u1']
         merged: dict = {}
-        for t in ranked:
-            uid = str(t['m'].id)
+        for entry in ranked:
+            uid = str(entry['m'].id)
             key = min(uid, partner.get(uid, uid))
-            e = merged.setdefault(key, {'pos': 0, 'neg': 0, 'm': t['m']})
-            e['pos'] += t['pos']
-            e['neg'] += t['neg']
-            if t['pos'] > 0 and (e['m'].id != t['m'].id):
+            e = merged.setdefault(key, {'pos': 0, 'neg': 0, 'm': entry['m']})
+            e['pos'] += entry['pos']
+            e['neg'] += entry['neg']
+            if entry['pos'] > 0 and (e['m'].id != entry['m'].id):
                 pass  # keep first-seen member for name/avatar
         ranked = sorted(merged.values(), key=lambda t: (-t['pos'], t['neg']))[:10]
         if not ranked or ranked[0]['pos'] == 0:
             return await ctx.reply(t(gid, 'fc.no_votes'), ephemeral=True)
         top = max(t['pos'] for t in ranked)
         rows = []
-        for i, t in enumerate(ranked, start=1):
-            m = t['m']
+        for i, entry in enumerate(ranked, start=1):
+            m = entry['m']
             member = ctx.guild.get_member(int(m.id)) if not isinstance(m, discord.Member) else m
             name = member.display_name if member else getattr(m, 'display_name', '?')
             try:
                 av = await m.display_avatar.with_size(128).read()
             except Exception:
                 av = None
-            rows.append((i, name[:20], TITLES.get(i, ''), t['pos'] / top if top else 0,
-                         t['pos'], t['neg'], av))
+            rows.append((i, name[:20], TITLES.get(i, ''), entry['pos'] / top if top else 0,
+                         entry['pos'], entry['neg'], av))
         png = await self.bot.loop.run_in_executor(None, board_image, rows)
-        emb = discord.Embed(title='HARDEST FITS', color=0xFFFFFF)
-        emb.set_footer(text='Babka Danka')
-        emb.set_image(url='attachment://fits.png')
-        await ctx.reply(embed=emb, file=discord.File(__import__('io').BytesIO(png), 'fits.png'),
+        layout = panel('HARDEST FITS', '', accent=ACCENT['default'],
+                       media_items=[MediaGalleryItem(media='attachment://fits.png')],
+                       footer_text='Babka Danka')
+        await ctx.reply(view=layout, file=discord.File(__import__('io').BytesIO(png), 'fits.png'),
                         mention_author=False)
 
 

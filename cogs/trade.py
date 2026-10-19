@@ -12,6 +12,7 @@ from discord.ext import commands
 
 import database as db
 from lang import t, set_ctx_lang
+from utils.ui import safe, uname
 
 SESSIONS = {}   # sid -> live session
 USER_SES = {}   # (gid, uid) -> sid
@@ -55,7 +56,7 @@ def trade_embed(ses) -> discord.Embed:
             val = '— nothing yet —'
         emb.add_field(name=f'<@{uid}> {tick}', value=val, inline=False)
     if ses['note']:
-        emb.add_field(name='📝 Note', value=ses['note'][:NOTE_MAX], inline=False)
+        emb.add_field(name='📝 Note', value=safe(ses['note'][:NOTE_MAX]), inline=False)
     emb.set_footer(text='Add with `.cards trade add CODE` or the buttons · both Accept to swap')
     return emb
 
@@ -364,14 +365,14 @@ class Trade(commands.Cog):
                                      keys.get(res['code'], 'tr.oe.failed')), ephemeral=True)
         try:
             _g = ctx.guild.id if ctx.guild else 0
-            await member.send(t(_g, 'tr.offer_dm_head', a0=ctx.author.id, a1=ctx.guild.name, a2=res['id'])
+            await member.send(t(_g, 'tr.offer_dm_head', a0=ctx.author.id, a1=safe(ctx.guild.name), a2=res['id'])
                               + '\n'.join(f'• `{c}`' for c in give)
                               + (t(_g, 'tr.offer_dm_want', a0=', '.join(f'`{c}`' for c in want)) if want else '')
                               + t(_g, 'tr.offer_dm_actions', a0=res['id']))
             dm = ' (DM sent)'
         except Exception:
             dm = ' (DMs closed — they can still `.offer` to see it)'
-        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.offer_a0_sent', a0=res['id'], a1=member.display_name, a2=dm),
+        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'tr.offer_a0_sent', a0=res['id'], a1=uname(member), a2=dm),
                         ephemeral=True)
 
     @offer.command(name='accept', description='Accept an offer')

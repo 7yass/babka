@@ -4,7 +4,9 @@ import discord
 from discord.ext import commands
 
 from lang import t
-from utils.embeds import WHITE, ok
+from utils.embeds import ok
+from utils.ui import panel, ACCENT, stat, divider
+from discord.ui.media_gallery import MediaGalleryItem
 
 UA = {'User-Agent': 'Mozilla/5.0'}
 
@@ -26,9 +28,9 @@ class Lookups(commands.Cog):
     @commands.command(name='avatar', description="CzyjÅ› awatar")
     async def avatar(self, ctx, member: discord.Member = None):
         member = member or ctx.author
-        e = discord.Embed(title=str(member), color=WHITE)
-        e.set_image(url=str(member.display_avatar.with_size(1024).url))
-        await ctx.reply(embed=e, mention_author=False)
+        await ctx.reply(view=panel(str(member), '', accent=ACCENT['default'],
+                                   image_url=str(member.display_avatar.with_size(1024).url)),
+                        mention_author=False)
 
     @commands.command(name='banner', description="CzyjÅ› banner")
     async def banner(self, ctx, member: discord.Member = None):
@@ -41,9 +43,9 @@ class Lookups(commands.Cog):
             b = None
         if not b:
             return await ctx.reply(t(gid, 'lk.no_banner', user=str(member)), ephemeral=True)
-        e = discord.Embed(title=str(member), color=WHITE)
-        e.set_image(url=str(b.with_size(1024).url))
-        await ctx.reply(embed=e, mention_author=False)
+        await ctx.reply(view=panel(str(member), '', accent=ACCENT['default'],
+                                   image_url=str(b.with_size(1024).url)),
+                        mention_author=False)
 
     # ---------- roblox ----------
     @commands.group(name='roblox', description='Sprawdzanie Robloxa')
@@ -73,16 +75,15 @@ class Lookups(commands.Cog):
             fc = await _get_json(s, f'https://friends.roblox.com/v1/users/{uid}/friends/count') or {}
             fl = await _get_json(s, f'https://friends.roblox.com/v1/users/{uid}/followers/count') or {}
         desc = (prof.get('description') or '')[:300] or '—'
-        e = discord.Embed(title=f"{prof.get('displayName', info.get('displayName'))} (@{prof.get('name', username)})",
-                          description=desc, color=WHITE,
-                          url=f'https://www.roblox.com/users/{uid}/profile')
-        e.add_field(name=t(gid, 'lk.rbx_id'), value=str(uid), inline=True)
-        e.add_field(name=t(gid, 'lk.rbx_created'), value=(prof.get('created') or '?')[:10], inline=True)
-        e.add_field(name=t(gid, 'lk.rbx_friends'), value=f"{fc.get('count', '?')} / {fl.get('count', '?')}",
-                    inline=True)
+        title = f"{prof.get('displayName', info.get('displayName'))} (@{prof.get('name', username)})"
+        body = desc
+        body += '\n' + stat(t(gid, 'lk.rbx_id'), str(uid))
+        body += '\n' + stat(t(gid, 'lk.rbx_created'), (prof.get('created') or '?')[:10])
+        body += '\n' + stat(t(gid, 'lk.rbx_friends'), f"{fc.get('count', '?')} / {fl.get('count', '?')}")
+        body += '\n' + stat(t(gid, 'ui.rbx_profile'), f'https://www.roblox.com/users/{uid}/profile')
         if prof.get('isBanned'):
-            e.add_field(name=t(gid, 'lk.rbx_banned'), value=t(gid, 'lk.yes'), inline=True)
-        await ctx.reply(embed=e, mention_author=False)
+            body += '\n' + stat(t(gid, 'lk.rbx_banned'), t(gid, 'lk.yes'))
+        await ctx.reply(view=panel(title, body, accent=ACCENT['default']), mention_author=False)
 
     @roblox.command(name='avatar', description='Awatar gracza')
     async def rbx_avatar(self, ctx, username: str):
@@ -97,10 +98,9 @@ class Lookups(commands.Cog):
         items = (th or {}).get('data') or []
         if not items or not items[0].get('imageUrl'):
             return await ctx.reply(t(gid, 'lk.rbx_noimg'), ephemeral=True)
-        e = discord.Embed(title=f"@{username}", color=WHITE,
-                          url=f'https://www.roblox.com/users/{info["id"]}/profile')
-        e.set_image(url=items[0]['imageUrl'])
-        await ctx.reply(embed=e, mention_author=False)
+        body = stat(t(gid, 'ui.rbx_profile'), f'https://www.roblox.com/users/{info["id"]}/profile')
+        await ctx.reply(view=panel(f'@{username}', body, accent=ACCENT['default'],
+                                   image_url=items[0]['imageUrl']), mention_author=False)
 
     @roblox.command(name='previousnames', description='Stare nicki')
     async def rbx_names(self, ctx, username: str):
@@ -139,22 +139,24 @@ class Lookups(commands.Cog):
             hist = await _get_json(s, f'https://users.roblox.com/v1/users/{uid}/username-history?limit=5&sortOrder=Desc')
         desc = (prof.get('description') or '')[:300] or '—'
         names = [h.get('name') for h in ((hist or {}).get('data') or []) if h.get('name')]
-        e = discord.Embed(
-            title=f"{prof.get('displayName', info.get('displayName'))} (@{prof.get('name', username)})",
-            description=desc, color=WHITE,
-            url=f'https://www.roblox.com/users/{uid}/profile')
-        e.add_field(name=t(gid, 'lk.rbx_id'), value=str(uid), inline=True)
-        e.add_field(name=t(gid, 'lk.rbx_created'), value=(prof.get('created') or '?')[:10], inline=True)
-        e.add_field(name=t(gid, 'lk.rbx_friends'), value=f"{fc.get('count', '?')} / {fl.get('count', '?')}", inline=True)
+        title = f"{prof.get('displayName', info.get('displayName'))} (@{prof.get('name', username)})"
+        body = desc
+        body += '\n' + stat(t(gid, 'lk.rbx_id'), str(uid))
+        body += '\n' + stat(t(gid, 'lk.rbx_created'), (prof.get('created') or '?')[:10])
+        body += '\n' + stat(t(gid, 'lk.rbx_friends'), f"{fc.get('count', '?')} / {fl.get('count', '?')}")
+        body += '\n' + stat(t(gid, 'ui.rbx_profile'), f'https://www.roblox.com/users/{uid}/profile')
+        if names or prof.get('isBanned'):
+            body += '\n' + divider()
         if names:
-            e.add_field(name='Past names', value=', '.join(names[:5]), inline=False)
+            body += '\n' + stat(t(gid, 'ui.rbx_past_names'), ', '.join(names[:5]))
         if prof.get('isBanned'):
-            e.add_field(name=t(gid, 'lk.rbx_banned'), value=t(gid, 'lk.yes'), inline=True)
+            body += '\n' + stat(t(gid, 'lk.rbx_banned'), t(gid, 'lk.yes'))
+        media = []
         items = (th or {}).get('data') or []
         if items and items[0].get('imageUrl'):
-            e.set_thumbnail(url=items[0]['imageUrl'])
-        e.set_footer(text='Babka Danka · Roblox')
-        await ctx.reply(embed=e, mention_author=False)
+            media.append(MediaGalleryItem(media=items[0]['imageUrl']))
+        await ctx.reply(view=panel(title, body, accent=ACCENT['default'], media_items=media,
+                                   footer_text='Babka Danka · Roblox'), mention_author=False)
 
 
 async def setup(bot):

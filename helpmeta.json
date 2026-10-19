@@ -3,10 +3,7 @@
     "rank": [
       "levels",
       "HOW TO: `.rank [@user]` renders your Direction A player card — avatar, tier pill (ROOKIE→LEGEND with stars), LEVEL/RANK/PROGRESS, XP bar with exact numbers, on your nitro banner if you have one. No argument = your card.",
-      [
-        "level",
-        "xp"
-      ],
+      [],
       "[member]",
       "Everyone"
     ],
@@ -17,46 +14,11 @@
       "",
       "Everyone"
     ],
-    "rewardadd": [
-      "levels",
-      "Grant a role at a level: `.rewardadd <level> <@role>`. Members auto-receive it on level-up. Stacks unless `.stack` is off.",
-      [],
-      "<level> <@role>",
-      "Manage Server"
-    ],
-    "rewarddel": [
-      "levels",
-      "Remove a level reward: `.rewarddel <level>`. Already-granted roles stay.",
-      [],
-      "<level>",
-      "Manage Server"
-    ],
-    "xpmult": [
-      "levels",
-      "Set the server XP multiplier: `.xpmult <0-10>`. Events go brrr at 2x.",
-      [],
-      "2",
-      "Manage Server"
-    ],
-    "addxp": [
-      "levels",
-      "Give XP straight to a user: `.addxp @user <amount>`. Staff only. Useful for events and bribes.",
-      [],
-      "@user 500",
-      "Manage Server"
-    ],
     "noxp": [
       "levels",
       "Toggle XP gains on/off for a channel: `.noxp #channel`. Spam pits earn nothing.",
       [],
       "#channel",
-      "Manage Server"
-    ],
-    "lvlchannel": [
-      "levels",
-      "Pin where level-up announcements go: `.lvlchannel [#channel]`. No argument = current channel.",
-      [],
-      "[#channel]",
       "Manage Server"
     ],
     "stack": [
@@ -102,15 +64,6 @@
       "Moderate Members",
       false
     ],
-    "unmute": [
-      "moderation",
-      "Lift a user's timeout early: `.unmute @user`.",
-      [
-        "untimeout"
-      ],
-      "@user",
-      "Moderate Members"
-    ],
     "tempban": [
       "moderation",
       "Ban for a duration with auto-unban: `.tempban @user <duration> [reason]` (e.g. `7d`).",
@@ -142,20 +95,9 @@
     "warnings": [
       "moderation",
       "View every warning a user holds: `.warnings @user`.",
-      [
-        "warns"
-      ],
+      [],
       "@user",
       "Manage Messages"
-    ],
-    "clearwarns": [
-      "moderation",
-      "Wipe a user's entire warn history: `.clearwarns @user`. Their slate is clean.",
-      [
-        "clearwarn"
-      ],
-      "@user",
-      "Manage Server"
     ],
     "clear": [
       "moderation",
@@ -169,9 +111,7 @@
     "slowmode": [
       "moderation",
       "Set slowmode delay in the current channel: `.slowmode <seconds>` (0 = off).",
-      [
-        "slow"
-      ],
+      [],
       "10",
       "Manage Channels"
     ],
@@ -228,109 +168,12 @@
       "",
       "Everyone"
     ],
-    "raidtoggle": [
-      "protection",
-      "Master switch for antiraid: `.raidtoggle`.",
-      [],
-      "",
-      "Administrator"
-    ],
-    "raction": [
-      "protection",
-      "What happens to too-new accounts: `.raction <kick|ban|log>`. Pairs with `.age` and `.raid`.",
-      [],
-      "<kick|ban|log>",
-      "Administrator"
-    ],
-    "rburst": [
-      "protection",
-      "Join-burst lockdown threshold: `.rburst <joins> <seconds>` — that many joins that fast triggers lockdown.",
-      [],
-      "5 10",
-      "Administrator"
-    ],
     "lockdown": [
       "protection",
       "Raid emergency: lock/unlock ALL channels at once: `.lockdown`. Use when the raid is live.",
-      [
-        "ld"
-      ],
-      "",
-      "Administrator"
-    ],
-    "honeypot": [
-      "protection",
-      "Trap channel: anyone who talks in it gets auto-banned. `.honeypot #channel` to arm, `.honeypot off` to disarm.",
-      [
-        "hp"
-      ],
-      "[#channel|off]",
-      "Administrator"
-    ],
-    "age": [
-      "protection",
-      "Minimum account age to stay (days): `.age <days>`. Younger accounts get flagged per `.raction`.",
-      [],
-      "7",
-      "Administrator"
-    ],
-    "am": [
-      "protection",
-      "AutoMod status + quick usage: `.am [status]`. Covers spam, invites, links, bad words.",
-      [],
-      "[status]",
-      "Manage Server"
-    ],
-    "amtoggle": [
-      "protection",
-      "Master switch for AutoMod: `.amtoggle`. Everything sub-filter obeys it.",
       [],
       "",
-      "Manage Server"
-    ],
-    "amword": [
-      "protection",
-      "Block or unblock a word: `.amword <add|del> <word>`. Blocked words earn strikes.",
-      [],
-      "<add|del> <word>",
-      "Manage Server"
-    ],
-    "aminivite": [
-      "protection",
-      "Toggle the Discord-invite filter: `.aminivite <on|off>`.",
-      [
-        "aminvite"
-      ],
-      "<on|off>",
-      "Manage Server"
-    ],
-    "amlinks": [
-      "protection",
-      "Toggle the all-links filter: `.amlinks <on|off>`.",
-      [],
-      "<on|off>",
-      "Manage Server"
-    ],
-    "pban": [
-      "protection",
-      "Permaban by ID, forever, re-bans on sight: `.pban <id> [reason]`. `.punban` is the only exit.",
-      [],
-      "<id> [reason]",
-      "Ban Members"
-    ],
-    "punban": [
-      "protection",
-      "Lift a permaban AND unban: `.punban <id>`. Full pardon.",
-      [],
-      "<id>",
-      "Ban Members"
-    ],
-    "pbanlist": [
-      "protection",
-      "Everyone under permaban: `.pbanlist`.",
-      [],
-      "",
-      "Ban Members"
+      "Administrator"
     ],
     "help": [
       "info",
@@ -350,41 +193,6 @@
       "Manage Server",
       false
     ],
-    "infosetup": [
-      "info",
-      "Post a fresh FAQ button panel: `.infosetup [#channel] | Title | text`. Then add buttons with `.infoadd`.",
-      [],
-      "[#channel] | Title | text",
-      "Manage Server"
-    ],
-    "infoadd": [
-      "info",
-      "Add a button with a private answer: `.infoadd <panel> | Label | text`. Full args skip the modal wizard.",
-      [],
-      "<panel> | Label | text",
-      "Manage Server"
-    ],
-    "inforem": [
-      "info",
-      "Remove one button from a panel: `.inforem <panel> | Label`.",
-      [],
-      "<panel> | Label",
-      "Manage Server"
-    ],
-    "infodel": [
-      "info",
-      "Delete a whole FAQ panel with all its buttons: `.infodel <panel>`. No undo.",
-      [],
-      "<panel>",
-      "Manage Server"
-    ],
-    "infolist": [
-      "info",
-      "List all FAQ panels with their buttons: `.infolist`.",
-      [],
-      "",
-      "Everyone"
-    ],
     "rules": [
       "info",
       "Rules panel with click-to-verify: `.rules setup` posts rules + verify button, `.rules edit` changes text, `.rulesoff` removes the panel.",
@@ -393,75 +201,11 @@
       "Manage Server",
       false
     ],
-    "rulesetup": [
-      "info",
-      "Post rules + verify button: `.rulesetup #channel @role | Label | Title | text`. New members click to get the role.",
-      [],
-      "#channel @role | Label | Title | text",
-      "Manage Server"
-    ],
-    "rulesedit": [
-      "info",
-      "Edit the rules panel in place: `.rulesedit | Label | Title | text`.",
-      [],
-      "| Label | Title | text",
-      "Manage Server"
-    ],
-    "rulesoff": [
-      "info",
-      "Remove the rules panel entirely: `.rulesoff`.",
-      [],
-      "",
-      "Manage Server"
-    ],
-    "tttest": [
-      "info",
-      "Manually check the latest video of an account: `.tttest <username>`.",
-      [],
-      "<username>",
-      "Everyone"
-    ],
-    "rr": [
-      "info",
-      "Post a self-role button row (up to 5 roles): `.rr @role1 @role2 ...`. Members click to take/drop. Manage Roles required.",
-      [],
-      "@role1 @role2",
-      "Manage Roles"
-    ],
     "tiktok": [
       "info",
       "Ping a channel whenever a TikTok account posts: `.ttwatch <username> <#channel>`. `.ttlist` watched, `.tttest <username>` checks latest, `.ttunwatch <username>` stops.",
       [],
       "watch / unwatch / list / test",
-      "Manage Server",
-      false
-    ],
-    "ttwatch": [
-      "info",
-      "Watch a TikTok account into a channel: `.ttwatch <username> <#channel>`. New posts ping the channel.",
-      [],
-      "<username> <#channel>",
-      "Manage Server"
-    ],
-    "ttunwatch": [
-      "info",
-      "Stop watching a TikTok account: `.ttunwatch <username>`.",
-      [],
-      "<username>",
-      "Manage Server"
-    ],
-    "ttlist": [
-      "info",
-      "List all watched TikTok accounts with their channels: `.ttlist`.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "prefix": [
-      "info",
-      "Change this server's command prefix: `.prefix <new>`. Default is `.`. Manage Server only.",
-      [],
-      "!",
       "Manage Server",
       false
     ],
@@ -480,69 +224,6 @@
       [],
       "",
       "Everyone"
-    ],
-    "staff": [
-      "setup",
-      "Register a staff role (passes every permission gate): `.staff @role`. `.stafflist` shows them.",
-      [],
-      "@role",
-      "Manage Server"
-    ],
-    "unstaff": [
-      "setup",
-      "Unregister a staff role: `.unstaff @role`.",
-      [],
-      "@role",
-      "Manage Server"
-    ],
-    "stafflist": [
-      "setup",
-      "All registered staff roles: `.stafflist`.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "setlog": [
-      "setup",
-      "Pin the mod-log channel: `.setlog #channel`. Bans, kicks, warns land here.",
-      [],
-      "#channel",
-      "Manage Server"
-    ],
-    "setlevelup": [
-      "setup",
-      "Pin the level-up announcement channel: `.setlevelup [#channel]`.",
-      [],
-      "[#channel]",
-      "Manage Server"
-    ],
-    "lang": [
-      "setup",
-      "Switch the bot language for this server: `.lang [en|pl]`. Everything (help included) flips.",
-      [],
-      "[en|pl]",
-      "Manage Server"
-    ],
-    "wsetup": [
-      "setup",
-      "Set greeting channel + texts: `.wsetup #channel | join | leave`. Placeholders supported.",
-      [],
-      "#channel | join | leave",
-      "Manage Server"
-    ],
-    "wtest": [
-      "setup",
-      "Preview the greeting texts without pinging anyone: `.wtest`.",
-      [],
-      "",
-      "Manage Server"
-    ],
-    "woff": [
-      "setup",
-      "Turn greetings off entirely: `.woff`.",
-      [],
-      "",
-      "Manage Server"
     ],
     "leaderboard": [
       "levels",
@@ -879,9 +560,7 @@
     "bal": [
       "info",
       "Your wallet card: cash, bank and daily streak — with your nitro banner as background if you have one. `.bal [@user]` inspects anyone.",
-      [
-        "balance"
-      ],
+      [],
       "[@user]",
       "Everyone",
       false
@@ -1042,13 +721,6 @@
     "fitleader": [
       "fun",
       "Hardest fits leaderboard — top rated outfits of the server.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "babka": [
-      "fun",
-      "Babka herself — summons a random piece of grandma wisdom (or a roast). Usage: `.babka`. No refunds.",
       [],
       "",
       "Everyone"
@@ -1345,120 +1017,11 @@
       "Name#Tag",
       "Everyone"
     ],
-    "starter": [
-      "economy",
-      "Pick your starter + 10 balls. One per trainer.",
-      [],
-      "<bulbasaur|charmander|squirtle|pikachu|eevee|turtwig>",
-      "Everyone"
-    ],
-    "hunt": [
-      "economy",
-      "Spawn a wild encounter (60s cooldown). FIGHT it or THROW BALL.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "catch": [
-      "economy",
-      "Throw a ball at your encounter. Weaker foes catch easier.",
-      [],
-      "[poke|great|ultra|master]",
-      "Everyone"
-    ],
-    "guess": [
-      "economy",
-      "Name a ??? silhouette to catch it FREE.",
-      [],
-      "<name>",
-      "Everyone"
-    ],
-    "hint": [
-      "economy",
-      "Reveal half the letters of a mystery silhouette.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "box": [
-      "economy",
-      "Your collection: species stacks, 10 per page.",
-      [],
-      "[filter/@user] [page]",
-      "Everyone"
-    ],
-    "mon": [
-      "economy",
-      "Full stats card of one pokemon: level, types, moves, XP.",
-      [],
-      "<slot|name>",
-      "Everyone"
-    ],
-    "active": [
-      "economy",
-      "Set your lead battler.",
-      [],
-      "<slot>",
-      "Everyone"
-    ],
-    "name": [
-      "economy",
-      "Rename one of your pokemon.",
-      [],
-      "<slot> <name>",
-      "Everyone"
-    ],
-    "release": [
-      "economy",
-      "Release for coins (rarity x level, shiny x5). Locked are safe.",
-      [],
-      "<slot>",
-      "Everyone"
-    ],
-    "releaseall": [
-      "economy",
-      "Release every matching species for coins. Skips locked.",
-      [],
-      "<species>",
-      "Everyone"
-    ],
-    "dex": [
-      "economy",
-      "Your pokedex completion.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "p": [
-      "economy",
-      "Catch-only wild encounter (no FIGHT row). One throw: `;catch <ball>` or tap a ball.",
-      [],
-      "",
-      "Everyone"
-    ],
     "balls": [
       "economy",
       "Pokemon item shop: balls, potions, candy, eggs, lures. Numbered rows — buy by name or ID via `;shop buy`. Also `;pokeshop` / `;shop pokemon`.",
-      [
-        "pokeshop",
-        "pshop",
-        "pkshop"
-      ],
+      [],
       "buy",
-      "Everyone"
-    ],
-    "battle": [
-      "economy",
-      "Turn-based wild battle: 4 moves, potions, ball, run.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "duel": [
-      "economy",
-      "Interactive team duel (up to 3v3) with wager. Accept to play.",
-      [],
-      "@user [wager]",
       "Everyone"
     ],
     "trade": [
@@ -1466,13 +1029,6 @@
       "Swap pokemon 1:1 with accept/decline buttons.",
       [],
       "@user <yours> <theirs>",
-      "Everyone"
-    ],
-    "market": [
-      "economy",
-      "Player market: browse listings.",
-      [],
-      "[page]",
       "Everyone"
     ],
     "sell": [
@@ -1489,123 +1045,11 @@
       "<id>",
       "Everyone"
     ],
-    "unlist": [
-      "economy",
-      "Take your listing back to the box.",
-      [],
-      "<id>",
-      "Everyone"
-    ],
     "buddy": [
       "economy",
       "Companion: bonus XP + hearts. Slot sets, text renames.",
       [],
       "[slot] [name]",
-      "Everyone"
-    ],
-    "team": [
-      "economy",
-      "Your duel squad. Bare shows, slots set it.",
-      [],
-      "[a] [b] [c]",
-      "Everyone"
-    ],
-    "candy": [
-      "economy",
-      "Feed a rare candy: instant +1 level.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "eggs": [
-      "economy",
-      "Your eggs + hatch cycles.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "hatch": [
-      "economy",
-      "Hatch a ready egg (warmed by catches).",
-      [],
-      "",
-      "Everyone"
-    ],
-    "keep": [
-      "economy",
-      "Lock/unlock a pokemon from release/market/trade.",
-      [],
-      "<slot>",
-      "Everyone"
-    ],
-    "swap": [
-      "economy",
-      "Wonder swap: lose yours, random new (1% shiny).",
-      [],
-      "<slot>",
-      "Everyone"
-    ],
-    "target": [
-      "economy",
-      "Daily catch target: +7.5k on catch.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "checklist": [
-      "economy",
-      "Daily trio: 5 catches / 3 battles / 1 duel. Claim the prize.",
-      [],
-      "[claim]",
-      "Everyone"
-    ],
-    "shinyhunt": [
-      "economy",
-      "Chain a species: odds 1/256 down to 1/32.",
-      [],
-      "[name]",
-      "Everyone"
-    ],
-    "quests": [
-      "economy",
-      "Region catch tracks with cash tiers + Master badges.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "move": [
-      "economy",
-      "Move lookup: power, type, accuracy.",
-      [],
-      "<name>",
-      "Everyone"
-    ],
-    "moves": [
-      "economy",
-      "Your pokemon's 4-move kit in detail.",
-      [],
-      "<slot>",
-      "Everyone"
-    ],
-    "npc": [
-      "economy",
-      "NPC ladder: joey/finn/cyntia, once a day each, cash + badge.",
-      [],
-      "[joey|finn|cyntia]",
-      "Everyone"
-    ],
-    "trainer": [
-      "economy",
-      "Your trainer card: box, levels, dex, duels.",
-      [],
-      "[@user]",
-      "Everyone"
-    ],
-    "trainers": [
-      "economy",
-      "Strongest trainers by total levels.",
-      [],
-      "",
       "Everyone"
     ],
     "emojisetup": [
@@ -1622,53 +1066,11 @@
       "starter / hunt / guess / box / battle / duel / npc / market / quests / move / stats",
       "Everyone"
     ],
-    "items": [
-      "economy",
-      "Your pokemon bag: balls, potions, candy, incense, eggs.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "evs": [
-      "economy",
-      "EV panel: what battles trained, caps and Power items.",
-      [],
-      "<slot|name>",
-      "Everyone"
-    ],
-    "held": [
-      "economy",
-      "Held items: equip, swap or drop one.",
-      [],
-      "<slot> <item|none>",
-      "Everyone"
-    ],
     "list": [
       "economy",
       "Server shiny + legendary boards.",
       [],
       "[shinies|legends]",
-      "Everyone"
-    ],
-    "grazz": [
-      "economy",
-      "Feed a golden razz (4k in ball shop): way better catch odds.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "repel": [
-      "economy",
-      "Repel 5k/30min: wild encounters hit +50% level.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "evolve": [
-      "economy",
-      "Manually evolve an eligible pokemon.",
-      [],
-      "<slot>",
       "Everyone"
     ],
     "streaks": [
@@ -1678,20 +1080,6 @@
       "[@user]",
       "Everyone"
     ],
-    "code": [
-      "economy",
-      "Event codes: redeem cash/balls. House mints with create.",
-      [],
-      "<code>",
-      "Everyone"
-    ],
-    "phelp": [
-      "economy",
-      "Full pokemon command guide, grouped.",
-      [],
-      "",
-      "Everyone"
-    ],
     "ping": [
       "info",
       "Gateway latency + message round trip.",
@@ -1699,237 +1087,9 @@
       "",
       "Everyone"
     ],
-    "pokedex": [
-      "economy",
-      "Pokedex (alias of ;dex).",
-      [
-        "dex"
-      ],
-      "",
-      "Everyone"
-    ],
     "quest": [
       "economy",
       "Quest (alias of ;quests).",
-      [],
-      "",
-      "Everyone"
-    ],
-    "catchbot": [
-      "economy",
-      "Catchbot autospawn status.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "autospawn": [
-      "economy",
-      "Autospawn: add/remove spawn channel.",
-      [],
-      "add #channel",
-      "Manage Server"
-    ],
-    "vote": [
-      "economy",
-      "Vote for Babka.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "news": [
-      "economy",
-      "Bot news.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "lootbox": [
-      "economy",
-      "Lootbox: buy in ;shop, open via ;inv.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "incense": [
-      "economy",
-      "Shiny incense 30 min.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "time": [
-      "economy",
-      "Server time.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "invite": [
-      "economy",
-      "Invite Babka.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "lottery": [
-      "economy",
-      "Lottery pot.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "clan": [
-      "economy",
-      "Clan system (stub).",
-      [],
-      "<create|list>",
-      "Everyone"
-    ],
-    "pokelure": [
-      "economy",
-      "Poke Lure 15 min.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "mistyslure": [
-      "economy",
-      "Misty Lure 15 min.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "seaflute": [
-      "economy",
-      "Sea Flute 15 min.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "fish": [
-      "economy",
-      "Fish: water spawns.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "exclusives": [
-      "economy",
-      "Exclusives.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "research": [
-      "economy",
-      "Research tasks.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "balldex": [
-      "economy",
-      "Balldex: your items.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "faction": [
-      "economy",
-      "Faction.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "grs": [
-      "economy",
-      "Global Ranking System.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "channels": [
-      "economy",
-      "Spawn channels.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "lastseen": [
-      "economy",
-      "Last seen.",
-      [
-        "last_seen"
-      ],
-      "[@user]",
-      "Everyone"
-    ],
-    "safarizone": [
-      "economy",
-      "Safari Zone.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "berry": [
-      "economy",
-      "Berry: use `;berry <name> <slot>`.",
-      [],
-      "<name> <slot>",
-      "Everyone"
-    ],
-    "vivillon": [
-      "economy",
-      "Vivillon patterns.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "serverdex": [
-      "economy",
-      "Server-wide dex completion.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "gym": [
-      "economy",
-      "Gym: fight gym leaders.",
-      [],
-      "[name]",
-      "Everyone"
-    ],
-    "elitefour": [
-      "economy",
-      "Elite Four.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "champion": [
-      "economy",
-      "Champion.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "challenges": [
-      "economy",
-      "Challenges.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "megachamber": [
-      "economy",
-      "Mega Chamber.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "battletower": [
-      "economy",
-      "Battle Tower.",
       [],
       "",
       "Everyone"
@@ -1941,50 +1101,6 @@
       "",
       "Everyone"
     ],
-    "powerstation": [
-      "economy",
-      "Power Station.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "battlefrontier": [
-      "economy",
-      "Battle Frontier.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "coins": [
-      "economy",
-      "Coins (alias ;bal).",
-      [
-        "bal"
-      ],
-      "[@user]",
-      "Everyone"
-    ],
-    "highscores": [
-      "economy",
-      "Highscores overview.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "perks": [
-      "economy",
-      "Perks.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "contests": [
-      "economy",
-      "Contests.",
-      [],
-      "",
-      "Everyone"
-    ],
     "sync": [
       "economy",
       "Sync patreon/vote.",
@@ -1992,95 +1108,9 @@
       "",
       "Everyone"
     ],
-    "unlocks": [
-      "economy",
-      "Unlocks.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "privacy": [
-      "economy",
-      "Privacy.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "claim": [
-      "economy",
-      "Claim checklist.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "counter": [
-      "economy",
-      "Counter: how many mons you own.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "auction": [
-      "economy",
-      "Auction (alias market).",
-      [],
-      "",
-      "Everyone"
-    ],
     "collection": [
       "economy",
       "Collection (alias box).",
-      [
-        "box"
-      ],
-      "",
-      "Everyone"
-    ],
-    "token": [
-      "economy",
-      "Token.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "captcha": [
-      "economy",
-      "Captcha.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "tcg": [
-      "economy",
-      "TCG packs.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "notifications": [
-      "economy",
-      "Notifications toggle.",
-      [],
-      "[on|off]",
-      "Everyone"
-    ],
-    "events": [
-      "economy",
-      "Events.",
-      [],
-      "",
-      "Everyone"
-    ],
-    "promo": [
-      "economy",
-      "Promo code (alias ;code).",
-      [],
-      "<code>",
-      "Everyone"
-    ],
-    "appeal": [
-      "economy",
-      "Appeal.",
       [],
       "",
       "Everyone"
@@ -2089,38 +1119,6 @@
       "economy",
       "Explore.",
       [],
-      "",
-      "Everyone"
-    ],
-    "rps": [
-      "fun",
-      "Rock Paper Scissors: `;rps <rock|paper|scissors>`.",
-      [],
-      "<choice>",
-      "Everyone"
-    ],
-    "wtp": [
-      "fun",
-      "Who is that Pokemon? `;hint` / `;guess`.",
-      [
-        "whoisthatpokemon"
-      ],
-      "",
-      "Everyone"
-    ],
-    "gif": [
-      "fun",
-      "Gif (level 10+).",
-      [],
-      "[query]",
-      "Everyone"
-    ],
-    "rarecandy": [
-      "economy",
-      "Rare candy (alias ;candy).",
-      [
-        "candy"
-      ],
       "",
       "Everyone"
     ],
@@ -2424,14 +1422,6 @@
       "Everyone",
       false
     ],
-    "fav": [
-      "economy",
-      "Mark or unmark a favourite species: `;fav <species>`. Favourites lead your dex and box pages.",
-      [],
-      "[species]",
-      "Everyone",
-      false
-    ],
     "travel": [
       "economy",
       "Travel between exploration locations: `;travel <location>`.",
@@ -2445,6 +1435,73 @@
       "Abort an emoji deploy that is still running: `.emojistop`.",
       [],
       "",
+      "Everyone",
+      false
+    ],
+    "ledger": [
+      "economy",
+      "Where your money came from, and where it went. `.ledger [days]`",
+      [
+        "statement",
+        "stmt"
+      ],
+      "[days]",
+      "Everyone",
+      false
+    ],
+    "worth": [
+      "economy",
+      "Net worth: cash, bank, stocks, cards and tickets. `.worth [@user]`",
+      [
+        "networth"
+      ],
+      "[@user]",
+      "Everyone",
+      false
+    ],
+    "flow": [
+      "economy",
+      "Guild economy health: money created vs money destroyed. `.flow [days]`",
+      [
+        "economy"
+      ],
+      "[days]",
+      "Everyone",
+      false
+    ],
+    "streak": [
+      "economy",
+      "Your daily streak and what it pays you. `.streak [@user]`",
+      [
+        "chain"
+      ],
+      "[@user]",
+      "Everyone",
+      false
+    ],
+    "treasury": [
+      "economy",
+      "The guild pool and the upgrades it buys. `.treasury`",
+      [
+        "guild"
+      ],
+      "",
+      "Everyone",
+      false
+    ],
+    "treasury buy": [
+      "economy",
+      "Buy the next level of a guild upgrade. `.treasury buy <key>`",
+      [],
+      "<key>",
+      "Everyone",
+      false
+    ],
+    "treasury contribute": [
+      "economy",
+      "Put your own coins into the guild pool. `.treasury contribute <amount>`",
+      [],
+      "<amount>",
       "Everyone",
       false
     ]

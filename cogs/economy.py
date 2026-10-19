@@ -16,6 +16,7 @@ import database as db
 from lang import t
 from services import ledger, streaks, treasury
 from utils.ui import ACCENT, divider, meter, panel, stat
+from utils.ui import uname
 
 
 class Economy(commands.Cog):
@@ -62,7 +63,7 @@ class Economy(commands.Cog):
                 + '\n' + stat(t(gid, 'eco.worth_dust'), f'{w["dust"]:,}'.replace(',', ' '))
                 + '\n' + divider()
                 + '\n' + stat(t(gid, 'eco.worth_total'), f'**{w["total"]:,}**'.replace(',', ' ')))
-        await ctx.reply(view=panel(t(gid, 'eco.worth_title', user=member.display_name),
+        await ctx.reply(view=panel(t(gid, 'eco.worth_title', user=uname(member)),
                                    body, accent=ACCENT['default']),
                         ephemeral=True)
 
@@ -98,7 +99,10 @@ class Economy(commands.Cog):
         await ctx.reply(view=panel(t(gid, 'eco.flow_title'), body, accent=accent))
 
     # ---- .streak : your chain ---------------------------------------
-    @commands.hybrid_command(name='streak', aliases=['streaks'])
+    # NOT aliased 'streaks': pokemon already owns that name, and
+    # discord.py refuses to register a second command with the same name
+    # OR alias - the whole pokemon cog would fail to load.
+    @commands.hybrid_command(name='streak', aliases=['chain'])
     async def streak(self, ctx, member: discord.Member = None):
         """Your daily streak and what it is paying you."""
         gid = ctx.guild.id
@@ -109,7 +113,7 @@ class Economy(commands.Cog):
                 + '\n' + stat(t(gid, 'eco.streak_mult'), f'**{s["mult"]:.2f}x**')
                 + '\n' + divider()
                 + '\n' + meter(min(s['count'], 60), 60, t(gid, 'eco.streak_chain'), width=16))
-        await ctx.reply(view=panel(t(gid, 'eco.streak_title', user=member.display_name),
+        await ctx.reply(view=panel(t(gid, 'eco.streak_title', user=uname(member)),
                                    body, accent=ACCENT['gold']),
                         ephemeral=True)
 
@@ -173,5 +177,5 @@ class Economy(commands.Cog):
         await ctx.reply(t(gid, 'eco.treasury_contributed', amount=amount), ephemeral=True)
 
 
-def setup(bot):
-    bot.add_cog(Economy(bot))
+async def setup(bot):
+    await bot.add_cog(Economy(bot))

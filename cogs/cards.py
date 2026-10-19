@@ -8,6 +8,7 @@ import discord
 from discord.ext import commands
 
 from lang import t, set_ctx_lang
+from utils.ui import safe, uname
 
 PAGE_SIZE = 15  # checklist rows per page (owned view is a binder now)
 
@@ -40,7 +41,7 @@ class CardBinderView(discord.ui.View):
         c = self.cards[self.idx]
         star = ' ⭐' if c['id'] == self.buddy_id else ''
         emb = discord.Embed(
-            title=f"{rar_em(self.gid, c['rarity'])} {c['name'] or c['code']}{star}",
+            title=f"{rar_em(self.gid, c['rarity'])} {safe(c['name'] or c['code'])}{star}",
             description=self.head,
             color=RAR_COLORS.get(c['rarity'], 0x9AA0A6))
         if c.get('image_url'):
@@ -164,7 +165,7 @@ class Cards(commands.Cog):
             owned = conn.execute('SELECT SUM(qty) c FROM anime_collection WHERE guild_id=? AND card_id=?', (str(gid), c['id'])).fetchone()['c'] or 0
         buddy = (card_perks(gid, ctx.author.id)['buddy'] or {}).get('id') == c['id']
         emb = discord.Embed(
-            title=f"{rar_em(gid, c['rarity'])} {c['name'] or c['code']}",
+            title=f"{rar_em(gid, c['rarity'])} {safe(c['name'] or c['code'])}",
             description=f"**{c['code']}** [{c['rarity']}] · Set: {c['set_id']}"
                         + (' · ⭐ YOUR BUDDY' if buddy else ''),
             color=RAR_COLORS.get(c['rarity'], 0x9AA0A6))
@@ -198,7 +199,7 @@ class Cards(commands.Cog):
         R, LR, UR = rar_em(gid, 'R'), rar_em(gid, 'LR'), rar_em(gid, 'UR')
         T, S = tix_em(gid), ssr_em(gid)
         if cur_lang(gid) == 'pl':
-            title = f'{ctx.author.display_name} · Poradnik startowy'
+            title = f'{uname(ctx.author)} · Poradnik startowy'
             desc = (
                 '**Czym sa karty Babki?**\n'
                 'Chillowe anime gacha: zbieraj, handluj i chwal sie 2,120 kartami z 9 serii, we wlasnym tempie. '
@@ -226,7 +227,7 @@ class Cards(commands.Cog):
                 '• `.cardinfo KOD` — pelna karta z grafika.\n\n'
                 'Gotowe! `.help cards` listuje wszystkie komendy. ⛵')
         else:
-            title = f'{ctx.author.display_name} · Quick Start Guide'
+            title = f'{uname(ctx.author)} · Quick Start Guide'
             desc = (
                 '**What is Babka cards?**\n'
                 'Chill anime gacha: collect, trade and flex 2,120 cards across 9 series at your own pace. '
@@ -422,7 +423,7 @@ class Cards(commands.Cog):
         view = _tr.ChallengeView(ses['id'])
         ses['message'] = await ctx.reply(
             embed=__import__('discord').Embed(
-                title=f"🔁 {ctx.author.display_name} challenges {member.display_name} to trade",
+                title=f"🔁 {uname(ctx.author)} challenges {uname(member)} to trade",
                 description=f'<@{member.id}> — Join in 5 min, or it expires.',
                 color=0xFAC43C),
             view=view, mention_author=False)
@@ -664,7 +665,7 @@ class Cards(commands.Cog):
                                    ephemeral=True)
         lines = [f"**{s}.** {alb[s]['name']} [{alb[s]['rarity']}]" for s in sorted(alb)]
         first = alb[sorted(alb)[0]]
-        emb = __import__('discord').Embed(title=f"🖼 {ctx.author.display_name}'s album",
+        emb = __import__('discord').Embed(title=f"🖼 {uname(ctx.author)}'s album",
                                           description='\n'.join(lines))
         if first.get('image_url'):
             emb.set_image(url=first['image_url'])

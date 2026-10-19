@@ -7,10 +7,11 @@ Without keys the bot explains how to add them instead of dying silently.
 import os
 import urllib.parse
 
-import discord
 from discord.ext import commands
 
 from lang import t
+from utils.ui import panel, ACCENT, stat
+from discord.ui.media_gallery import MediaGalleryItem
 
 
 def _riot_headers():
@@ -79,21 +80,23 @@ class GameTracker(commands.Cog):
                 return 'Unranked'
             w, l = e.get('wins', 0), e.get('losses', 0)
             wr = round(100 * w / max(1, w + l))
-            return f"**{e.get('tier', '?').title()} {e.get('rank', '')}** — {e.get('leaguePoints', 0)} LP ({w}W/{l}L, {wr}% WR)"
+            return f"{e.get('tier', '?').title()} {e.get('rank', '')} — {e.get('leaguePoints', 0)} LP ({w}W/{l}L, {wr}% WR)"
 
-        lines = [f'**{name}#{tag}** — Lv {summ.get("summonerLevel", "?")} ({plat.upper()})',
-                 f'⚔️ Solo: {fmt_entry(solo)}',
-                 f'🛡️ Flex: {fmt_entry(flex)}']
+        body = f'**{name}#{tag}** — Lv {summ.get("summonerLevel", "?")} ({plat.upper()})'
+        body += '\n' + stat(t(gid, 'ui.lol_solo'), fmt_entry(solo))
+        body += '\n' + stat(t(gid, 'ui.lol_flex'), fmt_entry(flex))
         if masteries:
             tops = ', '.join(f"champ {m.get('championId')} ({m.get('championPoints', 0):,} pts)".replace(',', ' ') for m in masteries[:3])
-            lines.append(f'🏆 Top: {tops}')
-        e = discord.Embed(title='League of Legends', description='\n'.join(lines), color=0x0AC8B9)
+            body += '\n' + stat(t(gid, 'ui.lol_top'), tops)
+        media = []
         try:
-            e.set_thumbnail(url=f'https://ddragon.leagueoflegends.com/cdn/14.10.1/img/profileicon/{summ.get("profileIconId", 29)}.png')
+            media.append(MediaGalleryItem(
+                media=f'https://ddragon.leagueoflegends.com/cdn/14.10.1/img/profileicon/{summ.get("profileIconId", 29)}.png'))
         except Exception:
             pass
-        e.set_footer(text='Babka Danka · Riot Games API')
-        await ctx.reply(embed=e, mention_author=False)
+        await ctx.reply(view=panel('League of Legends', body, accent=ACCENT['default'],
+                                   media_items=media, footer_text='Babka Danka · Riot Games API'),
+                        mention_author=False)
 
     @commands.command(name='cs', description='Statystyki CS2', aliases=['cs2', 'counterstrike'])
     async def cs(self, ctx, *, who: str = ''):
@@ -139,19 +142,22 @@ class GameTracker(commands.Cog):
             hours = round((g.get('playtime_forever') or 0) / 60, 1)
         except Exception:
             pass
-        lines = [f"**{p.get('personaname', who)}** — `{steamid}`",
-                 f'⏱ {hours}h w CS2 • ✅ {played} meczów ({wr}% WR)',
-                 f'🔫 {kills:,} kills / {deaths:,} deaths (K/D {kd})'.replace(',', ' '),
-                 f'🎯 celność {acc}% • headshoty {hsp}%']
-        e = discord.Embed(title='Counter-Strike 2', description='\n'.join(lines), color=0xF0A500,
-                          url=f'https://steamcommunity.com/profiles/{steamid}/')
+        body = f"**{p.get('personaname', who)}** — `{steamid}`"
+        body += '\n' + stat(t(gid, 'ui.cs_hours'), f'{hours}h w CS2')
+        body += '\n' + stat(t(gid, 'ui.cs_matches'), f'{played} meczów ({wr}% WR)')
+        body += '\n' + stat(t(gid, 'ui.cs_kd'),
+                            f'{kills:,} kills / {deaths:,} deaths (K/D {kd})'.replace(',', ' '))
+        body += '\n' + stat(t(gid, 'ui.cs_accuracy'), f'{acc}% • headshoty {hsp}%')
+        body += '\n' + stat(t(gid, 'ui.cs_profile'), f'https://steamcommunity.com/profiles/{steamid}/')
+        media = []
         try:
             if p.get('avatarfull'):
-                e.set_thumbnail(url=p['avatarfull'])
+                media.append(MediaGalleryItem(media=p['avatarfull']))
         except Exception:
             pass
-        e.set_footer(text='Babka Danka · Steam Web API')
-        await ctx.reply(embed=e, mention_author=False)
+        await ctx.reply(view=panel('Counter-Strike 2', body, accent=ACCENT['default'],
+                                   media_items=media, footer_text='Babka Danka · Steam Web API'),
+                        mention_author=False)
 
 
 async def setup(bot):

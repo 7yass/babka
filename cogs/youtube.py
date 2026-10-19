@@ -9,6 +9,8 @@ import database as db
 from lang import t
 from utils.embeds import ok
 from utils.checks import staff_or
+from utils.ui import panel, ACCENT, stat
+from discord.ui.media_gallery import MediaGalleryItem
 
 
 async def resolve_channel_id(ref: str) -> tuple:
@@ -95,16 +97,17 @@ class YouTube(commands.Cog):
                 ch = guild and guild.get_channel(int(w['channel_id']))
                 if not ch:
                     continue
-                emb = discord.Embed(title=latest['title'] or t(w['guild_id'], 'yt.post'),
-                                    url=latest['url'],
-                                    description=t(w['guild_id'], 'yt.new', author=latest['author']),
-                                    color=0xFFFFFF)
+                body = (t(w['guild_id'], 'yt.new', author=latest['author'])
+                        + '\n' + stat(t(w['guild_id'], 'ui.yt_video'), latest['url']))
+                media = []
                 if latest.get('thumb'):
-                    emb.set_image(url=latest['thumb'])
-                emb.set_footer(text='babka :3')
+                    media.append(MediaGalleryItem(media=latest['thumb']))
+                layout = panel(latest['title'] or t(w['guild_id'], 'yt.post'), body,
+                               accent=ACCENT['default'], media_items=media,
+                               footer_text='babka :3')
                 ping = f"<@&{w['ping_role']}> " if w.get('ping_role') else ''
-                await ch.send(ping + t(gid, 'yt.uploaded', a0=f"**{latest['author']}**").replace('{url}', latest['url']),
-                              embed=emb, allowed_mentions=discord.AllowedMentions(roles=True))
+                await ch.send(ping + t(w['guild_id'], 'yt.uploaded', a0=f"**{latest['author']}**").replace('{url}', latest['url']),
+                              view=layout, allowed_mentions=discord.AllowedMentions(roles=True))
             except Exception as e:
                 print(f'[youtube send] {e}')
             import asyncio

@@ -9,9 +9,9 @@ Deliberate gaps (documented, not papered over):
   so there is no heist line until something records it.
 - Biggest trade: market listings are deleted on purchase and direct swaps
   are unrecorded. No completed-trade history exists.
-- Gambler class: casino sessions are not counted durably (gamble_n resets
-  hourly; god_pity only ticks for the house). No Gambler class until a
-  sessions counter exists.
+- Gambler class: casino sessions are not counted at all. The eco table
+  carried a gamble_n column for it once and nothing ever wrote to it, so
+  there is no session count to rank on. Only god_pity tracks anything.
 - Draws: pk_stats has no draws column, so duel records omit them.
 
 Denominator: DEX_TOTAL = 809 (the catchable pool: hunts roll 1-809).

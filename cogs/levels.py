@@ -11,8 +11,10 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import database as db
 from utils.cards import short as cshort
 from lang import t, get_lang
-from utils.embeds import build, err, foot, ok, say, WHITE, GREEN
+from utils.embeds import ok, say
 from utils.checks import staff_or
+from utils.ui import panel, ACCENT, attach_button, attach_rows
+from discord.ui.media_gallery import MediaGalleryItem
 
 TEXT_MIN, TEXT_MAX, COOLDOWN = 8, 12, 60
 VOICE_PER_MIN = 4
@@ -30,6 +32,8 @@ _BG_CACHE = {}  # bg_url -> (fetched_at, bytes|None)
 
 GIF_RE = re.compile(r'(tenor\.com|giphy\.com|gifer\.com|klipy\.com|\.gif(\?|#|$|\s))', re.I)
 URL_RE = re.compile(r'https?://\S+', re.I)
+
+
 
 
 def is_gif_url(url: str) -> bool:
@@ -541,21 +545,19 @@ class Levels(commands.Cog):
             gid = message.guild.id
             rewards = await apply_rewards(message.author, res['level'])
             rw = t(gid, 'msg.level_rw', roles=' '.join(f'<@&{r["role_id"]}>' for r in rewards)) if rewards else ''
-            embed = discord.Embed(
-                description=t(gid, 'msg.level_up', user=message.author.mention, level=res['level'], rewards=rw),
-                color=WHITE)
-            embed.set_footer(text=foot())
+            body = t(gid, 'msg.level_up', user=message.author.mention, level=res['level'], rewards=rw)
+            media = []
             try:
-                embed.set_thumbnail(url=str(message.author.display_avatar.with_size(128).url))
+                media.append(MediaGalleryItem(media=str(message.author.display_avatar.with_size(128).url)))
             except Exception:
                 pass
-            msg = {'embed': embed}
+            layout = panel(body=body, accent=ACCENT['good'], media_items=media)
             if settings.get('levelup_channel'):
                 ch = message.guild.get_channel(int(settings['levelup_channel']))
                 if ch:
-                    await ch.send(embed=embed)
+                    await ch.send(view=layout)
             else:
-                await message.channel.send(embed=embed)
+                await message.channel.send(view=layout)
             if settings.get('levelup_dm'):
                 try:
                     await message.author.send(t(gid, 'msg.level_dm', level=res['level'], server=message.guild.name))
@@ -619,11 +621,8 @@ class Levels(commands.Cog):
                         dest = guild.get_channel(int(settings['levelup_channel']))
                         if dest:
                             try:
-                                emb = discord.Embed(
-                                    description=t(guild.id, 'msg.voice_level', user=m.mention, level=res['level']),
-                                    color=WHITE)
-                                emb.set_footer(text=foot())
-                                await dest.send(embed=emb)
+                                body = t(guild.id, 'msg.voice_level', user=m.mention, level=res['level'])
+                                await dest.send(view=panel(body=body, accent=ACCENT['good']))
                             except Exception as e:
                                 print(f'[voice] announce failed: {e}')
 
@@ -693,25 +692,23 @@ class Levels(commands.Cog):
     async def leaderboard(self, ctx):
         from lang import t as _t
         await ctx.defer()
-        embeds, files, view = await self._lb_render(ctx.guild, 'xp', 5)
-        if not embeds:
+        layout, files = await self._lb_render(ctx.guild, 'xp', 5)
+        if not layout:
             return await ctx.reply(_t(ctx.guild.id, 'lb.empty'), ephemeral=True)
-        await ctx.reply(embeds=embeds, files=files, view=view, mention_author=False)
+        await ctx.reply(view=layout, files=files, mention_author=False)
 
     async def _lb_render(self, guild: discord.Guild, metric: str, n: int):
-        """Fetch avatars, render ONE board image, assemble embed + file + view."""
+        """Fetch avatars, render ONE board image, assemble panel + file."""
         built = self._lb_build(guild, metric, n)
         if not built:
-            return None, None, None
-        head, view, specs = built
+            return None, None
+        layout, specs = built
         rows = []
         for idx, name, level, pct, sub, m in specs:
             av = await self._lb_avatar(m) if m else None
             rows.append((idx, name, level, pct, sub, av))
         png = await self.bot.loop.run_in_executor(None, self._lb_board_image, rows)
-        head.set_image(url='attachment://leaderboard.png')
-        # drop footer thumbnail clash: keep icon thumb, image below
-        return [head], [discord.File(__import__('io').BytesIO(png), 'leaderboard.png')], view
+        return layout, [discord.File(__import__('io').BytesIO(png), 'leaderboard.png')]
 
     @staticmethod
     def _lb_total(level: int, xp: int) -> int:
@@ -814,8 +811,8 @@ class Levels(commands.Cog):
         rows = self._lb_rows(guild, metric, n)
         if not rows:
             return None
-        head = discord.Embed(title=guild.name, color=WHITE)
-        head.set_footer(text=foot())
+        layout = panel(guild.name, '', accent=ACCENT['default'],
+                       media_items=[MediaGalleryItem(media='attachment://leaderboard.png')])
         specs = []
         for i, (_key, total, r) in enumerate(rows, start=1):
             m = guild.get_member(int(r['user_id']))
@@ -826,7 +823,6 @@ class Levels(commands.Cog):
             msgs = f"{int(r.get('text_messages') or 0):,}".replace(',', ' ')
             sub = f'{total:,} XP'.replace(',', ' ') + f' • VC {vc} • MSG {msgs}'
             specs.append((i, name[:20], r['level'], pct, sub, m))
-        view = discord.ui.View(timeout=120)
         sel = discord.ui.Select(custom_id='lbm', placeholder=_t(guild.id, 'lb.m_xp'),
                                 min_values=1, max_values=1, options=[
                                     discord.SelectOption(label=_t(guild.id, 'lb.m_xp'), value='xp',
@@ -837,11 +833,11 @@ class Levels(commands.Cog):
                                                          default=(metric == 'voice')),
                                     discord.SelectOption(label=_t(guild.id, 'lb.m_messages'), value='messages',
                                                          default=(metric == 'messages'))])
-        view.add_item(sel)
-        view.add_item(discord.ui.Button(label=_t(guild.id, 'lb.less' if n >= 10 else 'lb.more'),
-                                        style=discord.ButtonStyle.grey,
-                                        custom_id=f'lbmore:{metric}:{n}'))
-        return head, view, specs
+        attach_rows(layout, discord.ui.ActionRow(sel))
+        attach_button(layout, discord.ui.Button(label=_t(guild.id, 'lb.less' if n >= 10 else 'lb.more'),
+                                                style=discord.ButtonStyle.grey,
+                                                custom_id=f'lbmore:{metric}:{n}'))
+        return layout, specs
 
     async def _lb_avatar(self, member):
         try:
@@ -877,11 +873,11 @@ class Levels(commands.Cog):
         from utils.interactions import ack, finish
         mode = await ack(interaction)
         from lang import t as _t
-        embeds, files, view = await self._lb_render(interaction.guild, metric, n)
-        if not embeds:
+        layout, files = await self._lb_render(interaction.guild, metric, n)
+        if not layout:
             return await finish(interaction, mode, content=_t(interaction.guild_id, 'lb.empty'),
                                 ephemeral=True)
-        await finish(interaction, mode, embeds=embeds, attachments=files, view=view)
+        await finish(interaction, mode, attachments=files, view=layout)
 
     @commands.group(name='levels', description='Levele (admin)')
     async def levels_grp(self, ctx):

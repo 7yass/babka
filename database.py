@@ -441,18 +441,6 @@ def init_db():
         c.execute('''CREATE TABLE IF NOT EXISTS xp_boosts (
             guild_id TEXT NOT NULL, user_id TEXT NOT NULL, mult REAL DEFAULT 1.0,
             PRIMARY KEY (guild_id, user_id))''')
-        c.execute('''CREATE TABLE IF NOT EXISTS babka_cfg (
-            guild_id TEXT PRIMARY KEY, chat_channel TEXT, ambient_on INTEGER DEFAULT 1)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS clown_points (
-            guild_id TEXT NOT NULL, user_id TEXT NOT NULL, count INTEGER DEFAULT 0,
-            last_reason TEXT DEFAULT '',
-            PRIMARY KEY (guild_id, user_id))''')
-        c.execute('''CREATE TABLE IF NOT EXISTS clown_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id TEXT NOT NULL,
-            user_id TEXT NOT NULL, giver_id TEXT NOT NULL,
-            reason TEXT DEFAULT '', created_at INTEGER DEFAULT 0)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS clown_cfg (
-            guild_id TEXT PRIMARY KEY, channel_id TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS langroles_cfg (
             guild_id TEXT PRIMARY KEY, channel_id TEXT, message_id TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS stats_cfg (
@@ -766,14 +754,10 @@ def init_db():
             c.execute('ALTER TABLE eco ADD COLUMN last_work INTEGER DEFAULT 0')
         except Exception:
             pass  # already there
-        for col in ('ALTER TABLE eco ADD COLUMN energy INTEGER DEFAULT 100',
-                    'ALTER TABLE eco ADD COLUMN energy_at INTEGER DEFAULT 0',
-                    'ALTER TABLE jobs ADD COLUMN shifts INTEGER DEFAULT 0',
+        for col in (      'ALTER TABLE jobs ADD COLUMN shifts INTEGER DEFAULT 0',
                     'ALTER TABLE eco ADD COLUMN bank INTEGER DEFAULT 0',
                     'ALTER TABLE eco ADD COLUMN bank_at INTEGER DEFAULT 0',
-                    'ALTER TABLE eco ADD COLUMN gamble_n INTEGER DEFAULT 0',
-                    'ALTER TABLE eco ADD COLUMN gamble_hr INTEGER DEFAULT 0',
-                    'ALTER TABLE eco ADD COLUMN god_pity INTEGER DEFAULT 0',
+                          'ALTER TABLE eco ADD COLUMN god_pity INTEGER DEFAULT 0',
                     'ALTER TABLE eco ADD COLUMN cookie_n INTEGER DEFAULT 0',
                     'ALTER TABLE eco ADD COLUMN cookie_day INTEGER DEFAULT 0',
                     'ALTER TABLE pk_balls ADD COLUMN expires INTEGER DEFAULT 0',

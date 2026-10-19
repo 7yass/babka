@@ -55,11 +55,25 @@ def safe(text) -> str:
     """Escape user-controlled text before it goes into markdown.
 
     Trade notes, card names, channel topics and nicknames all end up in
-    embed bodies. Unescaped, a user can break the layout or inject a
-    mention. Nothing in the bot escaped anything before this.
+    embed bodies. Unescaped, a user can break the layout with a stray
+    underscore or inject a mention. Nothing in the bot escaped anything
+    before this.
     """
     import discord.utils
     return discord.utils.escape_markdown(str(text or ''))
+
+
+def uname(member) -> str:
+    """A member's display name, escaped for markdown.
+
+    Nicknames are user-controlled and they turn up in nearly every panel.
+    Escaped once here rather than at fifty call sites.
+    """
+    try:
+        name = member.display_name
+    except Exception:
+        name = getattr(member, 'name', '') or ''
+    return safe(name)
 
 
 def clamp(text: str, limit: int = MAX_DESC) -> str:
@@ -136,18 +150,35 @@ def kv_block(pairs, indent: str = '') -> str:
 # ---- containers ------------------------------------------------------
 def panel(title: str = '', body: str = '', *, accent: int = ACCENT['default'],
           image_url: str = None, footer_text: str = '', timeout: int = 120,
-          media_items=None) -> LayoutView:
+          media_items=None, title_url: str = None, author: str = None,
+          timestamp: str = None, footer=None) -> LayoutView:
     """The core surface: a bordered Container with an optional media gallery.
 
-    LayoutView caps at 4000 display characters total, so the body is clamped
-    here — no caller can 400 a send by joining too many rows.
+    LayoutView caps at 4000 display characters total, so the body AND the
+    title are clamped here — no caller can 400 a send by joining too many
+    rows or by using a title somebody typed in.
+
+    footer=None  -> the default rotating footer
+    footer=False -> no footer at all
+    footer=str   -> that exact text
     """
     layout = LayoutView(timeout=timeout)
     box = Container(accent_color=accent)
     if title:
-        box.add_item(TextDisplay(f'## {title}'))
+        head = clamp(title, 200)
+        if title_url:
+            box.add_item(TextDisplay(f'## [{head}]({title_url})'))
+        else:
+            box.add_item(TextDisplay(f'## {head}'))
     if body:
         box.add_item(TextDisplay(clamp(body)))
+    if author or timestamp:
+        bits = []
+        if author:
+            bits.append(f'**{clamp(str(author), 120)}**')
+        if timestamp:
+            bits.append(f'-# {clamp(str(timestamp), 80)}')
+        box.add_item(TextDisplay('  ·  '.join(bits)))
     items = list(media_items or [])
     if image_url:
         items.append(MediaGalleryItem(media=image_url))
@@ -156,10 +187,12 @@ def panel(title: str = '', body: str = '', *, accent: int = ACCENT['default'],
             box.add_item(MediaGallery(*items[:4]))
         except Exception:
             pass
-    try:
-        box.add_item(TextDisplay(f'-# {footer_text or foot()}'))
-    except Exception:
-        pass
+    if footer is not False:
+        text = footer if isinstance(footer, str) and footer else (footer_text or foot())
+        try:
+            box.add_item(TextDisplay(f'-# {clamp(text, 200)}'))
+        except Exception:
+            pass
     layout.add_item(box)
     return layout
 
@@ -188,13 +221,23 @@ def attach_button(layout: LayoutView, button) -> LayoutView:
     LayoutView renders outside the border. This is the supported way to keep
     buttons inside the panel.
     """
+    return attach_rows(layout, button_row(button))
+
+
+def attach_rows(layout: LayoutView, *rows):
+    """Append one or more ActionRows INSIDE the panel's container.
+
+    The kit needs this: a screen with a select menu plus a button bar has
+    two rows, and building that by hand meant copying a helper into every
+    cog that wanted it.
+    """
     for child in layout.children:
         if type(child).__name__ == 'Container':
-            row = ActionRow()
-            row.add_item(button)
-            child.add_item(row)
+            for row in rows:
+                child.add_item(row)
             return layout
-    layout.add_item(ActionRow().add_item(button))
+    for row in rows:
+        layout.add_item(row)
     return layout
 
 

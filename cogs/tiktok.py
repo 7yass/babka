@@ -7,8 +7,10 @@ from discord.ext import commands, tasks
 
 import database as db
 from lang import t
-from utils.embeds import build, ok, WHITE
+from utils.embeds import ok
 from utils.checks import staff_or
+from utils.ui import panel, ACCENT, stat
+from discord.ui.media_gallery import MediaGalleryItem
 
 RAPID_HOST = 'tiktok-api23.p.rapidapi.com'
 
@@ -136,14 +138,16 @@ class TikTok(commands.Cog):
                     ch = guild and guild.get_channel(int(w['channel_id']))
                     if not ch:
                         continue
-                    embed = discord.Embed(title=t(w['guild_id'], 'tt.post', author=latest['author']),
-                                          url=latest['url'], description=latest['desc'] or latest['url'],
-                                          color=WHITE)
+                    body = latest['desc'] or latest['url']
+                    body += '\n' + stat(t(w['guild_id'], 'ui.tt_video'), latest['url'])
+                    media = []
                     if latest.get('cover'):
-                        embed.set_image(url=latest['cover'])
+                        media.append(MediaGalleryItem(media=latest['cover']))
+                    layout = panel(t(w['guild_id'], 'tt.post', author=latest['author']), body,
+                                   accent=ACCENT['default'], media_items=media)
                     ping = f"<@&{w['ping_role']}> " if w.get('ping_role') else ''
                     await ch.send(ping + render(w.get('template') or t(w['guild_id'], 'tt.tpl'), latest),
-                                  embed=embed,
+                                  view=layout,
                                   allowed_mentions=discord.AllowedMentions(roles=True))
                 except Exception as e:
                     print(f'[tiktok send] {e}')

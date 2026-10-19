@@ -8,26 +8,24 @@ from discord.ext import commands, tasks
 
 import database as db
 from lang import t, set_ctx_lang
-from utils.embeds import WHITE, ok, foot
+from utils.embeds import ok
 from utils.checks import staff_or
 from utils.common import parse_duration
+from utils.ui import panel, ACCENT, attach_button
 
 
-def card_embed(g: dict, n: int) -> discord.Embed:
-    e = discord.Embed(
-        description=t(g['guild_id'], 'gw.card', prize=g['prize'], ts=f"<t:{g['ends_at']}:R>",
-                      winners=g['winners'], host=f"<@{g['host_id']}>", n=n),
-        color=WHITE)
-    e.set_footer(text=foot())
-    return e
+def card_layout(g: dict, n: int, custom_id: str = 'gw_join:pending', ended: bool = False):
+    """Giveaway card: prize, clock and the Join button, in one panel."""
+    body = t(g['guild_id'], 'gw.card', prize=g['prize'], ts=f"<t:{g['ends_at']}:R>",
+             winners=g['winners'], host=f"<@{g['host_id']}>", n=n)
+    layout = panel(body=body, accent=ACCENT['gold'])
+    attach_button(layout, join_button(g['guild_id'], custom_id, ended))
+    return layout
 
 
-def join_view(gid, ended=False) -> discord.ui.View:
-    view = discord.ui.View(timeout=None)
-    b = discord.ui.Button(label=t(gid, 'gw.join_btn'), style=discord.ButtonStyle.grey,
-                          custom_id='gw_join:pending', disabled=ended)
-    view.add_item(b)
-    return view
+def join_button(gid, custom_id: str = 'gw_join:pending', ended: bool = False) -> discord.ui.Button:
+    return discord.ui.Button(label=t(gid, 'gw.join_btn'), style=discord.ButtonStyle.grey,
+                              custom_id=custom_id, disabled=ended)
 
 
 async def entry_count(message_id: str) -> int:
@@ -65,17 +63,19 @@ async def close_giveaway(bot, g: dict, reroll=False):
                  winners=' '.join(m.mention for m in winners), host=f"<@{g['host_id']}>")
     else:
         text = t(gid, 'gw.no_entries')
+    # the card is a Components-V2 panel now: the closing state must be one too
+    layout = panel(body=text, accent=ACCENT['gold'])
     if msg:
         try:
-            await msg.edit(content=None, embed=ok(text), view=None)
+            await msg.edit(content=None, embed=None, view=layout)
         except Exception:
             try:
-                await ch.send(embed=ok(text))
+                await ch.send(view=layout)
             except Exception:
                 pass
     else:
         try:
-            await ch.send(embed=ok(text))
+            await ch.send(view=layout)
         except Exception:
             pass
     with db.conn_ctx() as conn:
@@ -141,7 +141,7 @@ class Giveaway(commands.Cog):
         try:
             n = await entry_count(mid)
             gd = dict(g)
-            await interaction.message.edit(embed=card_embed(gd, n))
+            await interaction.message.edit(embed=None, view=card_layout(gd, n, f'gw_join:{mid}'))
         except Exception:
             pass
 
@@ -158,11 +158,10 @@ class Giveaway(commands.Cog):
             return await ctx.reply(t(gid, 'mod.temp_use'), ephemeral=True)
         channel = channel or ctx.channel
         ends = int(time.time()) + secs
-        view = join_view(gid)
         g = {'guild_id': str(gid), 'prize': prize, 'ends_at': ends,
              'winners': max(1, winners), 'host_id': str(ctx.author.id)}
         try:
-            msg = await channel.send(embed=card_embed(g, 0), view=view)
+            msg = await channel.send(view=card_layout(g, 0))
         except Exception:
             return await ctx.reply(t(gid, 'info.post_fail'), ephemeral=True)
         with db.conn_ctx() as conn:
@@ -170,9 +169,7 @@ class Giveaway(commands.Cog):
                          (str(msg.id), str(gid), str(channel.id), prize, max(1, winners), ends, str(ctx.author.id)))
         # fix button custom id to the real message
         try:
-            v2 = join_view(gid)
-            v2.children[0].custom_id = f'gw_join:{msg.id}'
-            await msg.edit(view=v2)
+            await msg.edit(view=card_layout(g, 0, f'gw_join:{msg.id}'))
         except Exception:
             pass
         await ctx.reply(t(gid, 'gw.live', ch=channel.mention), ephemeral=True)
@@ -228,7 +225,8 @@ class Giveaway(commands.Cog):
         try:
             ch = ctx.guild.get_channel(int(g['channel_id']))
             msg = await ch.fetch_message(int(message_id))
-            await msg.edit(content=None, embed=ok(t(gid, 'gw.cancelled')), view=None)
+            await msg.edit(content=None, embed=None,
+                           view=panel(body=t(gid, 'gw.cancelled'), accent=ACCENT['muted']))
         except Exception:
             pass
         await ctx.reply(t(gid, 'gw.cancelled'), ephemeral=True)
