@@ -423,7 +423,7 @@ def main() -> None:
     r1 = wb.attack_boss(G4, 'pp1', TP, rng=FakeRng(rolls=[0.5] * 8))
     s1 = _snap_hp('pp1')
     with db.conn_ctx() as conn:
-        conn.execute('UPDATE world_boss SET hp=? WHERE id=?', (2000, bidp))
+        conn.execute('UPDATE world_boss SET hp=?, shield_hp=0 WHERE id=?', (2000, bidp))
     r2 = wb.attack_boss(G4, 'pp2', TP, rng=FakeRng(rolls=[0.5] * 8))
     s2 = _snap_hp('pp2')
     check(r1['ok'] and r2['ok'], 'phase attacks land')
@@ -436,7 +436,7 @@ def main() -> None:
 
     # crossing attack announces + commits in the same txn
     with db.conn_ctx() as conn:
-        conn.execute('UPDATE world_boss SET hp=? WHERE id=?', (2600, bidp))
+        conn.execute('UPDATE world_boss SET hp=?, shield_hp=0 WHERE id=?', (2600, bidp))
     rx = wb.attack_boss(G4, 'px', TP, rng=FakeRng(rolls=[0.5] * 8))
     check(rx['ok'] and 'Enraged' in rx['message'], 'crossing attack announces')
     with db.conn_ctx() as conn:
@@ -447,7 +447,7 @@ def main() -> None:
 
     # defeat in phase 2 still skips retaliation
     with db.conn_ctx() as conn:
-        conn.execute('UPDATE world_boss SET hp=? WHERE id=?', (5, bidp))
+        conn.execute('UPDATE world_boss SET hp=?, shield_hp=0 WHERE id=?', (5, bidp))
     # pz already owns a mon from seeding; use a fresh uid for clarity
     with db.conn_ctx() as conn:
         conn.execute(
@@ -494,7 +494,7 @@ def main() -> None:
     check(d1 == exp_dry, 'normal retaliation has no weather')
 
     with db.conn_ctx() as conn:
-        conn.execute('UPDATE world_boss SET hp=? WHERE id=?', (2000, bidw))
+        conn.execute('UPDATE world_boss SET hp=?, shield_hp=0 WHERE id=?', (2000, bidw))
     v = wb.boss_status(G5, TP2)
     check(v['weather'] == 'rain' and v['phase'] == 'raging', 'status shows rain')
     hpump = {'name': 'Hydro Pump', 'power': 80, 'acc': 85, 'ptype': 'water'}
@@ -519,7 +519,7 @@ def main() -> None:
     # crossing turn retaliates with the PRE-attack (dry) phase:
     # 4250/7000 = 60.7% normal, ~99 deterministic damage lands <= 4200.
     with db.conn_ctx() as conn:
-        conn.execute('UPDATE world_boss SET hp=? WHERE id=?', (4250, bidw))
+        conn.execute('UPDATE world_boss SET hp=?, shield_hp=0 WHERE id=?', (4250, bidw))
     rx = wb.attack_boss(G5, 'wx', TP2, rng=FakeRng(rolls=[0.5] * 8))
     check('Raging Tide' in rx['message'], 'crossing announces once')
     with db.conn_ctx() as conn:

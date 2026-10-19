@@ -246,6 +246,14 @@ SSR_TICKET_VALUE = 20000   # one guaranteed LR+ ticket
 CARD_VALUE = {'C': 100, 'R': 400, 'SR': 1500, 'LR': 5000, 'UR': 10000}
 DUST_RATE = 0.1            # dust is grind currency: 10 000 dust ~= one card
 
+# ---- world boss phase barrier ----------------------------------------
+# A phase barrier is an absolute number in the boss definition, but a
+# boss's max HP is not fixed - a small boss scaled down for a short
+# fight would get a barrier bigger than its entire health pool, and
+# become literally unkillable while the barrier soaked up every strike.
+# The barrier is therefore capped at this fraction of the boss's max HP.
+BOSS_BARRIER_MAX_FRACTION = 0.10
+
 # ---- shop gamble cooldown -------------------------------------------
 # The shop's lootboxes are bought with coins, so the casino ticket gate
 # does not cover them. They still need a rate limit: without one, coins

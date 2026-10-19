@@ -330,8 +330,8 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
     # Barrier first: absorbs the scaled strike before boss HP. The absorb
     # is computed from this attack's own row read and committed under the
     # same revision guard below — a lost race goes STALE with HP+shield
-    # both untouched. Contribution credits HP damage (remainder) only, so
-    # "damage" keeps one meaning across claims, history and leaderboards.
+    # both untouched. Contribution credits the total damage dealt (shield + HP), so
+    # a player is not paid nothing for a strike the barrier swallowed.
     absorbed, dealt, new_shield = absorb_shield(scaled, b.get('shield_hp') or 0)
     left_hp = max(0, st['me']['hp'])
     with db.conn_ctx() as conn:
@@ -344,9 +344,16 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
         conn.execute('UPDATE world_boss_combat SET hp=?, updated_at=? '
                      'WHERE boss_id=? AND user_id=?',
                      (left_hp, now, b['id'], str(uid)))
+        # Credit the damage the player actually dealt, shield included.
+        # A phase barrier (the Tidecaller's raging hide) can swallow a
+        # whole strike; if only the HP damage counted, every hit during
+        # that window was worth ZERO contribution, the participation
+        # threshold became unreachable, and the phase reward went to
+        # whoever happened to land a hit before the barrier went up.
+        # `scaled` is the total the player dealt to the boss.
         conn.execute('UPDATE world_boss_parts SET damage=damage+?, attacks=attacks+1, '
                      'last_action_at=? WHERE boss_id=? AND user_id=?',
-                     (dealt, now, b['id'], str(uid)))
+                     (scaled, now, b['id'], str(uid)))
         left = conn.execute('SELECT hp, max_hp, shield_hp FROM world_boss WHERE id=?',
                             (b['id'],)).fetchone()
         left = dict(left)
@@ -364,7 +371,15 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
         if left['hp'] > 0 and new_phase.key != defn.phases[0].key:
             old_max = b.get('max_phase') or ''
             if old_max != new_phase.key and int(new_phase.shield_hp or 0) > 0:
-                granted = int(new_phase.shield_hp)
+                # Cap the barrier against the boss's own health pool. The
+                # definition holds an absolute number, but max_hp is
+                # configurable - a small boss would otherwise get a
+                # barrier bigger than its whole health bar and become
+                # unkillable while the barrier ate every strike.
+                from utils.economy import BOSS_BARRIER_MAX_FRACTION
+                granted = min(int(new_phase.shield_hp),
+                              int(int(left['max_hp'] or 0)
+                                  * BOSS_BARRIER_MAX_FRACTION))
             conn.execute('UPDATE world_boss SET max_phase=?, shield_hp=shield_hp+? WHERE id=?',
                          (new_phase.key, granted, b['id']))
     tail = t(gid, 'eco.wb_fainted', name=me['name']) if left_hp <= 0 \
@@ -379,14 +394,16 @@ def attack_boss(gid, uid, now: int = None, rng=None) -> dict:
                          left=new_shield + granted)
     final_shield = new_shield + granted
     if defeated:
-        return {'ok': True, 'code': 'DEFEATED', 'damage': dealt,
+        return {'ok': True, 'code': 'DEFEATED', 'damage': scaled,
+                'hp_damage': dealt,
                 'absorbed': absorbed, 'shield': final_shield,
                 'boss_hp': 0, 'max_hp': left['max_hp'],
-                'message': t(gid, 'eco.wb_defeated', dmg=dealt) + ping + '\n' + tail}
-    return {'ok': True, 'code': 'ATTACK_OK', 'damage': dealt,
+                'message': t(gid, 'eco.wb_defeated', dmg=scaled) + ping + '\n' + tail}
+    return {'ok': True, 'code': 'ATTACK_OK', 'damage': scaled,
+            'hp_damage': dealt,
             'absorbed': absorbed, 'shield': final_shield,
             'boss_hp': left['hp'], 'max_hp': left['max_hp'],
-            'message': t(gid, 'eco.wb_hit', dmg=dealt, hp=left['hp'],
+            'message': t(gid, 'eco.wb_hit', dmg=scaled, hp=left['hp'],
                          max_hp=left['max_hp']) + ping + '\n' + tail}
 
 
