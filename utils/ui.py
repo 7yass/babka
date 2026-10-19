@@ -221,7 +221,10 @@ def attach_button(layout: LayoutView, button) -> LayoutView:
     LayoutView renders outside the border. This is the supported way to keep
     buttons inside the panel.
     """
-    return attach_rows(layout, button_row(button))
+    # unpack: attach_rows takes rows as separate arguments. Passing the
+    # list itself made Container.add_item receive a list, and
+    # discord.py raised 'TypeError: expected Item not list'.
+    return attach_rows(layout, *button_row(button))
 
 
 def attach_rows(layout: LayoutView, *rows):

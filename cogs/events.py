@@ -397,6 +397,10 @@ class Events(commands.Cog):
                 start_time=start,
                 end_time=end,
                 entity_type=discord.EntityType.external,
+        # discord.py 2.7 requires privacy_level; without it Discord
+        # answers 400 'In privacy_level: This field is required' and
+        # the mirror fails for EVERY guild on every pass.
+        privacy_level=discord.PrivacyLevel.guild_only,
                 location=(location or 'Babka Danka')[:100],
                 reason='Babka Danka: scheduled event')
             return ev, None

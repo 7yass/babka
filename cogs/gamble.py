@@ -395,19 +395,6 @@ def _attach_roulette_again(layout, button):
     return attach_button(layout, button)
 
 
-def _attach_roulette_again_legacy(layout, button):
-    from discord.ui import ActionRow
-    for child in layout.children:
-        if type(child).__name__ == 'Container':
-            row = ActionRow()
-            row.add_item(button)
-            child.add_item(row)
-            return
-    row = ActionRow()
-    row.add_item(button)
-    layout.add_item(row)
-
-
 def parse_bet(raw, cash: int):
     """Human bet amounts: 1k, 2.5k, 1m, all, half, 1,000. int or None."""
     s = str(raw or '').lower().replace(',', '').replace(' ', '').replace('$', '')
