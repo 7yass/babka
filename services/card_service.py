@@ -149,6 +149,31 @@ def add_tickets(gid, uid, n: int) -> dict:
     return ticket_state(gid, uid)
 
 
+def rarity_counts(gid, uid) -> dict:
+    """Owned-card count per rarity. Feeds the collection rail in the UI."""
+    out = {}
+    with db.conn_ctx() as conn:
+        rows = conn.execute(
+            'SELECT k.rarity AS r, COUNT(DISTINCT o.card_id) AS n '
+            'FROM anime_collection o JOIN anime_cards k ON k.id = o.card_id '
+            'WHERE o.guild_id=? AND o.user_id=? GROUP BY k.rarity',
+            (str(gid), str(uid))).fetchall()
+    for r in rows:
+        out[(r['r'] or 'R').upper()] = int(r['n'] or 0)
+    return out
+
+
+def rarity_totals() -> dict:
+    """Print-run size per rarity, so the rail can show depth, not just counts."""
+    out = {}
+    with db.conn_ctx() as conn:
+        rows = conn.execute(
+            'SELECT rarity AS r, COUNT(*) AS n FROM anime_cards GROUP BY rarity').fetchall()
+    for r in rows:
+        out[(r['r'] or 'R').upper()] = int(r['n'] or 0)
+    return out
+
+
 def claim_drop(gid, uid, now: int = None) -> dict:
     """Accrue 5-min drops (banked to 3), then hand over ONE ticket."""
     import time as _t

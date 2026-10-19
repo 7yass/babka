@@ -1578,7 +1578,9 @@
     "wi.drop_balance": "Balance",
     "wi.drop_stacked": "Stacked",
     "eco.tix_word": "casino tickets",
-    "eco.gamble_no_tix": "🎰 No casino tickets. Earn them from `.drop` and `.daily`."
+    "eco.gamble_no_tix": "🎰 No casino tickets. Earn them from `.drop` and `.daily`.",
+    "cd.inv_collection": "collection",
+    "cd.inv_depth": "rarity depth"
   },
   "pl": {
     "staff.only": "Tylko dla ekipy.",
@@ -3393,6 +3395,8 @@
     "wi.drop_stacked": "Zebrane",
     "eco.tix_word": "biletów kasynowych",
     "eco.gamble_no_tix": "🎰 Brak biletów kasynowych. Zdobądź je w `.drop` i `.daily`.",
-    "hc_d_casino": "Kasyno: `.casino` pokazuje wszystkie gry, twoje saldo, limity stołów i 🎰 bilety."
+    "hc_d_casino": "Kasyno: `.casino` pokazuje wszystkie gry, twoje saldo, limity stołów i 🎰 bilety.",
+    "cd.inv_collection": "kolekcja",
+    "cd.inv_depth": "głębokość rzadkości"
   }
 }

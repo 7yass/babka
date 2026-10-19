@@ -126,16 +126,18 @@ class Wish(commands.Cog):
             m = max(1, int(res['wait'] // 60))
             return await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'wi.drop_ready_back', a0=m, a1=res['stack'], a2=DROP_STACK_MAX), ephemeral=True)
 
-        rewards = f'{tix_em(gid)} x1'
+        from utils.ui import panel, ACCENT, meter, divider
+        rewards = f'{tix_em(gid)} **x1**'
         if res.get('casino_tix'):
-            rewards += f'\n🎰 x{res["casino_tix"]}'
-        emb = discord.Embed(title=f'{ctx.author.display_name} · Drop',
-                            description=t(gid, 'wi.drop_claimed'),
-                            color=0x2ECC71)
-        emb.add_field(name=t(gid, 'wi.drop_rewards'), value=rewards, inline=True)
-        emb.add_field(name=t(gid, 'wi.drop_balance'), value=_ticket_line(gid, res), inline=True)
-        emb.add_field(name=t(gid, 'wi.drop_stacked'), value=f"{res['stack']}/{DROP_STACK_MAX}", inline=True)
-        await ctx.reply(embed=emb, mention_author=False)
+            rewards += f'\n🎰 **{t(gid, "eco.tix_word")} x{res["casino_tix"]}**'
+        body = (t(gid, 'wi.drop_claimed')
+                + '\n' + divider(t(gid, 'wi.drop_rewards'))
+                + '\n' + rewards
+                + '\n' + divider()
+                + '\n' + _ticket_line(gid, res)
+                + '\n' + meter(res['stack'], DROP_STACK_MAX, t(gid, 'wi.drop_stacked')))
+        await ctx.reply(view=panel(ctx.author.display_name, body, accent=ACCENT['good']),
+                        mention_author=False)
 
     @commands.command(name='cd', aliases=['lcd'], description='Cooldowns + ticket balance')
     async def cd(self, ctx):

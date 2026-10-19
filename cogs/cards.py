@@ -571,7 +571,24 @@ class Cards(commands.Cog):
             alb = conn.execute('SELECT COUNT(*) c FROM card_album WHERE guild_id=? AND user_id=?',
                                (str(gid), str(ctx.author.id))).fetchone()['c']
         from services.casino import casino_tix
-        await ctx.reply(t(ctx.guild.id if ctx.guild else 0, 'cd.a0_inventory_tickets', a0=ctx.author.display_name, a1=st['tickets'] or 0, a2=st['ssr_tickets'] or 0, a3=dust['dust'] if dust else 0, a4=st['milestone'] or 0, a5=locks or 0, a6=alb or 0, a7=casino_tix(gid, ctx.author.id)), ephemeral=True)
+        from services.card_service import rarity_counts, rarity_totals
+        from utils.ui import panel, ACCENT, meter, rail, divider
+        own, tot = rarity_counts(gid, ctx.author.id), rarity_totals()
+        owned_n = sum(own.values())
+        grand = sum(tot.values()) or 1
+        body = (meter(owned_n, grand, t(ctx.guild.id if ctx.guild else 0, 'cd.inv_collection'),
+                       width=18)
+                + '\n' + divider(t(ctx.guild.id if ctx.guild else 0, 'cd.inv_depth'))
+                + '\n' + rail(own)
+                + '\n' + divider()
+                + '\n' + t(ctx.guild.id if ctx.guild else 0, 'cd.a0_inventory_tickets',
+                            a0=ctx.author.display_name, a1=st['tickets'] or 0,
+                            a2=st['ssr_tickets'] or 0,
+                            a3=dust['dust'] if dust else 0, a4=st['milestone'] or 0,
+                            a5=locks or 0, a6=alb or 0,
+                            a7=casino_tix(gid, ctx.author.id)))
+        await ctx.reply(view=panel(ctx.author.display_name, body, accent=ACCENT['default']),
+                        ephemeral=True)
 
 
 

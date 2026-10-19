@@ -372,53 +372,35 @@ def poker_image(hand, held) -> bytes:
     return buf.getvalue()
 
 
-def _game_layout(title: str, desc: str, image_url: str = None, accent: int = 0xFFFFFF):
-    from discord.ui import LayoutView, Container, TextDisplay, ActionRow, MediaGallery
-    from discord.ui.media_gallery import MediaGalleryItem
-    # NOTE: Discord caps a LayoutView at 4000 displayable chars TOTAL.
-    # Clamp runaway descriptions here so no unbounded '\n'.join(rows)
-    # caller can ever 400 the send (callers must still paginate/cap rows).
-    if len(desc or '') > 3500:
-        desc = (desc or '')[:3500] + '…'
-    layout = LayoutView(timeout=120)
-    box = Container(accent_color=accent)
-    box.add_item(TextDisplay(f'## {title}\n{desc}'))
-    if image_url:
-        box.add_item(MediaGallery(MediaGalleryItem(media=image_url)))
-    try:
-        box.add_item(TextDisplay(f'-# {foot()}'))
-    except Exception:
-        pass
-    layout.add_item(box)
-    return layout
+# Casino surfaces are thin wrappers over the shared kit (utils/ui.py) so the
+# tables, the card game and the economy all speak one visual language.
+# Signatures are unchanged: callers keep passing (title, desc, image).
+def _game_layout(title: str, desc: str, image_url: str = None, accent: int = None):
+    from utils.ui import panel, ACCENT
+    return panel(title, desc, accent=ACCENT['default'] if accent is None else accent,
+                 image_url=image_url)
 
 
-WIN_GREEN = 0x2ECC71
-LOSE_RED = 0xE74C3C
-GOLD = 0xFAC43C
+# Result accents are desaturated toward the kit's spine, so a win reads as
+# "brighter" rather than as a different product.
+WIN_GREEN = 0x8FD694
+LOSE_RED = 0xE08A8A
+GOLD = 0xE8C87A
 
 
-def _result_layout(title: str, desc: str, image_url: str = None, won: bool = None, jackpot: bool = False):
-    """Win-green / loss-red / jackpot-gold accents + result header."""
-    if jackpot:
-        accent = GOLD
-        head = '🌟 JACKPOT'
-    elif won is True:
-        accent = WIN_GREEN
-        head = '✅ WIN'
-    elif won is False:
-        accent = LOSE_RED
-        head = '❌ LOSS'
-    else:
-        accent = 0xFFFFFF
-        head = None
-    if head and head not in (desc or ''):
-        desc = f'{head}\n{desc}'
-    return _game_layout(title, desc, image_url, accent=accent)
+def _result_layout(title: str, desc: str, image_url: str = None, won: bool = None,
+                   jackpot: bool = False):
+    from utils.ui import result_panel
+    return result_panel(title, desc, won=won, jackpot=jackpot, image_url=image_url)
 
 
 def _attach_roulette_again(layout, button):
     """Append a button row to a _game_layout container."""
+    from utils.ui import attach_button
+    return attach_button(layout, button)
+
+
+def _attach_roulette_again_legacy(layout, button):
     from discord.ui import ActionRow
     for child in layout.children:
         if type(child).__name__ == 'Container':
@@ -709,8 +691,10 @@ class PokerView(discord.ui.LayoutView):
     def _build(self, result: str = None):
         from discord.ui import Container, TextDisplay, ActionRow, MediaGallery
         from discord.ui.media_gallery import MediaGalleryItem
+        from utils.ui import ACCENT
         self.clear_items()
-        box = Container(accent_color=0xFAC43C)
+        # Accent follows the hand: gold while live, muted once settled.
+        box = Container(accent_color=ACCENT['gold'] if not result else ACCENT['default'])
         txt = f'## {t(self.gid, "eco.poker_title", bet=cshort(self.bet))}'
         if result:
             txt += f'\n{result}'
