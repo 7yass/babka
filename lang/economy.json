@@ -42,7 +42,9 @@
     "eco.treasury_no_upgrade": "No such upgrade.",
     "eco.treasury_min": "Minimum contribution is 100.",
     "eco.treasury_fail": "That contribution did not go through.",
-    "eco.treasury_contributed": "Put **{amount}** into the guild pool."
+    "eco.treasury_contributed": "Put **{amount}** into the guild pool.",
+    "eco.console_body": "**{game}**\nBet **{bet}** coins · max {cap} · you hold {cash} and {tix} 🎰 ticket(s).",
+    "eco.casino_error": "That hand could not be played. Nothing was charged."
   },
   "pl": {
     "eco.ledger_title": "Wyciąg",
@@ -87,6 +89,8 @@
     "eco.treasury_no_upgrade": "Nie ma takiego ulepszenia.",
     "eco.treasury_min": "Minimalna wpłata to 100.",
     "eco.treasury_fail": "Wpłata nie przeszła.",
-    "eco.treasury_contributed": "Wpłacono **{amount}** do funduszu gildii."
+    "eco.treasury_contributed": "Wpłacono **{amount}** do funduszu gildii.",
+    "eco.console_body": "**{game}**\nStawka **{bet}** monet · max {cap} · masz {cash} i {tix} 🎰 bilet(ów).",
+    "eco.casino_error": "Ta runda nie mogła się odbyć. Nic nie zostało pobrane."
   }
 }

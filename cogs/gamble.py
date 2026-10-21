@@ -1836,15 +1836,15 @@ class Gamble(commands.Cog):
 
     @commands.hybrid_command(name='casino', description='Kasyno', aliases=['kasyno'])
     async def casino(self, ctx):
-        from cogs.levels import get_user
-        gid = ctx.guild.id
-        cap = max_bet_for(get_user(gid, ctx.author.id).get('level', 0))
-        hr = has_highroller(gid, ctx.author.id)
-        await ctx.reply(view=_game_layout(
-            t(gid, 'eco.casino_title'),
-            t(gid, 'eco.casino_body', maxbet=cshort(cap), tix=_tix_count(gid, ctx.author.id),
-              hr=t(gid, 'eco.casino_hr_on') if hr else t(gid, 'eco.casino_hr_off'))),
-            ephemeral=True)
+        """The casino hub: your money, your tickets, a button per game.
+
+        Each button opens that game's bet console, where the bet is set
+        with buttons instead of retyped. The rules stay here; the console
+        borrows this cog's commands so the paytable can never drift out
+        of sync with the button that plays it.
+        """
+        from cogs import casino_ui
+        await ctx.reply(view=casino_ui.hub(self, ctx), ephemeral=True)
 
     @commands.hybrid_command(name='rich', description='Najbogatsi', aliases=['baltop'])
     async def rich(self, ctx):
