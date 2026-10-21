@@ -54,56 +54,14 @@ ROU_PAY = {'number': 35, 'dozen1': 2, 'dozen2': 2, 'dozen3': 2,
 
 
 def roulette_image(n: int) -> bytes:
-    """European wheel with the ball sitting on the winning pocket."""
-    import io as _io
-    import math as _m
-    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
-    from pathlib import Path as _P
-    S = 520
-    img = _Img.new('RGB', (S, S), (16, 16, 19))
-    d = _Dr.Draw(img)
-    cx = cy = S // 2
-    R = S // 2 - 14
-    step = 360 / 37
-    try:
-        _a = _P(__file__).parent.parent / 'assets'
-        f_n = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 17)
-        f_c = _F.truetype(str(_a / 'DejaVuSans-Bold.ttf'), 44)
-    except Exception:
-        f_n = f_c = _F.load_default()
-    d.ellipse([cx - R - 6, cy - R - 6, cx + R + 6, cy + R + 6], outline=(250, 200, 60), width=6)
-    try:
-        idx = WHEEL_ORDER.index(n)
-    except ValueError:
-        idx = 0
-    for i, num in enumerate(WHEEL_ORDER):
-        a0, a1 = i * step - 90, (i + 1) * step - 90
-        col = (20, 140, 60) if num == 0 else ((180, 40, 40) if num in ROU_REDS else (25, 25, 30))
-        d.pieslice([cx - R, cy - R, cx + R, cy + R], a0, a1, fill=col, outline=(200, 200, 208), width=1)
-        mid = _m.radians((a0 + a1) / 2)
-        tx, ty = cx + int(_m.cos(mid) * (R - 42)), cy + int(_m.sin(mid) * (R - 42))
-        txt = str(num)
-        try:
-            w = d.textlength(txt, font=f_n)
-            d.text((tx - w / 2, ty - 9), txt, font=f_n, fill=(255, 255, 255))
-        except Exception:
-            d.text((tx - 8, ty - 9), txt, font=f_n, fill=(255, 255, 255))
-    # hub
-    d.ellipse([cx - 62, cy - 62, cx + 62, cy + 62], fill=(34, 34, 39), outline=(250, 200, 60), width=4)
-    try:
-        w = d.textlength(str(n), font=f_c)
-        d.text((cx - w / 2, cy - 26), str(n), font=f_c, fill=(250, 200, 60))
-    except Exception:
-        d.text((cx - 14, cy - 24), str(n), font=f_c, fill=(250, 200, 60))
-    # ball on the winning pocket
-    mid = _m.radians(idx * step + step / 2 - 90)
-    bx, by = cx + int(_m.cos(mid) * (R - 16)), cy + int(_m.sin(mid) * (R - 16))
-    d.ellipse([bx - 11, by - 11, bx + 11, by + 11], fill=(250, 250, 245), outline=(250, 200, 60), width=3)
-    buf = _io.BytesIO()
-    img.save(buf, 'PNG')
-    return buf.getvalue()
-# rigged house luck: gods force a win every 3rd game of chance, mortal odds otherwise
-GOD_IDS = {'1270782781605154922'}
+    """European wheel with the ball sitting on the winning pocket.
+
+    The drawing lives in utils/casino.py now: one look for every table.
+    """
+    from utils import casino as _ca
+    return _ca.roulette_wheel(n, WHEEL_ORDER, ROU_REDS)
+
+
 
 
 def _level_of(gid, uid) -> int:
@@ -179,127 +137,39 @@ def fmt_hand(cards, hide_first=False) -> str:
     return ' '.join(f'`{c}`' for c in shown)
 
 
-def slots_image(reels) -> bytes:
-    """Gold-trimmed casino machine, 3 cells with big symbols."""
-    import io as _io
-    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
-    from pathlib import Path as _P
-    W, cw, ch, gap, pad = 720, 180, 200, 24, 30
-    H = ch + pad * 2 + 8
-    img = _Img.new('RGB', (W, H), (16, 16, 19))
-    d = _Dr.Draw(img)
-    d.rounded_rectangle([4, 4, W - 5, H - 5], radius=22, outline=(250, 200, 60), width=4)
-    d.rounded_rectangle([12, 12, W - 13, H - 13], radius=16, outline=(70, 70, 78), width=2)
-    try:
-        f = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 110)
-        f_s = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 20)
-    except Exception:
-        f = _F.load_default()
-        f_s = f
-    try:
-        lw = d.textlength('• S L O T S •', font=f_s)
-        d.text(((W - lw) / 2, 16), '• S L O T S •', font=f_s, fill=(250, 200, 60))
-    except Exception:
-        pass
-    top = pad + 8
-    for i, s in enumerate(reels):
-        x = pad + i * (cw + gap)
-        d.rounded_rectangle([x, top, x + cw, top + ch], radius=18, fill=(34, 34, 39),
-                            outline=(250, 200, 60) if s == '7' else (70, 70, 78), width=3)
-        try:
-            d.text((x + cw / 2, top + ch / 2), s, font=f, anchor='mm',
-                   fill=(250, 200, 60) if s == '7' else (240, 240, 245))
-        except Exception:
-            d.text((x + 60, top + 60), s, font=f, fill=(240, 240, 245))
-    buf = _io.BytesIO()
-    img.save(buf, 'PNG')
-    return buf.getvalue()
+def slots_image(reels, mult: int = 0, payout: int = 0) -> bytes:
+    """The machine: a cabinet, three drum windows, a payline, a marquee.
+
+    The drawing lives in utils/casino.py now: one look for every table.
+    """
+    from utils import casino as _ca
+    return _ca.slots_panel(reels, mult=mult, payout=payout)
 
 
-def bj_table_image(phand, dhand, hide=True) -> bytes:
-    """Felt table with real cards. Dealer top, player bottom."""
-    import io as _io
-    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
-    from pathlib import Path as _P
-    CW, CHH = 110, 154
-    try:
-        f_r = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 34)
-        f_s = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans.ttf'), 52)
-    except Exception:
-        f_r = f_s = _F.load_default()
 
-    from utils.cards import card_face, card_shadow, felt
 
-    def back():
-        c = _Img.new('RGB', (CW, CHH), (232, 232, 236))
-        d = _Dr.Draw(c)
-        d.rounded_rectangle([0, 0, CW - 1, CHH - 1], radius=12, outline=(120, 120, 128), width=3)
-        d.rounded_rectangle([12, 12, CW - 13, CHH - 13], radius=8, fill=(40, 40, 46))
-        for x in range(20, CW - 20, 16):
-            d.line([(x, 20), (x, CHH - 20)], fill=(70, 70, 78), width=3)
-        return c
+def bj_table_image(phand, dhand, hide=True, p_val: int = 0, d_val: int = 0) -> bytes:
+    """The table: teal felt, dealer above, player below, both centred.
 
-    n = max(1, len(phand), len(dhand))
-    W = n * (CW + 14) + 60
-    H = CHH * 2 + 150
-    img = felt(W, H)
-    d = _Dr.Draw(img)
-    try:
-        f_t = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 30)
-    except Exception:
-        f_t = f_r
-    pv, dv = hand_value(phand), '?' if hide else str(hand_value(dhand))
-    d.text((30, 14), f'DEALER  {dv}', font=f_t, fill=(160, 160, 168))
-    for i, (r, s) in enumerate(dhand):
-        x = 30 + i * (CW + 14)
-        card_shadow(d, x, 52, CW, CHH)
-        img.paste(back() if (hide and i == 0) else card_face(r, s, CW, CHH), (x, 52))
-    d.text((30, 52 + CHH + 12), f'YOU  {pv}', font=f_t, fill=(255, 255, 255))
-    for i, (r, s) in enumerate(phand):
-        x = 30 + i * (CW + 14)
-        card_shadow(d, x, 52 + CHH + 50, CW, CHH)
-        img.paste(card_face(r, s, CW, CHH), (x, 52 + CHH + 50))
-    buf = _io.BytesIO()
-    img.save(buf, 'PNG')
-    return buf.getvalue()
+    The drawing lives in utils/casino.py now: one look for every table.
+    """
+    from utils import casino as _ca
+    return _ca.blackjack_table(phand, dhand, hide=hide, p_val=p_val, d_val=d_val)
+
+
 
 
 def coin_image(side: str) -> bytes:
-    """Big reeded coin: O (orzeł) / R (reszka) with rim ticks + shine."""
-    import io as _io
-    import math as _m
-    from PIL import Image as _Img, ImageDraw as _Dr, ImageFont as _F
-    from pathlib import Path as _P
-    S = 300
-    img = _Img.new('RGB', (S, S), (16, 16, 19))
-    d = _Dr.Draw(img)
-    cx = cy = S / 2
-    for i in range(48):
-        a = _m.radians(i * 7.5)
-        x1, y1 = cx + _m.cos(a) * (S / 2 - 16), cy + _m.sin(a) * (S / 2 - 16)
-        x2, y2 = cx + _m.cos(a) * (S / 2 - 26), cy + _m.sin(a) * (S / 2 - 26)
-        d.line([(x1, y1), (x2, y2)], fill=(120, 120, 130), width=2)
-    d.ellipse([15, 15, S - 15, S - 15], fill=(34, 34, 39), outline=(250, 200, 60), width=8)
-    d.ellipse([35, 35, S - 35, S - 35], outline=(90, 90, 98), width=2)
-    d.arc([45, 45, S - 95, S - 45], start=190, end=290, fill=(255, 255, 255, 90), width=6)
-    try:
-        f = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 150)
-    except Exception:
-        f = _F.load_default()
-    try:
-        d.text((S / 2, S / 2 + 3), side, font=f, anchor='mm', fill=(250, 200, 60))
-        d.text((S / 2, S / 2 - 3), side, font=f, anchor='mm', fill=(255, 230, 140))
-    except Exception:
-        d.text((110, 90), side, font=f, fill=(250, 200, 60))
-    buf = _io.BytesIO()
-    img.save(buf, 'PNG')
-    return buf.getvalue()
+    """A struck coin: O (orzel) / R (reszka) on a domed metal face.
+
+    The drawing lives in utils/casino.py now. The old one drew the whole
+    WORD at 150px into a 300px disc and spilled gold letters across the
+    canvas.
+    """
+    from utils import casino as _ca
+    return _ca.coin_flip(side)
 
 
-POKER_PAY = {
-    'ROYAL': 250, 'STRAIGHT_FLUSH': 50, 'FOUR': 25, 'FULL_HOUSE': 9,
-    'FLUSH': 6, 'STRAIGHT': 4, 'THREE': 3, 'TWO_PAIR': 2, 'JACKS': 1,
-}
 
 
 def poker_eval(cards) -> tuple:
@@ -338,38 +208,14 @@ def poker_eval(cards) -> tuple:
 
 
 def poker_image(hand, held) -> bytes:
-    import io as _io
-    from PIL import ImageDraw as _Dr, ImageFont as _F
-    from pathlib import Path as _P
-    from utils.cards import card_face, card_shadow, felt
-    CW, CHH = 110, 154
-    try:
-        f_h = _F.truetype(str(_P(__file__).parent.parent / 'assets' / 'DejaVuSans-Bold.ttf'), 26)
-    except Exception:
-        f_h = _F.load_default()
-    W = 5 * (CW + 12) + 40
-    H = CHH + 90
-    img = felt(W, H)
-    d = _Dr.Draw(img)
-    for i, (r, s) in enumerate(hand):
-        x = 20 + i * (CW + 12)
-        card_shadow(d, x, 10, CW, CHH)
-        img.paste(card_face(r, s, CW, CHH, held=(i in held)), (x, 10))
-        tag = f'HOLD {i + 1}' if i in held else f'{i + 1}'
-        try:
-            tw = d.textlength(tag, font=f_h)
-            d.text((x + (CW - tw) / 2, 10 + CHH + 8), tag, font=f_h,
-                   fill=(250, 200, 60) if i in held else (120, 120, 128))
-        except Exception:
-            pass
-    buf = _io.BytesIO()
-    img.save(buf, 'PNG')
-    return buf.getvalue()
+    """Video poker: five cards, centred, held ones ringed in gold.
+
+    The drawing lives in utils/casino.py now: one look for every table.
+    """
+    from utils import casino as _ca
+    return _ca.poker_table(hand, held)
 
 
-# Casino surfaces are thin wrappers over the shared kit (utils/ui.py) so the
-# tables, the card game and the economy all speak one visual language.
-# Signatures are unchanged: callers keep passing (title, desc, image).
 def _game_layout(title: str, desc: str, image_url: str = None, accent: int = None):
     from utils.ui import panel, ACCENT
     return panel(title, desc, accent=ACCENT['default'] if accent is None else accent,

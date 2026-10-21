@@ -184,6 +184,20 @@ FACE_INK = (25, 25, 30)
 FACE_RED = (180, 40, 40)
 
 
+SUIT_GLYPH = {'S': '♠', 'H': '♥', 'D': '♦', 'C': '♣'}
+
+
+def suit_glyph(suit: str) -> str:
+    """The real pip symbol for a suit letter.
+
+    The card faces used to draw the LETTER - a club showed a big 'C' and a
+    heart showed an 'H' - which made every table look like a placeholder
+    and made a deck of cards read as a list of initials.
+    """
+    s = (suit or '').strip()
+    return SUIT_GLYPH.get(s[:1].upper(), s)
+
+
 def card_face(rank: str, suit: str, w: int = 110, h: int = 154,
               held: bool = False) -> Image.Image:
     """Modern playing-card face: corner indices top-left + bottom-right,
@@ -201,6 +215,7 @@ def card_face(rank: str, suit: str, w: int = 110, h: int = 154,
         except Exception:
             f_rank = f_pip = f_big = ImageFont.load_default()
     col = FACE_RED if suit in RED_SUITS else FACE_INK
+    pip = suit_glyph(suit)
     card = Image.new('RGB', (w, h), FACE_BG)
     cd = ImageDraw.Draw(card)
     cd.rounded_rectangle([0, 0, w - 1, h - 1], radius=min(14, w // 8),
@@ -209,22 +224,22 @@ def card_face(rank: str, suit: str, w: int = 110, h: int = 154,
     # top-left index
     cd.text((max(6, w // 12), max(2, h // 30)), rank, font=f_rank, fill=col)
     try:
-        cd.text((max(6, w // 12), max(2, h // 30) + int(w * 0.30)), suit,
+        cd.text((max(6, w // 12), max(2, h // 30) + int(w * 0.30)), pip,
                 font=f_pip, fill=col)
     except Exception:
         pass
     # center pip
     try:
-        cd.text((w / 2, h * 0.58), suit, font=f_big, fill=col, anchor='mm')
+        cd.text((w / 2, h * 0.58), pip, font=f_big, fill=col, anchor='mm')
     except Exception:
-        cd.text((w // 2 - 10, h // 2), suit, font=f_pip, fill=col)
+        cd.text((w // 2 - 10, h // 2), pip, font=f_pip, fill=col)
     # bottom-right index (rotated tile in face bg color)
     try:
         tw, th = max(20, int(w * 0.30)), max(30, int(h * 0.30))
         tile = Image.new('RGB', (tw, th), FACE_BG)
         td = ImageDraw.Draw(tile)
         td.text((2, 0), rank, font=f_rank, fill=col)
-        td.text((2, int(w * 0.26)), suit, font=f_pip, fill=col)
+        td.text((2, int(w * 0.26)), pip, font=f_pip, fill=col)
         tile = tile.rotate(180, expand=True)
         card.paste(tile, (w - tw - max(4, w // 16), h - th - max(4, h // 24)))
     except Exception:
